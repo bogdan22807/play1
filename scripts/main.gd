@@ -1273,7 +1273,7 @@ func _build_daily_popup() -> void:
 	box.add_theme_constant_override("separation", 18)
 	panel.add_child(box)
 	box.add_child(_make_center_label("Ежедневная награда", 44, Color.WHITE))
-	box.add_child(_make_center_label("250 монет и 1 репутация.\nЗаходите завтра — награда обновится.", 30, COLOR_MUTED))
+	box.add_child(_make_center_label("250 монет.\nЗаходите завтра — награда обновится.", 30, COLOR_MUTED))
 	box.add_child(_make_settings_button("Забрать", COLOR_BUY, _on_collect_daily))
 
 

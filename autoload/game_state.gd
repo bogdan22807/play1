@@ -34,8 +34,8 @@ const CITIES_PATH := "res://data/cities.json"
 const REGIONS_PATH := "res://data/regions.json"
 const COMPETITORS_PATH := "res://data/competitors.json"
 const ACHIEVEMENTS_PATH := "res://data/achievements.json"
+const BALANCE_PATH := "res://data/balance.json"
 const DAILY_COINS := 250.0
-const DAILY_REPUTATION := 1
 ## Сколько тапов нужно для +1 репутации.
 const TAPS_PER_REPUTATION := 20
 ## Сколько монет забега дают +1 к множителю франшизы.
@@ -69,10 +69,10 @@ var _competitor_defs: Array = []
 var _owned_competitors: Dictionary = {}
 ## id региона -> 1, если регион уже открыт.
 var _opened_regions: Dictionary = {}
-## Репутация компании. Нужна, чтобы выходить в новые регионы.
+## Репутация компании. Не копится сама: её каждый раз считает формула.
 var reputation: int = 0
-## Сколько тапов уже накоплено до следующей единицы репутации.
-var _taps_toward_reputation: int = 0
+## Сколько раз нажали на такси за текущий забег.
+var run_taps: int = 0
 ## Постоянный множитель. Переживает продажу компании.
 var franchise: float = 1.0
 ## Монеты, полученные за текущий забег. Траты его не уменьшают.
@@ -95,6 +95,8 @@ var _offline_seconds: float = 0.0
 var _offline_capped: bool = false
 ## Телефон свернули: пока игра на паузе, доход в _process не капает.
 var _paused_in_background: bool = false
+## Доля пассивного дохода, которая добавляется к каждому тапу.
+var _tap_from_income: float = 0.01
 
 
 func _ready() -> void:
@@ -104,6 +106,7 @@ func _ready() -> void:
 	_region_defs = _read_json_array(REGIONS_PATH)
 	_competitor_defs = _read_json_array(COMPETITORS_PATH)
 	_achievement_defs = _read_json_array(ACHIEVEMENTS_PATH)
+	_tap_from_income = _read_tap_from_income()
 	load_game()
 	_recalc_income()
 	_note_progress()
@@ -160,14 +163,15 @@ func _notification(what: int) -> void:
 func tap() -> float:
 	var gained: float = get_tap_power()
 	_gain_coins(gained)
-	_run_tap_for_reputation()
+	run_taps += 1
+	_sync_reputation()
 	_note_progress()
 	coins_changed.emit(coins)
 	return gained
 
 
-## Сила одного тапа: база плюс бонус каждого купленного уровня.
-func get_tap_power() -> float:
+## Плоская часть тапа из улучшений. Множители районов на неё ещё не надеты.
+func get_flat_tap() -> float:
 	var power: float = BASE_TAP_POWER
 	for raw: Variant in _upgrade_defs:
 		if typeof(raw) != TYPE_DICTIONARY:
@@ -176,7 +180,12 @@ func get_tap_power() -> float:
 		var upgrade_id: String = str(info.get("id", ""))
 		var bonus: float = float(info.get("tap_bonus", 0))
 		power += bonus * float(get_upgrade_level(upgrade_id))
-	return power * get_income_multiplier()
+	return power
+
+
+## Сила тапа: небольшая база от улучшений плюс доля текущего дохода в секунду.
+func get_tap_power() -> float:
+	return get_flat_tap() * get_income_multiplier() + get_income_per_second() * _tap_from_income
 
 
 ## Список улучшений из data/upgrades.json. Экран только читает его.
@@ -251,8 +260,9 @@ func hire_driver(driver_id: String) -> bool:
 		coins = 0.0
 	_driver_counts[driver_id] = get_driver_count(driver_id) + 1
 	_recalc_income()
-	_add_reputation(1)
+	_sync_reputation()
 	coins_changed.emit(coins)
+	tap_power_changed.emit(get_tap_power())
 	drivers_changed.emit()
 	_note_progress()
 	save_game()
@@ -470,20 +480,13 @@ func _competitor_multiplier() -> float:
 	return 1.0 + bonus
 
 
-func _add_reputation(amount: int) -> void:
-	if amount <= 0:
+## Репутация = целые двадцатки тапов за забег плюс каждый нанятый водитель.
+func _sync_reputation() -> void:
+	var next: int = int(run_taps / TAPS_PER_REPUTATION) + _sum_counts(_driver_counts)
+	if next == reputation:
 		return
-	reputation += amount
+	reputation = next
 	reputation_changed.emit(reputation)
-
-
-func _run_tap_for_reputation() -> void:
-	_taps_toward_reputation += 1
-	if _taps_toward_reputation < TAPS_PER_REPUTATION:
-		return
-	_taps_toward_reputation = 0
-	_add_reputation(1)
-	save_game()
 
 
 func _find_district(district_id: String) -> Dictionary:
@@ -530,8 +533,7 @@ func reset_progress() -> void:
 	_opened_districts.clear()
 	_opened_regions.clear()
 	_owned_competitors.clear()
-	reputation = 0
-	_taps_toward_reputation = 0
+	run_taps = 0
 	franchise = 1.0
 	run_earned = 0.0
 	lifetime_earned = 0.0
@@ -542,6 +544,7 @@ func reset_progress() -> void:
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
+	_sync_reputation()
 	drivers_changed.emit()
 	districts_changed.emit()
 	regions_changed.emit()
@@ -584,9 +587,9 @@ func sell_company() -> bool:
 	_opened_districts.clear()
 	_opened_regions.clear()
 	_owned_competitors.clear()
-	reputation = 0
-	_taps_toward_reputation = 0
+	run_taps = 0
 	_recalc_income()
+	_sync_reputation()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
@@ -713,7 +716,7 @@ func save_game() -> void:
 		"districts": _opened_districts.duplicate(),
 		"regions": _opened_regions.duplicate(),
 		"reputation": reputation,
-		"reputation_taps": _taps_toward_reputation,
+		"run_taps": run_taps,
 		"competitors": _owned_competitors.duplicate(),
 		"franchise": franchise,
 		"run_earned": run_earned,
@@ -749,8 +752,21 @@ func load_game() -> void:
 	_opened_districts = _read_count_dict(data.get("districts", {}))
 	_opened_regions = _read_count_dict(data.get("regions", {}))
 	_owned_competitors = _read_count_dict(data.get("competitors", {}))
-	reputation = maxi(0, int(data.get("reputation", 0)))
-	_taps_toward_reputation = maxi(0, int(data.get("reputation_taps", 0)))
+	run_taps = _read_run_taps(data)
+	_sync_reputation()
+
+
+## Старое сохранение не хранило число тапов. Собираем его из счётчика репутации,
+## а если счётчик отстал от водителей — формула всё равно догонит.
+func _read_run_taps(data: Dictionary) -> int:
+	if data.has("run_taps"):
+		return maxi(0, int(data.get("run_taps", 0)))
+	var drivers: int = _sum_counts(_driver_counts)
+	var stored: int = int(data.get("reputation", 0))
+	var from_taps: int = maxi(0, stored - drivers)
+	var remainder: int = int(data.get("reputation_taps", 0))
+	remainder = clampi(remainder, 0, TAPS_PER_REPUTATION - 1)
+	return from_taps * TAPS_PER_REPUTATION + remainder
 	franchise = maxf(1.0, float(data.get("franchise", 1.0)))
 	# Старое сохранение без поля: уже лежащие монеты считаем заработком забега.
 	run_earned = maxf(0.0, float(data.get("run_earned", coins)))
@@ -809,7 +825,6 @@ func collect_daily_reward() -> bool:
 		return false
 	_last_daily_day = _today_index()
 	_gain_coins(DAILY_COINS)
-	_add_reputation(DAILY_REPUTATION)
 	_note_progress()
 	coins_changed.emit(coins)
 	save_game()
@@ -851,9 +866,6 @@ func _claim_one_achievement() -> Dictionary:
 			continue
 		_done_achievements[achievement_id] = 1
 		_gain_coins(float(info.get("reward_coins", 0)))
-		var extra_reputation: int = int(info.get("reward_reputation", 0))
-		if extra_reputation > 0:
-			_add_reputation(extra_reputation)
 		return info
 	return {}
 
@@ -910,6 +922,17 @@ func _read_json_array(path: String) -> Array:
 		push_error("В файле %s ожидался список" % path)
 		return []
 	return parsed
+
+
+func _read_tap_from_income() -> float:
+	var file := FileAccess.open(BALANCE_PATH, FileAccess.READ)
+	if file == null:
+		return 0.01
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return 0.01
+	return maxf(0.0, float(parsed.get("tap_from_income", 0.01)))
 
 
 ## Короткий вид числа: 999, 1.5K, 2.3M, 4.1B.

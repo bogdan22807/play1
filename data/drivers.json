@@ -30,5 +30,45 @@
     "base_cost": 50000,
     "cost_growth": 1.15,
     "income_per_second": 120
+  },
+  {
+    "id": "brigadier",
+    "name": "Бригадир",
+    "description": "Раздаёт смены и не даёт машинам простаивать.",
+    "base_cost": 450000,
+    "cost_growth": 1.15,
+    "income_per_second": 1000
+  },
+  {
+    "id": "column",
+    "name": "Начальник колонны",
+    "description": "Держит десятки машин на линии.",
+    "base_cost": 4000000,
+    "cost_growth": 1.15,
+    "income_per_second": 9000
+  },
+  {
+    "id": "depot",
+    "name": "Автоколонна",
+    "description": "Свой парк, своя мойка и ночная диспетчерская.",
+    "base_cost": 35000000,
+    "cost_growth": 1.15,
+    "income_per_second": 80000
+  },
+  {
+    "id": "network",
+    "name": "Сеть парков",
+    "description": "Заказы идут из нескольких городов сразу.",
+    "base_cost": 300000000,
+    "cost_growth": 1.15,
+    "income_per_second": 700000
+  },
+  {
+    "id": "holding",
+    "name": "Холдинг",
+    "description": "Такси, грузовые и корпоративные контракты.",
+    "base_cost": 2500000000,
+    "cost_growth": 1.15,
+    "income_per_second": 6000000
   }
 ]

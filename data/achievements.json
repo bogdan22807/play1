@@ -61,7 +61,7 @@
     "kind": "reputation",
     "need": 10,
     "reward_coins": 150,
-    "reward_reputation": 1
+    "reward_reputation": 0
   },
   {
     "id": "five_upgrades",
