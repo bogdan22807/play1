@@ -59,6 +59,12 @@ var _sell_info: Label
 var _sell_button: Button
 var _sell_layer: Control
 var _sell_body: Label
+var _achievement_labels: Dictionary = {}
+var _toast_layer: PanelContainer
+var _toast_label: Label
+var _toast_queue: Array = []
+var _toast_timer: Timer
+var _daily_layer: Control
 var _offline_layer: Control
 var _offline_label: Label
 var _offline_time_label: Label
@@ -67,6 +73,8 @@ var _offline_time_label: Label
 func _ready() -> void:
 	_apply_theme()
 	_build_ui()
+	if _toast_layer != null:
+		move_child(_toast_layer, get_child_count() - 1)
 	GameState.coins_changed.connect(_on_coins_changed)
 	GameState.tap_power_changed.connect(_on_tap_power_changed)
 	GameState.upgrades_changed.connect(_on_upgrades_changed)
@@ -77,6 +85,8 @@ func _ready() -> void:
 	GameState.reputation_changed.connect(_on_reputation_changed)
 	GameState.competitors_changed.connect(_on_competitors_changed)
 	GameState.franchise_changed.connect(_on_franchise_changed)
+	GameState.achievement_unlocked.connect(_on_achievement_unlocked)
+	GameState.achievements_changed.connect(_refresh_achievements)
 	GameState.offline_reward_ready.connect(_show_offline_popup)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -90,7 +100,14 @@ func _ready() -> void:
 	_refresh_sell()
 	_on_reputation_changed(GameState.reputation)
 	_on_franchise_changed(GameState.get_franchise())
+	_refresh_achievements()
+	for item: Variant in GameState.take_fresh_achievements():
+		if typeof(item) == TYPE_DICTIONARY:
+			var info: Dictionary = item
+			_enqueue_toast(str(info.get("title", "")), str(info.get("body", "")))
 	_show_offline_popup()
+	if _offline_layer == null or not _offline_layer.visible:
+		_show_daily_popup()
 
 
 func _apply_theme() -> void:
@@ -173,6 +190,8 @@ func _build_ui() -> void:
 	_build_settings_popup()
 	_build_notice_popup()
 	_build_sell_popup()
+	_build_toast()
+	_build_daily_popup()
 	_build_offline_popup()
 
 
@@ -709,6 +728,7 @@ func _build_city_rows() -> void:
 				continue
 			_city_list.add_child(_make_district_row(district_id, info))
 	_build_region_rows()
+	_build_achievement_rows()
 
 
 func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer:
@@ -1124,9 +1144,155 @@ func _format_duration(seconds: float) -> String:
 	return "%d сек" % total
 
 
+func _build_achievement_rows() -> void:
+	var title := Label.new()
+	title.text = "ДОСТИЖЕНИЯ"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 42)
+	_city_list.add_child(title)
+
+	for raw: Variant in GameState.get_achievements():
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var info: Dictionary = raw
+		var achievement_id: String = str(info.get("id", ""))
+		if achievement_id == "":
+			continue
+		var panel := PanelContainer.new()
+		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		panel.add_theme_stylebox_override("panel", _panel_style())
+		var label := Label.new()
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.add_theme_font_size_override("font_size", 28)
+		panel.add_child(label)
+		_city_list.add_child(panel)
+		_achievement_labels[achievement_id] = label
+
+
+func _refresh_achievements() -> void:
+	for achievement_id: Variant in _achievement_labels.keys():
+		var label: Label = _achievement_labels[achievement_id]
+		var info: Dictionary = {}
+		for raw: Variant in GameState.get_achievements():
+			if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) == str(achievement_id):
+				info = raw
+				break
+		var need: float = float(info.get("need", 1))
+		var value: float = GameState.get_achievement_value(str(info.get("kind", "")))
+		var reward := "+%s" % GameState.format_number(float(info.get("reward_coins", 0)))
+		if GameState.is_achievement_done(str(achievement_id)):
+			label.text = "%s\nПолучено, награда %s" % [str(info.get("name", "")), reward]
+			label.add_theme_color_override("font_color", COLOR_INCOME)
+		else:
+			label.text = "%s\n%s / %s, награда %s" % [
+				str(info.get("name", "")),
+				GameState.format_number(minf(value, need)),
+				GameState.format_number(need),
+				reward,
+			]
+			label.add_theme_color_override("font_color", Color.WHITE)
+
+
+func _on_achievement_unlocked(title: String, body: String) -> void:
+	_enqueue_toast(title, body)
+	_refresh_achievements()
+
+
+func _enqueue_toast(title: String, body: String) -> void:
+	_toast_queue.append("%s\n%s" % [title, body])
+	if _toast_layer != null and not _toast_layer.visible:
+		_show_next_toast()
+
+
+func _show_next_toast() -> void:
+	if _toast_queue.is_empty():
+		_toast_layer.visible = false
+		return
+	_toast_label.text = str(_toast_queue.pop_front())
+	_toast_layer.visible = true
+	_toast_timer.start(2.2)
+
+
+func _build_toast() -> void:
+	_toast_layer = PanelContainer.new()
+	_toast_layer.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_toast_layer.offset_left = -420
+	_toast_layer.offset_right = 420
+	_toast_layer.offset_top = 36
+	_toast_layer.offset_bottom = 190
+	_toast_layer.visible = false
+	_toast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := _panel_style()
+	style.bg_color = Color("1d4a32")
+	style.content_margin_left = 24
+	style.content_margin_right = 24
+	style.content_margin_top = 16
+	style.content_margin_bottom = 16
+	_toast_layer.add_theme_stylebox_override("panel", style)
+	add_child(_toast_layer)
+
+	_toast_label = _make_center_label("", 30, Color.WHITE)
+	_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_toast_layer.add_child(_toast_label)
+
+	_toast_timer = Timer.new()
+	_toast_timer.one_shot = true
+	_toast_timer.timeout.connect(_show_next_toast)
+	add_child(_toast_timer)
+
+
+func _build_daily_popup() -> void:
+	_daily_layer = Control.new()
+	_daily_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_daily_layer.visible = false
+	_daily_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_daily_layer)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.72)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_daily_layer.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_daily_layer.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(860, 0)
+	var style := _panel_style()
+	style.content_margin_left = 40
+	style.content_margin_right = 40
+	style.content_margin_top = 40
+	style.content_margin_bottom = 36
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 18)
+	panel.add_child(box)
+	box.add_child(_make_center_label("Ежедневная награда", 44, Color.WHITE))
+	box.add_child(_make_center_label("250 монет и 1 репутация.\nЗаходите завтра — награда обновится.", 30, COLOR_MUTED))
+	box.add_child(_make_settings_button("Забрать", COLOR_BUY, _on_collect_daily))
+
+
+func _show_daily_popup() -> void:
+	if not GameState.has_daily_reward():
+		_daily_layer.visible = false
+		return
+	_daily_layer.visible = true
+
+
+func _on_collect_daily() -> void:
+	GameState.collect_daily_reward()
+	_daily_layer.visible = false
+
+
 func _on_collect_offline() -> void:
 	GameState.collect_offline_reward()
 	_offline_layer.visible = false
+	_show_daily_popup()
 
 
 func _on_taxi_resized() -> void:

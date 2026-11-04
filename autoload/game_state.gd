@@ -23,6 +23,8 @@ signal regions_changed
 ## Выкупили конкурента или он отказал.
 signal competitors_changed
 signal franchise_changed(franchise: float)
+signal achievement_unlocked(title: String, body: String)
+signal achievements_changed
 
 ## Сколько монет даёт тап без улучшений.
 const BASE_TAP_POWER: float = 1.0
@@ -31,6 +33,9 @@ const DRIVERS_PATH := "res://data/drivers.json"
 const CITIES_PATH := "res://data/cities.json"
 const REGIONS_PATH := "res://data/regions.json"
 const COMPETITORS_PATH := "res://data/competitors.json"
+const ACHIEVEMENTS_PATH := "res://data/achievements.json"
+const DAILY_COINS := 250.0
+const DAILY_REPUTATION := 1
 ## Сколько тапов нужно для +1 репутации.
 const TAPS_PER_REPUTATION := 20
 ## Сколько монет забега дают +1 к множителю франшизы.
@@ -72,6 +77,14 @@ var _taps_toward_reputation: int = 0
 var franchise: float = 1.0
 ## Монеты, полученные за текущий забег. Траты его не уменьшают.
 var run_earned: float = 0.0
+## Заработок за все забеги. Не сбрасывается продажей компании.
+var lifetime_earned: float = 0.0
+var _achievement_defs: Array = []
+## id достижения -> 1, если награда уже выдана.
+var _done_achievements: Dictionary = {}
+## Номер суток unix. 0 значит награду ещё ни разу не забирали.
+var _last_daily_day: int = 0
+var _fresh_achievements: Array = []
 var _income_per_second: float = 0.0
 ## Время последнего сохранения. От него считаем, сколько игра не работала.
 var _last_exit_unix: int = 0
@@ -90,8 +103,10 @@ func _ready() -> void:
 	_city_defs = _read_json_array(CITIES_PATH)
 	_region_defs = _read_json_array(REGIONS_PATH)
 	_competitor_defs = _read_json_array(COMPETITORS_PATH)
+	_achievement_defs = _read_json_array(ACHIEVEMENTS_PATH)
 	load_game()
 	_recalc_income()
+	_note_progress()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
@@ -110,6 +125,7 @@ func _process(delta: float) -> void:
 		if step > MAX_INCOME_STEP:
 			step = MAX_INCOME_STEP
 		_gain_coins(_income_per_second * step)
+		_note_progress()
 		coins_changed.emit(coins)
 	_autosave_left -= delta
 	if _autosave_left <= 0.0:
@@ -145,6 +161,7 @@ func tap() -> float:
 	var gained: float = get_tap_power()
 	_gain_coins(gained)
 	_run_tap_for_reputation()
+	_note_progress()
 	coins_changed.emit(coins)
 	return gained
 
@@ -197,6 +214,7 @@ func buy_upgrade(upgrade_id: String) -> bool:
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
+	_note_progress()
 	save_game()
 	return true
 
@@ -236,6 +254,7 @@ func hire_driver(driver_id: String) -> bool:
 	_add_reputation(1)
 	coins_changed.emit(coins)
 	drivers_changed.emit()
+	_note_progress()
 	save_game()
 	return true
 
@@ -279,6 +298,7 @@ func open_district(district_id: String) -> bool:
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	districts_changed.emit()
+	_note_progress()
 	save_game()
 	return true
 
@@ -354,6 +374,7 @@ func open_region(region_id: String) -> bool:
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	regions_changed.emit()
+	_note_progress()
 	save_game()
 	return true
 
@@ -428,6 +449,7 @@ func offer_buyout(competitor_id: String) -> Dictionary:
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	competitors_changed.emit()
+	_note_progress()
 	save_game()
 	return {
 		"ok": true,
@@ -512,6 +534,10 @@ func reset_progress() -> void:
 	_taps_toward_reputation = 0
 	franchise = 1.0
 	run_earned = 0.0
+	lifetime_earned = 0.0
+	_done_achievements.clear()
+	_last_daily_day = 0
+	_fresh_achievements.clear()
 	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
@@ -522,6 +548,7 @@ func reset_progress() -> void:
 	reputation_changed.emit(reputation)
 	competitors_changed.emit()
 	franchise_changed.emit(franchise)
+	achievements_changed.emit()
 	save_game()
 
 
@@ -569,6 +596,7 @@ func sell_company() -> bool:
 	reputation_changed.emit(reputation)
 	competitors_changed.emit()
 	franchise_changed.emit(franchise)
+	_note_progress()
 	save_game()
 	return true
 
@@ -578,6 +606,7 @@ func _gain_coins(amount: float) -> void:
 		return
 	coins += amount
 	run_earned += amount
+	lifetime_earned += amount
 
 
 ## Игрок нажал «Забрать». До этого момента монеты за отсутствие только ждут.
@@ -589,6 +618,7 @@ func collect_offline_reward() -> float:
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
 	_offline_capped = false
+	_note_progress()
 	coins_changed.emit(coins)
 	save_game()
 	return amount
@@ -687,6 +717,9 @@ func save_game() -> void:
 		"competitors": _owned_competitors.duplicate(),
 		"franchise": franchise,
 		"run_earned": run_earned,
+		"lifetime_earned": lifetime_earned,
+		"achievements": _done_achievements.keys(),
+		"last_daily_day": _last_daily_day,
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -721,11 +754,139 @@ func load_game() -> void:
 	franchise = maxf(1.0, float(data.get("franchise", 1.0)))
 	# Старое сохранение без поля: уже лежащие монеты считаем заработком забега.
 	run_earned = maxf(0.0, float(data.get("run_earned", coins)))
+	lifetime_earned = maxf(run_earned, float(data.get("lifetime_earned", run_earned)))
+	_done_achievements = _read_id_set(data.get("achievements", []))
+	_last_daily_day = maxi(0, int(data.get("last_daily_day", 0)))
 	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
 	var saved_offline: float = maxf(0.0, float(data.get("pending_offline_coins", 0)))
 	var saved_seconds: float = maxf(0.0, float(data.get("pending_offline_seconds", 0)))
 	_refresh_offline_reward(saved_offline, saved_seconds)
 	_fold_offline_dust()
+
+
+func get_achievements() -> Array:
+	return _achievement_defs
+
+
+func is_achievement_done(achievement_id: String) -> bool:
+	return int(_done_achievements.get(achievement_id, 0)) > 0
+
+
+func get_achievement_value(kind: String) -> float:
+	match kind:
+		"earned":
+			return lifetime_earned
+		"drivers":
+			return float(_sum_counts(_driver_counts))
+		"districts":
+			return float(_opened_districts.size())
+		"regions":
+			return float(_opened_regions.size())
+		"competitors":
+			return float(_owned_competitors.size())
+		"reputation":
+			return float(reputation)
+		"upgrades":
+			return float(_sum_counts(_upgrade_levels))
+		"franchise":
+			return franchise
+		_:
+			return 0.0
+
+
+func take_fresh_achievements() -> Array:
+	var copy: Array = _fresh_achievements.duplicate()
+	_fresh_achievements.clear()
+	return copy
+
+
+func has_daily_reward() -> bool:
+	return _last_daily_day != _today_index()
+
+
+func collect_daily_reward() -> bool:
+	if not has_daily_reward():
+		return false
+	_last_daily_day = _today_index()
+	_gain_coins(DAILY_COINS)
+	_add_reputation(DAILY_REPUTATION)
+	_note_progress()
+	coins_changed.emit(coins)
+	save_game()
+	return true
+
+
+func _today_index() -> int:
+	return int(Time.get_unix_time_from_system() / 86400.0)
+
+
+func _note_progress() -> void:
+	var guard := 0
+	var changed := false
+	while guard < 20:
+		guard += 1
+		var info := _claim_one_achievement()
+		if info.is_empty():
+			break
+		changed = true
+		var title := str(info.get("name", "Достижение"))
+		var body := _reward_text(info)
+		_fresh_achievements.append({"title": title, "body": body})
+		achievement_unlocked.emit(title, body)
+	if changed:
+		achievements_changed.emit()
+		save_game()
+
+
+func _claim_one_achievement() -> Dictionary:
+	for raw: Variant in _achievement_defs:
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var info: Dictionary = raw
+		var achievement_id: String = str(info.get("id", ""))
+		if achievement_id == "" or is_achievement_done(achievement_id):
+			continue
+		var need: float = float(info.get("need", 1))
+		if get_achievement_value(str(info.get("kind", ""))) + 0.001 < need:
+			continue
+		_done_achievements[achievement_id] = 1
+		_gain_coins(float(info.get("reward_coins", 0)))
+		var extra_reputation: int = int(info.get("reward_reputation", 0))
+		if extra_reputation > 0:
+			_add_reputation(extra_reputation)
+		return info
+	return {}
+
+
+func _reward_text(info: Dictionary) -> String:
+	var parts: PackedStringArray = PackedStringArray()
+	var coins_reward: float = float(info.get("reward_coins", 0))
+	if coins_reward > 0.0:
+		parts.append("+%s монет" % format_number(coins_reward))
+	var extra_reputation: int = int(info.get("reward_reputation", 0))
+	if extra_reputation > 0:
+		parts.append("+%d репутации" % extra_reputation)
+	if parts.is_empty():
+		return "Награда получена"
+	return " ".join(parts)
+
+
+func _sum_counts(source: Dictionary) -> int:
+	var total := 0
+	for value: Variant in source.values():
+		total += int(value)
+	return total
+
+
+func _read_id_set(raw: Variant) -> Dictionary:
+	var result: Dictionary = {}
+	if typeof(raw) != TYPE_ARRAY:
+		return result
+	for item: Variant in raw:
+		var achievement_id := str(item)
+		if achievement_id != "":
+			result[achievement_id] = 1
+	return result
 
 
 func _read_count_dict(raw: Variant) -> Dictionary:

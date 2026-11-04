@@ -1,0 +1,82 @@
+[
+  {
+    "id": "first_thousand",
+    "name": "Первые 1000 монет",
+    "kind": "earned",
+    "need": 1000,
+    "reward_coins": 100,
+    "reward_reputation": 0
+  },
+  {
+    "id": "hundred_thousand",
+    "name": "Сто тысяч монет",
+    "kind": "earned",
+    "need": 100000,
+    "reward_coins": 1000,
+    "reward_reputation": 0
+  },
+  {
+    "id": "first_driver",
+    "name": "Первый водитель",
+    "kind": "drivers",
+    "need": 1,
+    "reward_coins": 50,
+    "reward_reputation": 0
+  },
+  {
+    "id": "ten_drivers",
+    "name": "Десять водителей",
+    "kind": "drivers",
+    "need": 10,
+    "reward_coins": 500,
+    "reward_reputation": 0
+  },
+  {
+    "id": "first_district",
+    "name": "Свой район",
+    "kind": "districts",
+    "need": 1,
+    "reward_coins": 200,
+    "reward_reputation": 0
+  },
+  {
+    "id": "first_region",
+    "name": "Выход в регион",
+    "kind": "regions",
+    "need": 1,
+    "reward_coins": 300,
+    "reward_reputation": 0
+  },
+  {
+    "id": "buyout",
+    "name": "Выкуп конкурента",
+    "kind": "competitors",
+    "need": 1,
+    "reward_coins": 1000,
+    "reward_reputation": 0
+  },
+  {
+    "id": "known_name",
+    "name": "Имя на слуху",
+    "kind": "reputation",
+    "need": 10,
+    "reward_coins": 150,
+    "reward_reputation": 1
+  },
+  {
+    "id": "five_upgrades",
+    "name": "Пять улучшений",
+    "kind": "upgrades",
+    "need": 5,
+    "reward_coins": 250,
+    "reward_reputation": 0
+  },
+  {
+    "id": "franchise_two",
+    "name": "Франшиза",
+    "kind": "franchise",
+    "need": 2,
+    "reward_coins": 500,
+    "reward_reputation": 0
+  }
+]
