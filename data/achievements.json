@@ -102,5 +102,13 @@
     "need": 4.9,
     "reward_coins": 500,
     "reward_reputation": 0
+  },
+  {
+    "id": "boss",
+    "name": "Сам себе начальник",
+    "kind": "helpers",
+    "need": 3,
+    "reward_coins": 5000,
+    "reward_reputation": 0
   }
 ]

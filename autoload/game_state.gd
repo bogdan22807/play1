@@ -16,6 +16,8 @@ signal garage_changed
 signal wear_changed
 ## Изменились часы смен или рейтинг компании (раз в секунду и после «Сменить»).
 signal shifts_changed
+## Наняли, включили или выключили помощника.
+signal helpers_changed
 ## Изменился пассивный доход в секунду.
 signal income_changed(income: float)
 ## Пора показать окно «Пока вас не было».
@@ -46,6 +48,7 @@ const COMPETITORS_PATH := "res://data/competitors.json"
 const ACHIEVEMENTS_PATH := "res://data/achievements.json"
 const BALANCE_PATH := "res://data/balance.json"
 const CARS_PATH := "res://data/cars.json"
+const HELPERS_PATH := "res://data/helpers.json"
 ## Длина названия компании.
 const COMPANY_NAME_MAX := 24
 const DAILY_COINS := 250.0
@@ -102,6 +105,9 @@ var _shift_cfg: Dictionary = {}
 var _rating_cfg: Dictionary = {}
 ## Рейтинг компании, 1..5. Плавно идёт к оценке текущих поездок — как копятся отзывы.
 var rating: float = 4.0
+var _helper_defs: Array = []
+## id помощника -> 1 нанят и работает, 0 нанят, но выключен. Нет ключа — не нанят.
+var _helpers: Dictionary = {}
 var _city_defs: Array = []
 ## id района -> 1, если район уже открыт.
 var _opened_districts: Dictionary = {}
@@ -164,6 +170,7 @@ func _ready() -> void:
 	_competitor_defs = _read_json_array(COMPETITORS_PATH)
 	_achievement_defs = _read_json_array(ACHIEVEMENTS_PATH)
 	_car_defs = _read_json_array(CARS_PATH)
+	_helper_defs = _read_json_array(HELPERS_PATH)
 	_car_id = _start_car_id()
 	_read_balance()
 	load_game()
@@ -176,6 +183,7 @@ func _ready() -> void:
 	upgrades_changed.emit()
 	drivers_changed.emit()
 	garage_changed.emit()
+	helpers_changed.emit()
 	districts_changed.emit()
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
@@ -742,6 +750,7 @@ func _tick_fleet_wear(step: float) -> void:
 	var seconds: float = 1.0 - _wear_left
 	_wear_left = 1.0
 	_tick_shifts(seconds)
+	_run_helpers(seconds)
 	if _team.is_empty():
 		return
 	var clean_rate: float = _wear_value("fleet_clean_per_second", 0.0016667)
@@ -888,6 +897,129 @@ func _tick_shifts(seconds: float) -> void:
 		tap_power_changed.emit(get_tap_power())
 		_note_progress()
 	shifts_changed.emit()
+
+
+# --- Помощники ----------------------------------------------------------------
+
+func get_helpers() -> Array:
+	return _helper_defs
+
+
+func is_helper_hired(helper_id: String) -> bool:
+	return _helpers.has(helper_id)
+
+
+func is_helper_on(helper_id: String) -> bool:
+	return int(_helpers.get(helper_id, 0)) > 0
+
+
+func get_helper_cost(helper_id: String) -> float:
+	return maxf(0.0, float(_find_def(_helper_defs, helper_id).get("cost", 0)))
+
+
+func get_hired_helper_count() -> int:
+	return _helpers.size()
+
+
+func can_hire_helper(helper_id: String) -> bool:
+	if is_helper_hired(helper_id) or _find_def(_helper_defs, helper_id).is_empty():
+		return false
+	return coins + 0.001 >= get_helper_cost(helper_id)
+
+
+func hire_helper(helper_id: String) -> bool:
+	if not can_hire_helper(helper_id):
+		return false
+	coins = maxf(0.0, coins - get_helper_cost(helper_id))
+	_helpers[helper_id] = 1
+	_after_helpers_change()
+	return true
+
+
+## Включить или выключить нанятого помощника. Повторно платить не нужно.
+func set_helper_on(helper_id: String, on: bool) -> bool:
+	if not is_helper_hired(helper_id):
+		return false
+	_helpers[helper_id] = 1 if on else 0
+	_after_helpers_change()
+	return true
+
+
+## Какую долю дохода водителей забирают включённые помощники.
+func get_helper_fee_share() -> float:
+	var total: float = 0.0
+	for raw: Variant in _helper_defs:
+		if typeof(raw) == TYPE_DICTIONARY and is_helper_on(str(raw.get("id", ""))):
+			total += float(raw.get("fee_share", 0))
+	return clampf(total, 0.0, 0.9)
+
+
+## Сколько дохода в секунду уходит помощникам.
+func get_helper_fee_per_second() -> float:
+	var share: float = get_helper_fee_share()
+	if share >= 1.0:
+		return 0.0
+	return get_income_per_second() / (1.0 - share) * share
+
+
+## Доля обычного дохода, которая капает без игрока. Диспетчер поднимает её.
+func get_offline_rate() -> float:
+	var rate: float = _offline_income_rate
+	if is_helper_on("dispatcher"):
+		rate += float(_find_def(_helper_defs, "dispatcher").get("offline_bonus", 0))
+	return clampf(rate, 0.0, 1.0)
+
+
+func _after_helpers_change() -> void:
+	_recalc_income()
+	coins_changed.emit(coins)
+	tap_power_changed.emit(get_tap_power())
+	helpers_changed.emit()
+	_note_progress()
+	save_game()
+
+
+## Раз в секунду: мойщик моет, механик чинит одну машину, диспетчер меняет смены.
+func _run_helpers(seconds: float) -> void:
+	var touched: bool = false
+	if is_helper_on("washer"):
+		if _my_clean < 0.5:
+			_my_clean = 1.0
+			touched = true
+		for car: Variant in _garage:
+			if float(car.get("clean", 1)) < 0.5:
+				car["clean"] = 1.0
+				touched = true
+	if is_helper_on("mechanic"):
+		touched = _mechanic_step(seconds) or touched
+	if is_helper_on("dispatcher"):
+		for person: Variant in _team:
+			if get_driver_hours(person) >= get_shift_hours():
+				person["hours"] = 0.0
+				touched = true
+	if touched:
+		_recalc_income()
+		tap_power_changed.emit(get_tap_power())
+		wear_changed.emit()
+
+
+## Механик берёт самую изношенную машину (свою или из парка) ниже 60% и подтягивает её.
+func _mechanic_step(seconds: float) -> bool:
+	var speed: float = float(_find_def(_helper_defs, "mechanic").get("repair_per_second", 0.01)) * seconds
+	var worst: Dictionary = {}
+	var worst_health: float = 0.6
+	for car: Variant in _garage:
+		var health: float = float(car.get("health", 1))
+		if health < worst_health:
+			worst = car
+			worst_health = health
+	if _my_health < worst_health:
+		_my_health = minf(1.0, _my_health + speed)
+		return true
+	if worst.is_empty():
+		return false
+	worst["health"] = minf(1.0, worst_health + speed)
+	return true
 
 
 # --- Водители ----------------------------------------------------------------
@@ -1076,6 +1208,7 @@ func _make_candidate() -> Dictionary:
 
 func _reset_staff() -> void:
 	rating = _rating_value("start", 4)
+	_helpers.clear()
 	_garage.clear()
 	_garage_level = 0
 	_team.clear()
@@ -1371,6 +1504,7 @@ func reset_progress() -> void:
 	_sync_reputation()
 	drivers_changed.emit()
 	garage_changed.emit()
+	helpers_changed.emit()
 	districts_changed.emit()
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
@@ -1436,6 +1570,7 @@ func sell_company() -> bool:
 	upgrades_changed.emit()
 	drivers_changed.emit()
 	garage_changed.emit()
+	helpers_changed.emit()
 	districts_changed.emit()
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
@@ -1478,7 +1613,7 @@ func _sum_income() -> float:
 		var car: Dictionary = cars.get(int(person.get("uid", 0)), {})
 		if not car.is_empty():
 			total += get_driver_net_on(person, car)
-	return total
+	return total * (1.0 - get_helper_fee_share())
 
 
 func _recalc_income() -> void:
@@ -1510,7 +1645,7 @@ func _refresh_offline_reward(saved_coins: float = -1.0, saved_seconds: float = -
 		_offline_capped = false
 		return
 	_offline_seconds = total_seconds
-	_offline_coins = income * _offline_income_rate * total_seconds
+	_offline_coins = income * get_offline_rate() * total_seconds
 
 
 ## Копейки за пару секунд кладём в кошелёк без окна.
@@ -1553,6 +1688,7 @@ func save_game() -> void:
 		"upgrades": _upgrade_levels.duplicate(),
 		"garage": _garage.duplicate(true),
 		"my_clean": _my_clean,
+		"helpers": _helpers.duplicate(),
 		"rating": rating,
 		"my_health": _my_health,
 		"garage_level": _garage_level,
@@ -1616,6 +1752,12 @@ func load_game() -> void:
 	_my_clean = clampf(float(data.get("my_clean", 1.0)), 0.0, 1.0)
 	_my_health = clampf(float(data.get("my_health", 1.0)), 0.0, 1.0)
 	rating = clampf(float(data.get("rating", _rating_value("start", 4))), 1.0, 5.0)
+	_helpers.clear()
+	var raw_helpers: Variant = data.get("helpers", {})
+	if typeof(raw_helpers) == TYPE_DICTIONARY:
+		for key: Variant in raw_helpers.keys():
+			if not _find_def(_helper_defs, str(key)).is_empty():
+				_helpers[str(key)] = 1 if int(raw_helpers[key]) > 0 else 0
 	_load_staff(data)
 	company_name = str(data.get("company_name", "")).strip_edges().substr(0, COMPANY_NAME_MAX)
 	_sync_reputation()
@@ -1764,6 +1906,8 @@ func get_achievement_value(kind: String) -> float:
 			return float(get_owned_car_count())
 		"rating":
 			return rating
+		"helpers":
+			return float(get_hired_helper_count())
 		_:
 			return 0.0
 
