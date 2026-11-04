@@ -19,5 +19,19 @@
       "cost": 40000000,
       "add": 5
     }
-  ]
+  ],
+  "wear": {
+    "fleet_clean_per_second": 0.0016667,
+    "fleet_health_per_second": 0.00033333,
+    "tap_clean": 0.0015,
+    "tap_health": 0.0003,
+    "dirty_min_mult": 0.75,
+    "broken_below": 0.1,
+    "worn_min_mult": 0.6,
+    "player_broken_mult": 0.3,
+    "fleet_wash_seconds": 20,
+    "fleet_repair_seconds": 150,
+    "player_wash_taps": 20,
+    "player_repair_taps": 80
+  }
 }

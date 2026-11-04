@@ -5,6 +5,7 @@
 ```
 godot --headless -s res://tests/test_cars.gd
 godot --headless -s res://tests/test_drivers.gd
+godot --headless -s res://tests/test_wear.gd
 ```
 
 В конце печатается `RESULT PASS` или `RESULT FAIL`. Тест стирает сохранение.
