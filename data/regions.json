@@ -8,14 +8,6 @@
     "income_bonus": 0.2
   },
   {
-    "id": "asia",
-    "name": "Азия",
-    "description": "Ночные мегаполисы не спят.",
-    "cost": 16000000,
-    "reputation": 1300,
-    "income_bonus": 0.35
-  },
-  {
     "id": "africa",
     "name": "Африка",
     "description": "Дальние маршруты между городами.",

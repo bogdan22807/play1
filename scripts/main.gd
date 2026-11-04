@@ -529,7 +529,7 @@ func _refresh_competitors() -> void:
 			offer_button.disabled = true
 		else:
 			var cost: float = GameState.get_competitor_cost(id)
-			offer_button.text = "Предложить выкуп\n%s" % GameState.format_number(cost)
+			offer_button.text = "Предложить выкуп\n%s" % GameState.format_money(cost)
 			offer_button.disabled = not GameState.can_offer_buyout(id)
 
 
@@ -571,7 +571,7 @@ func _refresh_sell() -> void:
 	var now: float = GameState.get_franchise()
 	var preview: float = GameState.get_preview_franchise()
 	_sell_info.text = "Заработано за все забеги: %s\nБыло ×%s → станет ×%s" % [
-		GameState.format_number(GameState.lifetime_earned),
+		GameState.format_money(GameState.lifetime_earned),
 		GameState.format_number(now),
 		GameState.format_number(preview),
 	]
@@ -956,7 +956,7 @@ func _refresh_districts() -> void:
 			open_button.disabled = true
 		else:
 			var cost: float = GameState.get_district_cost(id)
-			open_button.text = "Открыть\n%s" % GameState.format_number(cost)
+			open_button.text = "Открыть\n%s" % GameState.format_money(cost)
 			open_button.disabled = not GameState.can_open_district(id)
 
 
@@ -972,7 +972,7 @@ func _refresh_regions() -> void:
 			reason_label.text = ""
 		else:
 			var cost: float = GameState.get_region_cost(id)
-			open_button.text = "Открыть\n%s" % GameState.format_number(cost)
+			open_button.text = "Открыть\n%s" % GameState.format_money(cost)
 			open_button.disabled = not GameState.can_open_region(id)
 			reason_label.text = GameState.get_region_block_reason(id)
 
@@ -990,7 +990,7 @@ func _build_upgrade_rows() -> void:
 
 func _build_driver_rows() -> void:
 	var hint := Label.new()
-	hint.text = "Водители приносят монеты сами, даже если не нажимать на такси."
+	hint.text = "Водители приносят доллары сами, даже если не нажимать на такси."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 26)
@@ -1036,7 +1036,7 @@ func _make_driver_row(driver_id: String, info: Dictionary) -> PanelContainer:
 
 	var rate: float = float(info.get("income_per_second", 0))
 	var rate_label := Label.new()
-	rate_label.text = "Приносит %s в секунду" % GameState.format_number(rate)
+	rate_label.text = "Приносит %s в секунду" % GameState.format_money(rate)
 	rate_label.add_theme_font_size_override("font_size", 26)
 	rate_label.add_theme_color_override("font_color", COLOR_INCOME)
 	text_box.add_child(rate_label)
@@ -1197,7 +1197,7 @@ func _show_offline_popup() -> void:
 		_offline_layer.visible = false
 		return
 	var amount: float = GameState.get_offline_coins()
-	_offline_label.text = "Пока вас не было, заработано %s" % GameState.format_number(amount)
+	_offline_label.text = "Пока вас не было, заработано %s" % GameState.format_money(amount)
 	_offline_time_label.text = _offline_time_text()
 	_offline_layer.visible = true
 
@@ -1257,7 +1257,7 @@ func _refresh_achievements() -> void:
 				break
 		var need: float = float(info.get("need", 1))
 		var value: float = GameState.get_achievement_value(str(info.get("kind", "")))
-		var reward := "+%s" % GameState.format_number(float(info.get("reward_coins", 0)))
+		var reward := "+%s" % GameState.format_money(float(info.get("reward_coins", 0)))
 		if GameState.is_achievement_done(str(achievement_id)):
 			label.text = "%s\nПолучено, награда %s" % [str(info.get("name", "")), reward]
 			label.add_theme_color_override("font_color", COLOR_INCOME)
@@ -1351,7 +1351,7 @@ func _build_daily_popup() -> void:
 	box.add_theme_constant_override("separation", 18)
 	panel.add_child(box)
 	box.add_child(_make_center_label("Ежедневная награда", 44, Color.WHITE))
-	box.add_child(_make_center_label("250 монет.\nЗаходите завтра — награда обновится.", 30, COLOR_MUTED))
+	box.add_child(_make_center_label("$250.\nЗаходите завтра — награда обновится.", 30, COLOR_MUTED))
 	box.add_child(_make_settings_button("Забрать", COLOR_BUY, _on_collect_daily))
 
 
@@ -1397,7 +1397,7 @@ func _play_tap_animation() -> void:
 ## Над такси всплывает «+N» и тает.
 func _spawn_floating_gain(amount: float) -> void:
 	var label := Label.new()
-	label.text = "+%s" % GameState.format_number(amount)
+	label.text = "+%s" % GameState.format_money(amount)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_size_override("font_size", 72)
@@ -1505,7 +1505,7 @@ func _build_settings_popup() -> void:
 	_settings_menu.alignment = BoxContainer.ALIGNMENT_CENTER
 	stack.add_child(_settings_menu)
 	_settings_menu.add_child(_make_center_label("Настройки", 52, Color.WHITE))
-	var hint := _make_center_label("Сброс стирает монеты, улучшения и водителей. Это для проверки игры.", 28, COLOR_MUTED)
+	var hint := _make_center_label("Сброс стирает деньги, улучшения и водителей. Это для проверки игры.", 28, COLOR_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_settings_menu.add_child(hint)
 	_settings_menu.add_child(_make_settings_button("Сбросить прогресс", COLOR_DANGER, _ask_reset))
@@ -1557,7 +1557,7 @@ func _on_hire_driver(driver_id: String) -> void:
 
 func _on_coins_changed(value: float) -> void:
 	_refresh_achievements()
-	var text := GameState.format_number(value)
+	var text := GameState.format_money(value)
 	# Пока на экране та же строка, подпись не трогаем — иначе цифры двоятся.
 	if _coins_label.text == text:
 		return
@@ -1580,8 +1580,8 @@ func _on_income_changed(_value: float) -> void:
 
 func _refresh_rate_line() -> void:
 	_tap_label.text = "За тап: %s  ·  В секунду: %s" % [
-		GameState.format_number(GameState.get_tap_power()),
-		GameState.format_number(GameState.get_income_per_second()),
+		GameState.format_money(GameState.get_tap_power()),
+		GameState.format_money(GameState.get_income_per_second()),
 	]
 	_refresh_market_share()
 
@@ -1638,7 +1638,7 @@ func _refresh_upgrades() -> void:
 		var id := str(upgrade_id)
 		level_label.text = "Уровень: %d" % GameState.get_upgrade_level(id)
 		var cost: float = GameState.get_upgrade_cost(id)
-		buy_button.text = "Купить\n%s" % GameState.format_number(cost)
+		buy_button.text = "Купить\n%s" % GameState.format_money(cost)
 		buy_button.disabled = not GameState.can_buy_upgrade(id)
 
 
@@ -1650,5 +1650,5 @@ func _refresh_drivers() -> void:
 		var id := str(driver_id)
 		count_label.text = "Нанято: %d" % GameState.get_driver_count(id)
 		var cost: float = GameState.get_driver_cost(id)
-		hire_button.text = "Нанять\n%s" % GameState.format_number(cost)
+		hire_button.text = "Нанять\n%s" % GameState.format_money(cost)
 		hire_button.disabled = not GameState.can_hire_driver(id)

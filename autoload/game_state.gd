@@ -100,6 +100,8 @@ var _paused_in_background: bool = false
 var _tap_from_income: float = 0.01
 ## Доход в секунду, при котором доля мирового рынка становится 100%.
 var _world_market_size: float = 600000000.0
+## Какая доля обычного дохода капает, пока игра закрыта. 0.8 = 80%.
+var _offline_income_rate: float = 0.8
 
 
 func _ready() -> void:
@@ -369,7 +371,7 @@ func get_region_block_reason(region_id: String) -> String:
 	if reputation < need_reputation:
 		missing.append("Не хватает репутации: %d" % (need_reputation - reputation))
 	if coins + 0.001 < get_region_cost(region_id):
-		missing.append("Не хватает монет")
+		missing.append("Не хватает денег")
 	if missing.is_empty():
 		return ""
 	return "\n".join(missing)
@@ -454,7 +456,7 @@ func offer_buyout(competitor_id: String) -> Dictionary:
 	if is_competitor_owned(competitor_id):
 		return {"ok": false, "refused": false, "text": "Эта компания уже ваша."}
 	if not can_offer_buyout(competitor_id):
-		return {"ok": false, "refused": false, "text": "Не хватает монет."}
+		return {"ok": false, "refused": false, "text": "Не хватает денег."}
 	if randf() < get_buyout_refuse_chance(competitor_id):
 		return {
 			"ok": false,
@@ -691,7 +693,7 @@ func _refresh_offline_reward(saved_coins: float = -1.0, saved_seconds: float = -
 		_offline_capped = false
 		return
 	_offline_seconds = total_seconds
-	_offline_coins = income * total_seconds
+	_offline_coins = income * _offline_income_rate * total_seconds
 
 
 ## Копейки за пару секунд кладём в кошелёк без окна.
@@ -897,7 +899,7 @@ func _reward_text(info: Dictionary) -> String:
 	var parts: PackedStringArray = PackedStringArray()
 	var coins_reward: float = float(info.get("reward_coins", 0))
 	if coins_reward > 0.0:
-		parts.append("+%s монет" % format_number(coins_reward))
+		parts.append("+%s" % format_money(coins_reward))
 	var extra_reputation: int = int(info.get("reward_reputation", 0))
 	if extra_reputation > 0:
 		parts.append("+%d репутации" % extra_reputation)
@@ -958,6 +960,15 @@ func _read_balance() -> void:
 	var data: Dictionary = parsed
 	_tap_from_income = maxf(0.0, float(data.get("tap_from_income", _tap_from_income)))
 	_world_market_size = maxf(1.0, float(data.get("world_market_size", _world_market_size)))
+	_offline_income_rate = clampf(float(data.get("offline_income_rate", _offline_income_rate)), 0.0, 1.0)
+
+
+## Сумма в долларах: $999, $1.5K, $-20.
+static func format_money(value: float) -> String:
+	var text: String = format_number(value)
+	if text.begins_with("-"):
+		return "-$" + text.substr(1)
+	return "$" + text
 
 
 ## Короткий вид числа: 999, 1.5K, 2.3M, 4.1B.
