@@ -1,0 +1,34 @@
+[
+  {
+    "id": "trainee",
+    "name": "Стажёр",
+    "description": "Только получил права и ездит осторожно.",
+    "base_cost": 30,
+    "cost_growth": 1.15,
+    "income_per_second": 0.5
+  },
+  {
+    "id": "driver",
+    "name": "Водитель",
+    "description": "Знает короткие пути по району.",
+    "base_cost": 250,
+    "cost_growth": 1.15,
+    "income_per_second": 3
+  },
+  {
+    "id": "veteran",
+    "name": "Ветеран",
+    "description": "Десять лет за рулём и без аварий.",
+    "base_cost": 4000,
+    "cost_growth": 1.15,
+    "income_per_second": 20
+  },
+  {
+    "id": "night_ace",
+    "name": "Ночной ас",
+    "description": "Берёт заказы, когда город уже спит.",
+    "base_cost": 50000,
+    "cost_growth": 1.15,
+    "income_per_second": 120
+  }
+]

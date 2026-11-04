@@ -14,13 +14,17 @@ const COLOR_BUY := Color("3d7eff")
 const COLOR_BUY_HOVER := Color("548dff")
 const COLOR_BUY_PRESSED := Color("2c63d6")
 const COLOR_DISABLED := Color("3a4054")
+const COLOR_INCOME := Color("3ddc84")
 
 var _coins_label: Label
 var _tap_label: Label
+var _income_label: Label
 var _taxi_button: Button
 var _upgrade_list: VBoxContainer
 ## id улучшения -> подписи и кнопка этой строки.
 var _upgrade_rows: Dictionary = {}
+## id водителя -> подписи и кнопка этой строки.
+var _driver_rows: Dictionary = {}
 
 
 func _ready() -> void:
@@ -29,10 +33,14 @@ func _ready() -> void:
 	GameState.coins_changed.connect(_on_coins_changed)
 	GameState.tap_power_changed.connect(_on_tap_power_changed)
 	GameState.upgrades_changed.connect(_on_upgrades_changed)
+	GameState.drivers_changed.connect(_on_drivers_changed)
+	GameState.income_changed.connect(_on_income_changed)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
 	_on_tap_power_changed(GameState.get_tap_power())
+	_on_income_changed(GameState.get_income_per_second())
 	_refresh_upgrades()
+	_refresh_drivers()
 
 
 func _apply_theme() -> void:
@@ -94,6 +102,12 @@ func _build_ui() -> void:
 	_tap_label.add_theme_color_override("font_color", COLOR_MUTED)
 	column.add_child(_tap_label)
 
+	_income_label = Label.new()
+	_income_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_income_label.add_theme_font_size_override("font_size", 34)
+	_income_label.add_theme_color_override("font_color", COLOR_INCOME)
+	column.add_child(_income_label)
+
 	_taxi_button = Button.new()
 	_taxi_button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 	_taxi_button.custom_minimum_size = Vector2(0, 700)
@@ -121,6 +135,7 @@ func _build_ui() -> void:
 	_upgrade_list.add_theme_constant_override("separation", 16)
 	scroll.add_child(_upgrade_list)
 	_build_upgrade_rows()
+	_build_driver_rows()
 
 
 func _style_taxi_button(button: Button) -> void:
@@ -228,6 +243,85 @@ func _build_upgrade_rows() -> void:
 		_upgrade_list.add_child(_make_upgrade_row(upgrade_id, info))
 
 
+func _build_driver_rows() -> void:
+	var title := Label.new()
+	title.text = "ВОДИТЕЛИ"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_color_override("font_color", COLOR_MUTED)
+	_upgrade_list.add_child(title)
+
+	var hint := Label.new()
+	hint.text = "Водители приносят монеты сами, даже если не нажимать на такси."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 26)
+	hint.add_theme_color_override("font_color", COLOR_MUTED)
+	_upgrade_list.add_child(hint)
+
+	for raw: Variant in GameState.get_drivers():
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var info: Dictionary = raw
+		var driver_id: String = str(info.get("id", ""))
+		if driver_id == "":
+			continue
+		_upgrade_list.add_child(_make_driver_row(driver_id, info))
+
+
+func _make_driver_row(driver_id: String, info: Dictionary) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _panel_style())
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(row)
+
+	var text_box := VBoxContainer.new()
+	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_box.add_theme_constant_override("separation", 4)
+	row.add_child(text_box)
+
+	var title := Label.new()
+	title.text = str(info.get("name", driver_id))
+	title.add_theme_font_size_override("font_size", 36)
+	text_box.add_child(title)
+
+	var description := Label.new()
+	description.text = str(info.get("description", ""))
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_font_size_override("font_size", 26)
+	description.add_theme_color_override("font_color", COLOR_MUTED)
+	text_box.add_child(description)
+
+	var rate: float = float(info.get("income_per_second", 0))
+	var rate_label := Label.new()
+	rate_label.text = "Приносит %s в секунду" % GameState.format_number(rate)
+	rate_label.add_theme_font_size_override("font_size", 26)
+	rate_label.add_theme_color_override("font_color", COLOR_INCOME)
+	text_box.add_child(rate_label)
+
+	var count_label := Label.new()
+	count_label.add_theme_font_size_override("font_size", 28)
+	count_label.add_theme_color_override("font_color", COLOR_GOLD)
+	text_box.add_child(count_label)
+
+	var hire_button := Button.new()
+	hire_button.custom_minimum_size = Vector2(230, 130)
+	hire_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(hire_button)
+	hire_button.pressed.connect(_on_hire_driver.bind(driver_id))
+	row.add_child(hire_button)
+
+	_driver_rows[driver_id] = {
+		"count": count_label,
+		"button": hire_button,
+	}
+	return panel
+
+
 func _make_upgrade_row(upgrade_id: String, info: Dictionary) -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -313,17 +407,30 @@ func _on_buy_upgrade(upgrade_id: String) -> void:
 	GameState.buy_upgrade(upgrade_id)
 
 
+func _on_hire_driver(driver_id: String) -> void:
+	GameState.hire_driver(driver_id)
+
+
 func _on_coins_changed(value: float) -> void:
 	_coins_label.text = GameState.format_number(value)
 	_refresh_upgrades()
+	_refresh_drivers()
 
 
 func _on_tap_power_changed(value: float) -> void:
 	_tap_label.text = "За тап: %s" % GameState.format_number(value)
 
 
+func _on_income_changed(value: float) -> void:
+	_income_label.text = "Доход в секунду: %s" % GameState.format_number(value)
+
+
 func _on_upgrades_changed() -> void:
 	_refresh_upgrades()
+
+
+func _on_drivers_changed() -> void:
+	_refresh_drivers()
 
 
 func _refresh_upgrades() -> void:
@@ -336,3 +443,15 @@ func _refresh_upgrades() -> void:
 		var cost: float = GameState.get_upgrade_cost(id)
 		buy_button.text = "Купить\n%s" % GameState.format_number(cost)
 		buy_button.disabled = not GameState.can_buy_upgrade(id)
+
+
+func _refresh_drivers() -> void:
+	for driver_id: Variant in _driver_rows.keys():
+		var row: Dictionary = _driver_rows[driver_id]
+		var count_label: Label = row["count"]
+		var hire_button: Button = row["button"]
+		var id := str(driver_id)
+		count_label.text = "Нанято: %d" % GameState.get_driver_count(id)
+		var cost: float = GameState.get_driver_cost(id)
+		hire_button.text = "Нанять\n%s" % GameState.format_number(cost)
+		hire_button.disabled = not GameState.can_hire_driver(id)

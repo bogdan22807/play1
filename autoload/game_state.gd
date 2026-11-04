@@ -8,10 +8,17 @@ signal coins_changed(coins: float)
 signal tap_power_changed(power: float)
 ## Купили улучшение или изменился его уровень.
 signal upgrades_changed
+## Наняли водителя.
+signal drivers_changed
+## Изменился пассивный доход в секунду.
+signal income_changed(income: float)
 
 ## Сколько монет даёт тап без улучшений.
 const BASE_TAP_POWER: float = 1.0
 const UPGRADES_PATH := "res://data/upgrades.json"
+const DRIVERS_PATH := "res://data/drivers.json"
+## Если кадр завис дольше секунды, не начисляем доход за всю паузу.
+const MAX_INCOME_STEP := 1.0
 
 ## Текущие монеты игрока.
 var coins: float = 0.0
@@ -19,13 +26,31 @@ var coins: float = 0.0
 var _upgrade_defs: Array = []
 ## id улучшения -> сколько раз его купили.
 var _upgrade_levels: Dictionary = {}
+var _driver_defs: Array = []
+## id водителя -> сколько таких водителей нанято.
+var _driver_counts: Dictionary = {}
+var _income_per_second: float = 0.0
 
 
 func _ready() -> void:
 	_upgrade_defs = _read_json_array(UPGRADES_PATH)
+	_driver_defs = _read_json_array(DRIVERS_PATH)
+	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
+	drivers_changed.emit()
+
+
+## Пассивный доход капает каждый кадр и не зависит от частоты кадров.
+func _process(delta: float) -> void:
+	if _income_per_second <= 0.0:
+		return
+	var step: float = delta
+	if step > MAX_INCOME_STEP:
+		step = MAX_INCOME_STEP
+	coins += _income_per_second * step
+	coins_changed.emit(coins)
 
 
 ## Игрок нажал на такси. Возвращает, сколько монет добавилось.
@@ -87,11 +112,66 @@ func buy_upgrade(upgrade_id: String) -> bool:
 	return true
 
 
+## Список водителей из data/drivers.json.
+func get_drivers() -> Array:
+	return _driver_defs
+
+
+func get_driver_count(driver_id: String) -> int:
+	return int(_driver_counts.get(driver_id, 0))
+
+
+## Цена следующего найма этого типа. Каждый следующий водитель дороже.
+func get_driver_cost(driver_id: String) -> float:
+	var info: Dictionary = _find_def(_driver_defs, driver_id)
+	if info.is_empty():
+		return 0.0
+	var base_cost: float = float(info.get("base_cost", 1))
+	var growth: float = float(info.get("cost_growth", 1.15))
+	return _scaled_cost(base_cost, growth, get_driver_count(driver_id))
+
+
+func can_hire_driver(driver_id: String) -> bool:
+	var cost: float = get_driver_cost(driver_id)
+	return cost > 0.0 and coins + 0.001 >= cost
+
+
+func hire_driver(driver_id: String) -> bool:
+	if not can_hire_driver(driver_id):
+		return false
+	coins -= get_driver_cost(driver_id)
+	if coins < 0.0:
+		coins = 0.0
+	_driver_counts[driver_id] = get_driver_count(driver_id) + 1
+	_recalc_income()
+	coins_changed.emit(coins)
+	drivers_changed.emit()
+	return true
+
+
+func get_income_per_second() -> float:
+	return _income_per_second
+
+
+func _recalc_income() -> void:
+	var total: float = 0.0
+	for raw: Variant in _driver_defs:
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var info: Dictionary = raw
+		var driver_id: String = str(info.get("id", ""))
+		var per_second: float = float(info.get("income_per_second", 0))
+		total += per_second * float(get_driver_count(driver_id))
+	_income_per_second = total
+	income_changed.emit(_income_per_second)
+
+
 func _scaled_cost(base_cost: float, growth: float, owned: int) -> float:
 	var factor: float = growth
 	if factor <= 0.0:
 		factor = 1.15
-	var price: float = floorf(base_cost * pow(factor, float(owned)))
+	# Маленькая добавка убирает ошибку дробей: 50000 * 1.15 не должно стать 57499.
+	var price: float = floorf(base_cost * pow(factor, float(owned)) + 0.000001)
 	if price < 1.0:
 		return 1.0
 	return price
