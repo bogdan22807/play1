@@ -1477,6 +1477,7 @@ func _on_hire_driver(driver_id: String) -> void:
 
 
 func _on_coins_changed(value: float) -> void:
+	_refresh_achievements()
 	var text := GameState.format_number(value)
 	# Пока на экране та же строка, подпись не трогаем — иначе цифры двоятся.
 	if _coins_label.text == text:
@@ -1519,6 +1520,7 @@ func _on_reputation_changed(value: int) -> void:
 	if _reputation_label != null:
 		_reputation_label.text = "Репутация: %d" % value
 	_refresh_regions()
+	_refresh_achievements()
 
 
 func _refresh_upgrades() -> void:
