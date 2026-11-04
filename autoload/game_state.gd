@@ -38,10 +38,11 @@ const BALANCE_PATH := "res://data/balance.json"
 const DAILY_COINS := 250.0
 ## Сколько тапов нужно для +1 репутации.
 const TAPS_PER_REPUTATION := 20
-## Сколько монет забега дают +1 к множителю франшизы.
-const FRANCHISE_PER_EARNED := 10000.0
-## Меньше этой суммы компанию продать нельзя.
-const MIN_RUN_TO_SELL := 1000.0
+## Франшиза = 1 + 0.5 * корень из заработка всех забегов, делённого на эту сумму.
+const FRANCHISE_REFERENCE := 1000000.0
+const FRANCHISE_SQRT_WEIGHT := 0.5
+## Продавать можно, когда новая франшиза больше текущей хотя бы на 10%.
+const FRANCHISE_MIN_STEP := 1.1
 ## Если кадр завис дольше секунды, не начисляем доход за всю паузу.
 const MAX_INCOME_STEP := 1.0
 const SAVE_PATH := "user://save.json"
@@ -563,20 +564,33 @@ func get_run_earned() -> float:
 	return run_earned
 
 
-## На сколько вырастет франшиза, если продать компанию прямо сейчас.
-func get_prestige_bonus() -> float:
-	return run_earned / FRANCHISE_PER_EARNED
+## Какой множитель зафиксируется, если продать компанию сейчас.
+func get_preview_franchise() -> float:
+	var earned: float = maxf(0.0, lifetime_earned)
+	return 1.0 + FRANCHISE_SQRT_WEIGHT * sqrt(earned / FRANCHISE_REFERENCE)
 
 
 func can_sell_company() -> bool:
-	return run_earned + 0.001 >= MIN_RUN_TO_SELL
+	return get_preview_franchise() + 0.000001 >= franchise * FRANCHISE_MIN_STEP
+
+
+## Почему кнопка продажи выключена. Пустая строка, если продать уже можно.
+func get_sell_block_reason() -> String:
+	if can_sell_company():
+		return ""
+	var preview: float = get_preview_franchise()
+	var need: float = franchise * FRANCHISE_MIN_STEP
+	return "Сейчас стало бы ×%s. Нужно хотя бы ×%s, это +10%% к текущей франшизе." % [
+		format_number(preview),
+		format_number(need),
+	]
 
 
 ## Сбрасывает забег и прибавляет франшизу. Сама франшиза остаётся.
 func sell_company() -> bool:
 	if not can_sell_company():
 		return false
-	franchise += get_prestige_bonus()
+	franchise = get_preview_franchise()
 	coins = 0.0
 	run_earned = 0.0
 	_upgrade_levels.clear()
@@ -754,6 +768,17 @@ func load_game() -> void:
 	_owned_competitors = _read_count_dict(data.get("competitors", {}))
 	run_taps = _read_run_taps(data)
 	_sync_reputation()
+	franchise = maxf(1.0, float(data.get("franchise", 1.0)))
+	# Старое сохранение без поля: уже лежащие монеты считаем заработком забега.
+	run_earned = maxf(0.0, float(data.get("run_earned", coins)))
+	lifetime_earned = maxf(run_earned, float(data.get("lifetime_earned", run_earned)))
+	_done_achievements = _read_id_set(data.get("achievements", []))
+	_last_daily_day = maxi(0, int(data.get("last_daily_day", 0)))
+	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
+	var saved_offline: float = maxf(0.0, float(data.get("pending_offline_coins", 0)))
+	var saved_seconds: float = maxf(0.0, float(data.get("pending_offline_seconds", 0)))
+	_refresh_offline_reward(saved_offline, saved_seconds)
+	_fold_offline_dust()
 
 
 ## Старое сохранение не хранило число тапов. Собираем его из счётчика репутации,
@@ -767,17 +792,6 @@ func _read_run_taps(data: Dictionary) -> int:
 	var remainder: int = int(data.get("reputation_taps", 0))
 	remainder = clampi(remainder, 0, TAPS_PER_REPUTATION - 1)
 	return from_taps * TAPS_PER_REPUTATION + remainder
-	franchise = maxf(1.0, float(data.get("franchise", 1.0)))
-	# Старое сохранение без поля: уже лежащие монеты считаем заработком забега.
-	run_earned = maxf(0.0, float(data.get("run_earned", coins)))
-	lifetime_earned = maxf(run_earned, float(data.get("lifetime_earned", run_earned)))
-	_done_achievements = _read_id_set(data.get("achievements", []))
-	_last_daily_day = maxi(0, int(data.get("last_daily_day", 0)))
-	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
-	var saved_offline: float = maxf(0.0, float(data.get("pending_offline_coins", 0)))
-	var saved_seconds: float = maxf(0.0, float(data.get("pending_offline_seconds", 0)))
-	_refresh_offline_reward(saved_offline, saved_seconds)
-	_fold_offline_dust()
 
 
 func get_achievements() -> Array:

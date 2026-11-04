@@ -25,7 +25,6 @@ const PAGE_MARKET := 4
 
 var _coins_label: Label
 var _tap_label: Label
-var _income_label: Label
 var _reputation_label: Label
 var _taxi_button: Button
 var _tap_page: Control
@@ -35,7 +34,11 @@ var _city_page: Control
 var _market_page: Control
 var _upgrade_list: VBoxContainer
 var _driver_list: VBoxContainer
-var _city_list: VBoxContainer
+var _district_list: VBoxContainer
+var _world_list: VBoxContainer
+var _achievement_list: VBoxContainer
+var _city_sections: Array[Control] = []
+var _city_section_buttons: Array[Button] = []
 var _market_list: VBoxContainer
 var _multiplier_label: Label
 var _tab_buttons: Array[Button] = []
@@ -54,7 +57,6 @@ var _competitor_rows: Dictionary = {}
 var _notice_layer: Control
 var _notice_title: Label
 var _notice_body: Label
-var _franchise_label: Label
 var _sell_info: Label
 var _sell_button: Button
 var _sell_layer: Control
@@ -173,10 +175,9 @@ func _build_ui() -> void:
 	_driver_list = _drivers_page.get_child(0).get_child(0) as VBoxContainer
 	_build_driver_rows()
 
-	_city_page = _build_scroll_page()
+	_city_page = _build_city_page()
 	_city_page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	pages.add_child(_city_page)
-	_city_list = _city_page.get_child(0).get_child(0) as VBoxContainer
 	_build_city_rows()
 
 	_market_page = _build_scroll_page()
@@ -205,16 +206,9 @@ func _build_header() -> HBoxContainer:
 	text_box.add_theme_constant_override("separation", 0)
 	header.add_child(text_box)
 
-	var caption := Label.new()
-	caption.text = "МОНЕТЫ"
-	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	caption.add_theme_font_size_override("font_size", 28)
-	caption.add_theme_color_override("font_color", COLOR_MUTED)
-	text_box.add_child(caption)
-
 	# Фиксированная рамка: одна надпись не прыгает по ширине и не оставляет старые цифры.
 	var coin_frame := Control.new()
-	coin_frame.custom_minimum_size = Vector2(0, 100)
+	coin_frame.custom_minimum_size = Vector2(0, 72)
 	coin_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	coin_frame.clip_contents = true
 	text_box.add_child(coin_frame)
@@ -225,39 +219,29 @@ func _build_header() -> HBoxContainer:
 	_coins_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_coins_label.clip_contents = true
 	_coins_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_coins_label.add_theme_font_size_override("font_size", 80)
+	_coins_label.add_theme_font_size_override("font_size", 64)
 	_coins_label.add_theme_color_override("font_color", COLOR_GOLD)
 	coin_frame.add_child(_coins_label)
 
 	_tap_label = Label.new()
 	_tap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_tap_label.add_theme_font_size_override("font_size", 30)
+	_tap_label.add_theme_font_size_override("font_size", 26)
 	_tap_label.add_theme_color_override("font_color", COLOR_MUTED)
 	text_box.add_child(_tap_label)
 
-	_income_label = Label.new()
-	_income_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_income_label.add_theme_font_size_override("font_size", 32)
-	_income_label.add_theme_color_override("font_color", COLOR_INCOME)
-	text_box.add_child(_income_label)
-
 	_reputation_label = Label.new()
 	_reputation_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_reputation_label.add_theme_font_size_override("font_size", 30)
-	_reputation_label.add_theme_color_override("font_color", Color("8eb6ff"))
+	_reputation_label.add_theme_font_size_override("font_size", 26)
+	_reputation_label.add_theme_color_override("font_color", Color("c5d4f5"))
 	text_box.add_child(_reputation_label)
 
-	_franchise_label = Label.new()
-	_franchise_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_franchise_label.add_theme_font_size_override("font_size", 28)
-	_franchise_label.add_theme_color_override("font_color", COLOR_GOLD)
-	text_box.add_child(_franchise_label)
-
 	var settings_button := Button.new()
-	settings_button.text = "Настройки"
-	settings_button.custom_minimum_size = Vector2(250, 120)
+	settings_button.text = "⚙"
+	settings_button.tooltip_text = "Настройки"
+	settings_button.custom_minimum_size = Vector2(84, 84)
 	settings_button.focus_mode = Control.FOCUS_NONE
 	_style_plain_button(settings_button, COLOR_PANEL)
+	settings_button.add_theme_font_size_override("font_size", 40)
 	settings_button.add_theme_color_override("font_color", Color.WHITE)
 	settings_button.add_theme_color_override("font_hover_color", Color.WHITE)
 	settings_button.add_theme_color_override("font_pressed_color", Color.WHITE)
@@ -556,26 +540,29 @@ func _make_sell_panel() -> PanelContainer:
 func _refresh_sell() -> void:
 	if _sell_info == null:
 		return
-	var bonus: float = GameState.get_prestige_bonus()
 	var now: float = GameState.get_franchise()
-	_sell_info.text = "Заработано за забег: %s\nФраншиза сейчас: ×%s\nПосле продажи станет ×%s" % [
-		GameState.format_number(GameState.get_run_earned()),
+	var preview: float = GameState.get_preview_franchise()
+	_sell_info.text = "Заработано за все забеги: %s\nБыло ×%s → станет ×%s" % [
+		GameState.format_number(GameState.lifetime_earned),
 		GameState.format_number(now),
-		GameState.format_number(now + bonus),
+		GameState.format_number(preview),
 	]
+	var reason: String = GameState.get_sell_block_reason()
+	if reason != "":
+		_sell_info.text += "\n" + reason
 	_sell_button.disabled = not GameState.can_sell_company()
 	if _sell_button.disabled:
-		_sell_button.text = "Нужно заработать %s" % GameState.format_number(1000.0)
+		_sell_button.text = "Рано продавать"
 	else:
 		_sell_button.text = "Продать компанию"
 
 
 func _ask_sell() -> void:
-	var bonus: float = GameState.get_prestige_bonus()
 	var now: float = GameState.get_franchise()
-	_sell_body.text = "Монеты, улучшения, водители, районы, регионы и выкуп обнулятся.\nРепутация тоже начнётся заново.\n\nБонус этого забега: +%s\nФраншиза станет ×%s и останется навсегда." % [
-		GameState.format_number(bonus),
-		GameState.format_number(now + bonus),
+	var preview: float = GameState.get_preview_franchise()
+	_sell_body.text = "Монеты, улучшения, водители, районы, регионы и выкуп обнулятся.\nРепутация тоже начнётся заново.\n\nФраншиза: ×%s → ×%s" % [
+		GameState.format_number(now),
+		GameState.format_number(preview),
 	]
 	_sell_layer.visible = true
 
@@ -591,8 +578,8 @@ func _close_sell() -> void:
 	_sell_layer.visible = false
 
 
-func _on_franchise_changed(value: float) -> void:
-	_franchise_label.text = "Франшиза: ×%s" % GameState.format_number(value)
+func _on_franchise_changed(_value: float) -> void:
+	_refresh_meta_line()
 	_refresh_sell()
 
 
@@ -691,6 +678,69 @@ func _close_notice() -> void:
 	_notice_layer.visible = false
 
 
+func _build_city_page() -> Control:
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override("separation", 12)
+	page.add_child(_build_city_switch())
+
+	var stack := Control.new()
+	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page.add_child(stack)
+
+	var district_page := _build_scroll_page()
+	var world_page := _build_scroll_page()
+	var achievement_page := _build_scroll_page()
+	_city_sections = [district_page, world_page, achievement_page]
+	for section: Control in _city_sections:
+		section.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		stack.add_child(section)
+	_district_list = district_page.get_child(0).get_child(0) as VBoxContainer
+	_world_list = world_page.get_child(0).get_child(0) as VBoxContainer
+	_achievement_list = achievement_page.get_child(0).get_child(0) as VBoxContainer
+	_show_city_section(0)
+	return page
+
+
+func _build_city_switch() -> HBoxContainer:
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 8)
+	_city_section_buttons = [
+		_make_section_button("Районы"),
+		_make_section_button("Мир"),
+		_make_section_button("Достижения"),
+	]
+	for index in _city_section_buttons.size():
+		var button: Button = _city_section_buttons[index]
+		button.pressed.connect(_show_city_section.bind(index))
+		bar.add_child(button)
+	return bar
+
+
+func _make_section_button(title: String) -> Button:
+	var button := Button.new()
+	button.text = title
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.custom_minimum_size = Vector2(0, 72)
+	button.focus_mode = Control.FOCUS_NONE
+	button.add_theme_font_size_override("font_size", 26)
+	return button
+
+
+func _show_city_section(index: int) -> void:
+	for section_index in _city_sections.size():
+		_city_sections[section_index].visible = section_index == index
+		var button: Button = _city_section_buttons[section_index]
+		var active: bool = section_index == index
+		var background: Color = COLOR_TAXI if active else COLOR_PANEL
+		var font_color: Color = COLOR_INK if active else Color.WHITE
+		_style_plain_button(button, background)
+		button.add_theme_color_override("font_color", font_color)
+		button.add_theme_color_override("font_hover_color", font_color)
+		button.add_theme_color_override("font_pressed_color", font_color)
+		button.add_theme_color_override("font_focus_color", font_color)
+
+
 func _build_city_rows() -> void:
 	for raw: Variant in GameState.get_cities():
 		if typeof(raw) != TYPE_DICTIONARY:
@@ -700,7 +750,7 @@ func _build_city_rows() -> void:
 		title.text = str(city.get("name", "Город"))
 		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		title.add_theme_font_size_override("font_size", 42)
-		_city_list.add_child(title)
+		_district_list.add_child(title)
 
 		var about := Label.new()
 		about.text = str(city.get("description", ""))
@@ -708,13 +758,13 @@ func _build_city_rows() -> void:
 		about.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		about.add_theme_font_size_override("font_size", 26)
 		about.add_theme_color_override("font_color", COLOR_MUTED)
-		_city_list.add_child(about)
+		_district_list.add_child(about)
 
 		_multiplier_label = Label.new()
 		_multiplier_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_multiplier_label.add_theme_font_size_override("font_size", 32)
 		_multiplier_label.add_theme_color_override("font_color", COLOR_INCOME)
-		_city_list.add_child(_multiplier_label)
+		_district_list.add_child(_multiplier_label)
 
 		var districts: Variant = city.get("districts", [])
 		if typeof(districts) != TYPE_ARRAY:
@@ -726,7 +776,7 @@ func _build_city_rows() -> void:
 			var district_id: String = str(info.get("id", ""))
 			if district_id == "":
 				continue
-			_city_list.add_child(_make_district_row(district_id, info))
+			_district_list.add_child(_make_district_row(district_id, info))
 	_build_region_rows()
 	_build_achievement_rows()
 
@@ -781,7 +831,7 @@ func _build_region_rows() -> void:
 	title.text = "МИР"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 42)
-	_city_list.add_child(title)
+	_world_list.add_child(title)
 
 	var hint := Label.new()
 	hint.text = "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого нанятого водителя."
@@ -789,7 +839,7 @@ func _build_region_rows() -> void:
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 26)
 	hint.add_theme_color_override("font_color", COLOR_MUTED)
-	_city_list.add_child(hint)
+	_world_list.add_child(hint)
 
 	for raw: Variant in GameState.get_regions():
 		if typeof(raw) != TYPE_DICTIONARY:
@@ -798,7 +848,7 @@ func _build_region_rows() -> void:
 		var region_id: String = str(info.get("id", ""))
 		if region_id == "":
 			continue
-		_city_list.add_child(_make_region_row(region_id, info))
+		_world_list.add_child(_make_region_row(region_id, info))
 
 
 func _make_region_row(region_id: String, info: Dictionary) -> PanelContainer:
@@ -1149,7 +1199,7 @@ func _build_achievement_rows() -> void:
 	title.text = "ДОСТИЖЕНИЯ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 42)
-	_city_list.add_child(title)
+	_achievement_list.add_child(title)
 
 	for raw: Variant in GameState.get_achievements():
 		if typeof(raw) != TYPE_DICTIONARY:
@@ -1165,7 +1215,7 @@ func _build_achievement_rows() -> void:
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.add_theme_font_size_override("font_size", 28)
 		panel.add_child(label)
-		_city_list.add_child(panel)
+		_achievement_list.add_child(panel)
 		_achievement_labels[achievement_id] = label
 
 
@@ -1356,6 +1406,7 @@ func _show_page(page: int) -> void:
 		button.add_theme_color_override("font_color", font_color)
 		button.add_theme_color_override("font_hover_color", font_color)
 		button.add_theme_color_override("font_pressed_color", font_color)
+		button.add_theme_color_override("font_focus_color", font_color)
 
 
 func _style_plain_button(button: Button, color: Color) -> void:
@@ -1491,12 +1542,26 @@ func _on_coins_changed(value: float) -> void:
 	_refresh_sell()
 
 
-func _on_tap_power_changed(value: float) -> void:
-	_tap_label.text = "За тап: %s" % GameState.format_number(value)
+func _on_tap_power_changed(_value: float) -> void:
+	_refresh_rate_line()
 
 
-func _on_income_changed(value: float) -> void:
-	_income_label.text = "Доход в секунду: %s" % GameState.format_number(value)
+func _on_income_changed(_value: float) -> void:
+	_refresh_rate_line()
+
+
+func _refresh_rate_line() -> void:
+	_tap_label.text = "За тап: %s  ·  В секунду: %s" % [
+		GameState.format_number(GameState.get_tap_power()),
+		GameState.format_number(GameState.get_income_per_second()),
+	]
+
+
+func _refresh_meta_line() -> void:
+	_reputation_label.text = "Репутация: %d  ·  Франшиза: ×%s" % [
+		GameState.reputation,
+		GameState.format_number(GameState.get_franchise()),
+	]
 
 
 func _on_upgrades_changed() -> void:
@@ -1516,9 +1581,8 @@ func _on_regions_changed() -> void:
 	_refresh_districts()
 
 
-func _on_reputation_changed(value: int) -> void:
-	if _reputation_label != null:
-		_reputation_label.text = "Репутация: %d" % value
+func _on_reputation_changed(_value: int) -> void:
+	_refresh_meta_line()
 	_refresh_regions()
 	_refresh_achievements()
 
