@@ -52,6 +52,8 @@ class Player:
         self.cities = load("cities.json")
         self.regions = load("regions.json")
         self.competitors = load("competitors.json")
+        self.market = load("market.json")
+        self.captured_at = None
         balance = load("balance.json")
         self.tap_from_income = float(balance.get("tap_from_income", 0.01))
         self.rent_share = float(balance.get("car_rent_share", 0.3))
@@ -103,6 +105,8 @@ class Player:
         rival = 1.0 + sum(
             item["income_bonus"] for item in self.competitors if item["id"] in self.owned_competitors
         )
+        if self.captured_at is not None:
+            rival += float(self.market.get("capture_bonus", 0.25))
         rating = 1.0 + (KEPT_RATING - 4.0) * self.rating_per_star
         return district * region * rival * self.franchise * rating
 
@@ -139,6 +143,19 @@ class Player:
     def tap_power(self):
         ride = self.flat_tap() * self.car_factor() * self.multiplier() * (1.0 - self.tap_upkeep)
         return ride + self.passive() * self.tap_from_income
+
+    def player_power(self):
+        ride = self.flat_tap() * self.car_factor() * self.multiplier()
+        return self.passive() + ride * float(self.market.get("player_tap_rate", 3))
+
+    def rival_power(self, item):
+        return 0.0 if item["id"] in self.owned_competitors else float(item["power"])
+
+    def share(self, item=None):
+        total = self.player_power() + sum(self.rival_power(other) for other in self.competitors)
+        if total <= 0:
+            return 0.0
+        return (self.player_power() if item is None else self.rival_power(item)) / total
 
     def reputation(self):
         return self.taps // TAPS_PER_REPUTATION + self.team
@@ -217,7 +234,7 @@ class Player:
         for item in self.regions:
             if item["id"] in self.open_regions:
                 continue
-            if rep < item["reputation"]:
+            if rep < item["reputation"] or self.captured_at is None:
                 continue
             current = 1.0 + sum(
                 other["income_bonus"] for other in self.regions if other["id"] in self.open_regions
@@ -233,7 +250,10 @@ class Player:
             )
             ratio = (current + item["income_bonus"]) / current
             gain = dps * (ratio - 1.0)
-            cost = float(item["base_cost"])
+            cost = math.ceil(float(item["base_cost"]) * (
+                float(self.market.get("buyout_cost_base", 0.4))
+                + float(self.market.get("buyout_cost_per_share", 2.0)) * self.share(item)
+            ))
             found.append(("competitor", item["id"], item["name"], cost, gain / cost if cost else 0.0))
         return found
 
@@ -298,6 +318,12 @@ class Player:
         self.lifetime += gained
         self.taps += int(TAPS_PER_SECOND * DT)
         self.time += DT
+        if self.captured_at is None and (
+            self.share() >= float(self.market.get("capture_share", 0.5))
+            or len(self.owned_competitors) == len(self.competitors)
+        ):
+            self.captured_at = self.time
+            self.log.append((self.time, "Захват", self.market.get("home_city", "город"), self.share()))
         self.buy_best()
 
     def run(self):

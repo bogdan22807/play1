@@ -1,0 +1,98 @@
+{
+  "home_city": "Бангкок",
+  "player_tap_rate": 3,
+  "capture_share": 0.5,
+  "capture_bonus": 0.25,
+  "buyout_cost_base": 0.4,
+  "buyout_cost_per_share": 2.0,
+  "trick_cooldown_seconds": 60,
+  "buyout_cooldown_seconds": 60,
+  "caught_rating_hit": 0.3,
+  "caught_fine_mult": 2.0,
+  "revenge_health_hit": 0.15,
+  "revenge_rating_hit": 0.4,
+  "personalities": {
+    "aggressive": {
+      "refuse": 0.5,
+      "catch_bonus": 0.0,
+      "revenge_chance": 0.5,
+      "revenge": "health"
+    },
+    "cunning": {
+      "refuse": 0.6,
+      "catch_bonus": 0.15,
+      "revenge_chance": 0.35,
+      "revenge": "rating"
+    },
+    "family": {
+      "refuse": 0.4,
+      "catch_bonus": -0.1,
+      "revenge_chance": 0.0,
+      "revenge": ""
+    }
+  },
+  "ads": [
+    {
+      "id": "flyers",
+      "name": "Листовки на рынке",
+      "description": "Бабушка Ним раздаёт листовки вместе с манго.",
+      "price_seconds": 60,
+      "min_price": 200,
+      "boost": 0.3,
+      "duration": 300
+    },
+    {
+      "id": "billboard",
+      "name": "Билборд у аэропорта",
+      "description": "Ваше название трёхметровыми буквами. Одна буква с ошибкой, зато заметно.",
+      "price_seconds": 240,
+      "min_price": 2000,
+      "boost": 0.8,
+      "duration": 600
+    },
+    {
+      "id": "tv",
+      "name": "Ролик на ТВ",
+      "description": "Таксист танцует со слоном. Почему — никто не знает, но запоминается.",
+      "price_seconds": 900,
+      "min_price": 20000,
+      "boost": 2.0,
+      "duration": 900
+    }
+  ],
+  "tricks": [
+    {
+      "id": "nails",
+      "name": "Гвозди на стоянке",
+      "description": "Их машины полдня стоят на домкратах.",
+      "price_seconds": 30,
+      "min_price": 100,
+      "cut": 0.25,
+      "duration": 300,
+      "catch": 0.2,
+      "permanent": false
+    },
+    {
+      "id": "pies",
+      "name": "Переманить водителя пирожками",
+      "description": "Их лучший водитель теперь возит ваших пассажиров. Навсегда.",
+      "price_seconds": 120,
+      "min_price": 500,
+      "cut": 0.1,
+      "duration": 0,
+      "catch": 0.3,
+      "permanent": true
+    },
+    {
+      "id": "rumor",
+      "name": "Слух в соцсетях",
+      "description": "«В их такси водитель поёт оперу». Половина города верит.",
+      "price_seconds": 90,
+      "min_price": 300,
+      "cut": 0.4,
+      "duration": 600,
+      "catch": 0.35,
+      "permanent": false
+    }
+  ]
+}
