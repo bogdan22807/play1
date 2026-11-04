@@ -6,7 +6,7 @@
     "personality": "aggressive",
     "personality_name": "Агрессивный",
     "description": "Держит ночные стоянки у вокзала и не пускает чужих.",
-    "base_cost": 25000,
+    "base_cost": 900000,
     "income_bonus": 0.5,
     "refuse_text": "Ещё чего. Мои машины не продаются.",
     "success_text": "Ладно, забирай стоянку. Водители остаются при деньгах."

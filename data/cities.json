@@ -8,35 +8,35 @@
         "id": "center",
         "name": "Центр",
         "description": "Короткие поездки и чаевые у кафе.",
-        "cost": 100,
+        "cost": 120,
         "income_bonus": 0.1
       },
       {
         "id": "station",
         "name": "Вокзал",
         "description": "Люди с чемоданами не торгуются.",
-        "cost": 800,
+        "cost": 900,
         "income_bonus": 0.15
       },
       {
         "id": "airport",
         "name": "Аэропорт",
         "description": "Дальние рейсы и ночные доплаты.",
-        "cost": 5000,
+        "cost": 7000,
         "income_bonus": 0.25
       },
       {
         "id": "sleep",
         "name": "Спальный район",
         "description": "Утром все едут на работу разом.",
-        "cost": 25000,
+        "cost": 42000,
         "income_bonus": 0.4
       },
       {
         "id": "business",
         "name": "Деловой квартал",
         "description": "Корпоративные счета без сдачи.",
-        "cost": 120000,
+        "cost": 210000,
         "income_bonus": 0.75
       }
     ]

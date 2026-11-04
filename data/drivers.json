@@ -4,7 +4,7 @@
     "name": "Стажёр",
     "description": "Только получил права и ездит осторожно.",
     "base_cost": 30,
-    "cost_growth": 1.15,
+    "cost_growth": 1.16,
     "income_per_second": 0.5
   },
   {
@@ -12,7 +12,7 @@
     "name": "Водитель",
     "description": "Знает короткие пути по району.",
     "base_cost": 250,
-    "cost_growth": 1.15,
+    "cost_growth": 1.18,
     "income_per_second": 3
   },
   {
@@ -20,7 +20,7 @@
     "name": "Ветеран",
     "description": "Десять лет за рулём и без аварий.",
     "base_cost": 4000,
-    "cost_growth": 1.15,
+    "cost_growth": 1.22,
     "income_per_second": 20
   },
   {
@@ -28,7 +28,7 @@
     "name": "Ночной ас",
     "description": "Берёт заказы, когда город уже спит.",
     "base_cost": 50000,
-    "cost_growth": 1.15,
+    "cost_growth": 1.28,
     "income_per_second": 120
   },
   {
@@ -36,7 +36,7 @@
     "name": "Бригадир",
     "description": "Раздаёт смены и не даёт машинам простаивать.",
     "base_cost": 450000,
-    "cost_growth": 1.15,
+    "cost_growth": 1.32,
     "income_per_second": 1000
   },
   {
@@ -44,7 +44,7 @@
     "name": "Начальник колонны",
     "description": "Держит десятки машин на линии.",
     "base_cost": 4000000,
-    "cost_growth": 1.15,
+    "cost_growth": 1.36,
     "income_per_second": 9000
   },
   {
@@ -52,7 +52,7 @@
     "name": "Автоколонна",
     "description": "Свой парк, своя мойка и ночная диспетчерская.",
     "base_cost": 35000000,
-    "cost_growth": 1.15,
+    "cost_growth": 1.4,
     "income_per_second": 80000
   },
   {
@@ -60,7 +60,7 @@
     "name": "Сеть парков",
     "description": "Заказы идут из нескольких городов сразу.",
     "base_cost": 300000000,
-    "cost_growth": 1.15,
+    "cost_growth": 1.45,
     "income_per_second": 700000
   },
   {
@@ -68,7 +68,7 @@
     "name": "Холдинг",
     "description": "Такси, грузовые и корпоративные контракты.",
     "base_cost": 2500000000,
-    "cost_growth": 1.15,
+    "cost_growth": 1.5,
     "income_per_second": 6000000
   }
 ]
