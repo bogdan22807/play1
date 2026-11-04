@@ -149,11 +149,22 @@ func _build_header() -> HBoxContainer:
 	caption.add_theme_color_override("font_color", COLOR_MUTED)
 	text_box.add_child(caption)
 
+	# Фиксированная рамка: одна надпись не прыгает по ширине и не оставляет старые цифры.
+	var coin_frame := Control.new()
+	coin_frame.custom_minimum_size = Vector2(0, 100)
+	coin_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	coin_frame.clip_contents = true
+	text_box.add_child(coin_frame)
+
 	_coins_label = Label.new()
+	_coins_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_coins_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_coins_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_coins_label.clip_contents = true
+	_coins_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_coins_label.add_theme_font_size_override("font_size", 80)
 	_coins_label.add_theme_color_override("font_color", COLOR_GOLD)
-	text_box.add_child(_coins_label)
+	coin_frame.add_child(_coins_label)
 
 	_tap_label = Label.new()
 	_tap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -762,7 +773,11 @@ func _on_hire_driver(driver_id: String) -> void:
 
 
 func _on_coins_changed(value: float) -> void:
-	_coins_label.text = GameState.format_number(value)
+	var text := GameState.format_number(value)
+	# Пока на экране та же строка, подпись не трогаем — иначе цифры двоятся.
+	if _coins_label.text == text:
+		return
+	_coins_label.text = text
 	_refresh_upgrades()
 	_refresh_drivers()
 
