@@ -12,6 +12,8 @@ signal upgrades_changed
 signal drivers_changed
 ## Изменился пассивный доход в секунду.
 signal income_changed(income: float)
+## Пора показать окно «Пока вас не было».
+signal offline_reward_ready
 
 ## Сколько монет даёт тап без улучшений.
 const BASE_TAP_POWER: float = 1.0
@@ -21,6 +23,10 @@ const DRIVERS_PATH := "res://data/drivers.json"
 const MAX_INCOME_STEP := 1.0
 const SAVE_PATH := "user://save.json"
 const AUTOSAVE_SECONDS := 10.0
+## Доход копится не дольше 8 часов отсутствия.
+const MAX_OFFLINE_SECONDS := 8.0 * 60.0 * 60.0
+## Короткий перезапуск не показывает окно.
+const MIN_OFFLINE_SECONDS := 5
 
 ## Текущие монеты игрока.
 var coins: float = 0.0
@@ -32,9 +38,15 @@ var _driver_defs: Array = []
 ## id водителя -> сколько таких водителей нанято.
 var _driver_counts: Dictionary = {}
 var _income_per_second: float = 0.0
-## Время последнего сохранения. Нужно, чтобы потом посчитать офлайн-доход.
+## Время последнего сохранения. От него считаем, сколько игра не работала.
 var _last_exit_unix: int = 0
 var _autosave_left: float = AUTOSAVE_SECONDS
+## Награда за отсутствие. В монеты попадает только после кнопки «Забрать».
+var _offline_coins: float = 0.0
+var _offline_seconds: float = 0.0
+var _offline_capped: bool = false
+## Телефон свернули: пока игра на паузе, доход в _process не капает.
+var _paused_in_background: bool = false
 
 
 func _ready() -> void:
@@ -64,8 +76,21 @@ func _process(delta: float) -> void:
 
 ## Сворачивание, уход в фон и закрытие окна сразу пишут сохранение.
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_PAUSED:
+		_paused_in_background = true
+		save_game()
+		return
+	if what == NOTIFICATION_APPLICATION_RESUMED and _paused_in_background:
+		_paused_in_background = false
+		# Пока игра была свёрнута, _process не шёл. Догоняем это время один раз.
+		_refresh_offline_reward()
+		if _fold_offline_dust():
+			coins_changed.emit(coins)
+		if has_offline_reward():
+			offline_reward_ready.emit()
+		save_game()
+		return
 	if what == NOTIFICATION_WM_CLOSE_REQUEST \
-			or what == NOTIFICATION_APPLICATION_PAUSED \
 			or what == NOTIFICATION_APPLICATION_FOCUS_OUT \
 			or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT \
 			or what == NOTIFICATION_WM_GO_BACK_REQUEST:
@@ -174,7 +199,53 @@ func get_income_per_second() -> float:
 	return _income_per_second
 
 
-func _recalc_income() -> void:
+func has_offline_reward() -> bool:
+	return _offline_coins >= 1.0
+
+
+func get_offline_coins() -> float:
+	return _offline_coins
+
+
+func get_offline_seconds() -> float:
+	return _offline_seconds
+
+
+func is_offline_capped() -> bool:
+	return _offline_capped
+
+
+## Стирает прогресс и сразу записывает пустое сохранение. Кнопка лежит в настройках.
+func reset_progress() -> void:
+	coins = 0.0
+	_upgrade_levels.clear()
+	_driver_counts.clear()
+	_offline_coins = 0.0
+	_offline_seconds = 0.0
+	_offline_capped = false
+	_recalc_income()
+	coins_changed.emit(coins)
+	tap_power_changed.emit(get_tap_power())
+	upgrades_changed.emit()
+	drivers_changed.emit()
+	save_game()
+
+
+## Игрок нажал «Забрать». До этого момента монеты за отсутствие только ждут.
+func collect_offline_reward() -> float:
+	var amount: float = _offline_coins
+	if amount <= 0.0:
+		return 0.0
+	coins += amount
+	_offline_coins = 0.0
+	_offline_seconds = 0.0
+	_offline_capped = false
+	coins_changed.emit(coins)
+	save_game()
+	return amount
+
+
+func _sum_income() -> float:
 	var total: float = 0.0
 	for raw: Variant in _driver_defs:
 		if typeof(raw) != TYPE_DICTIONARY:
@@ -183,8 +254,50 @@ func _recalc_income() -> void:
 		var driver_id: String = str(info.get("id", ""))
 		var per_second: float = float(info.get("income_per_second", 0))
 		total += per_second * float(get_driver_count(driver_id))
-	_income_per_second = total
+	return total
+
+
+func _recalc_income() -> void:
+	_income_per_second = _sum_income()
 	income_changed.emit(_income_per_second)
+
+
+## Считает награду: старое ожидание плюс время с последнего сохранения, но не больше 8 часов.
+func _refresh_offline_reward(saved_coins: float = -1.0, saved_seconds: float = -1.0) -> void:
+	var base_coins: float = _offline_coins if saved_coins < 0.0 else saved_coins
+	var base_seconds: float = _offline_seconds if saved_seconds < 0.0 else saved_seconds
+	var gap: int = 0
+	if _last_exit_unix > 0:
+		gap = int(Time.get_unix_time_from_system()) - _last_exit_unix
+		if gap < 0:
+			gap = 0
+	var total_seconds: float = base_seconds + float(gap)
+	_offline_capped = total_seconds > MAX_OFFLINE_SECONDS
+	if _offline_capped:
+		total_seconds = MAX_OFFLINE_SECONDS
+	var income: float = _sum_income()
+	if total_seconds < float(MIN_OFFLINE_SECONDS) or income <= 0.0:
+		if base_coins >= 1.0:
+			_offline_coins = base_coins
+			_offline_seconds = base_seconds
+			return
+		_offline_coins = 0.0
+		_offline_seconds = 0.0
+		_offline_capped = false
+		return
+	_offline_seconds = total_seconds
+	_offline_coins = income * total_seconds
+
+
+## Копейки за пару секунд кладём в кошелёк без окна.
+func _fold_offline_dust() -> bool:
+	if _offline_coins <= 0.0 or _offline_coins >= 1.0:
+		return false
+	coins += _offline_coins
+	_offline_coins = 0.0
+	_offline_seconds = 0.0
+	_offline_capped = false
+	return true
 
 
 func _scaled_cost(base_cost: float, growth: float, owned: int) -> float:
@@ -216,6 +329,8 @@ func save_game() -> void:
 		"upgrades": _upgrade_levels.duplicate(),
 		"drivers": _driver_counts.duplicate(),
 		"last_exit_unix": _last_exit_unix,
+		"pending_offline_coins": _offline_coins,
+		"pending_offline_seconds": _offline_seconds,
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -243,6 +358,10 @@ func load_game() -> void:
 	_upgrade_levels = _read_count_dict(data.get("upgrades", {}))
 	_driver_counts = _read_count_dict(data.get("drivers", {}))
 	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
+	var saved_offline: float = maxf(0.0, float(data.get("pending_offline_coins", 0)))
+	var saved_seconds: float = maxf(0.0, float(data.get("pending_offline_seconds", 0)))
+	_refresh_offline_reward(saved_offline, saved_seconds)
+	_fold_offline_dust()
 
 
 func _read_count_dict(raw: Variant) -> Dictionary:
