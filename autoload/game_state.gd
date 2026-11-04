@@ -22,6 +22,7 @@ signal reputation_changed(reputation: int)
 signal regions_changed
 ## Выкупили конкурента или он отказал.
 signal competitors_changed
+signal franchise_changed(franchise: float)
 
 ## Сколько монет даёт тап без улучшений.
 const BASE_TAP_POWER: float = 1.0
@@ -32,6 +33,10 @@ const REGIONS_PATH := "res://data/regions.json"
 const COMPETITORS_PATH := "res://data/competitors.json"
 ## Сколько тапов нужно для +1 репутации.
 const TAPS_PER_REPUTATION := 20
+## Сколько монет забега дают +1 к множителю франшизы.
+const FRANCHISE_PER_EARNED := 10000.0
+## Меньше этой суммы компанию продать нельзя.
+const MIN_RUN_TO_SELL := 1000.0
 ## Если кадр завис дольше секунды, не начисляем доход за всю паузу.
 const MAX_INCOME_STEP := 1.0
 const SAVE_PATH := "user://save.json"
@@ -63,6 +68,10 @@ var _opened_regions: Dictionary = {}
 var reputation: int = 0
 ## Сколько тапов уже накоплено до следующей единицы репутации.
 var _taps_toward_reputation: int = 0
+## Постоянный множитель. Переживает продажу компании.
+var franchise: float = 1.0
+## Монеты, полученные за текущий забег. Траты его не уменьшают.
+var run_earned: float = 0.0
 var _income_per_second: float = 0.0
 ## Время последнего сохранения. От него считаем, сколько игра не работала.
 var _last_exit_unix: int = 0
@@ -91,6 +100,7 @@ func _ready() -> void:
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
 	competitors_changed.emit()
+	franchise_changed.emit(franchise)
 
 
 ## Пассивный доход капает каждый кадр. Рядом тикает автосохранение.
@@ -99,7 +109,7 @@ func _process(delta: float) -> void:
 		var step: float = delta
 		if step > MAX_INCOME_STEP:
 			step = MAX_INCOME_STEP
-		coins += _income_per_second * step
+		_gain_coins(_income_per_second * step)
 		coins_changed.emit(coins)
 	_autosave_left -= delta
 	if _autosave_left <= 0.0:
@@ -133,7 +143,7 @@ func _notification(what: int) -> void:
 ## Игрок нажал на такси. Возвращает, сколько монет добавилось.
 func tap() -> float:
 	var gained: float = get_tap_power()
-	coins += gained
+	_gain_coins(gained)
 	_run_tap_for_reputation()
 	coins_changed.emit(coins)
 	return gained
@@ -236,7 +246,7 @@ func get_income_per_second() -> float:
 
 ## Районы, регионы и франшиза умножают и тап, и пассивный доход.
 func get_income_multiplier() -> float:
-	return _district_multiplier() * _region_multiplier() * _competitor_multiplier()
+	return _district_multiplier() * _region_multiplier() * _competitor_multiplier() * franchise
 
 
 func get_cities() -> Array:
@@ -500,6 +510,8 @@ func reset_progress() -> void:
 	_owned_competitors.clear()
 	reputation = 0
 	_taps_toward_reputation = 0
+	franchise = 1.0
+	run_earned = 0.0
 	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
@@ -509,7 +521,63 @@ func reset_progress() -> void:
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
 	competitors_changed.emit()
+	franchise_changed.emit(franchise)
 	save_game()
+
+
+func get_franchise() -> float:
+	return franchise
+
+
+func get_run_earned() -> float:
+	return run_earned
+
+
+## На сколько вырастет франшиза, если продать компанию прямо сейчас.
+func get_prestige_bonus() -> float:
+	return run_earned / FRANCHISE_PER_EARNED
+
+
+func can_sell_company() -> bool:
+	return run_earned + 0.001 >= MIN_RUN_TO_SELL
+
+
+## Сбрасывает забег и прибавляет франшизу. Сама франшиза остаётся.
+func sell_company() -> bool:
+	if not can_sell_company():
+		return false
+	franchise += get_prestige_bonus()
+	coins = 0.0
+	run_earned = 0.0
+	_upgrade_levels.clear()
+	_driver_counts.clear()
+	_offline_coins = 0.0
+	_offline_seconds = 0.0
+	_offline_capped = false
+	_opened_districts.clear()
+	_opened_regions.clear()
+	_owned_competitors.clear()
+	reputation = 0
+	_taps_toward_reputation = 0
+	_recalc_income()
+	coins_changed.emit(coins)
+	tap_power_changed.emit(get_tap_power())
+	upgrades_changed.emit()
+	drivers_changed.emit()
+	districts_changed.emit()
+	regions_changed.emit()
+	reputation_changed.emit(reputation)
+	competitors_changed.emit()
+	franchise_changed.emit(franchise)
+	save_game()
+	return true
+
+
+func _gain_coins(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	coins += amount
+	run_earned += amount
 
 
 ## Игрок нажал «Забрать». До этого момента монеты за отсутствие только ждут.
@@ -517,7 +585,7 @@ func collect_offline_reward() -> float:
 	var amount: float = _offline_coins
 	if amount <= 0.0:
 		return 0.0
-	coins += amount
+	_gain_coins(amount)
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
 	_offline_capped = false
@@ -574,7 +642,7 @@ func _refresh_offline_reward(saved_coins: float = -1.0, saved_seconds: float = -
 func _fold_offline_dust() -> bool:
 	if _offline_coins <= 0.0 or _offline_coins >= 1.0:
 		return false
-	coins += _offline_coins
+	_gain_coins(_offline_coins)
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
 	_offline_capped = false
@@ -617,6 +685,8 @@ func save_game() -> void:
 		"reputation": reputation,
 		"reputation_taps": _taps_toward_reputation,
 		"competitors": _owned_competitors.duplicate(),
+		"franchise": franchise,
+		"run_earned": run_earned,
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -648,6 +718,9 @@ func load_game() -> void:
 	_owned_competitors = _read_count_dict(data.get("competitors", {}))
 	reputation = maxi(0, int(data.get("reputation", 0)))
 	_taps_toward_reputation = maxi(0, int(data.get("reputation_taps", 0)))
+	franchise = maxf(1.0, float(data.get("franchise", 1.0)))
+	# Старое сохранение без поля: уже лежащие монеты считаем заработком забега.
+	run_earned = maxf(0.0, float(data.get("run_earned", coins)))
 	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
 	var saved_offline: float = maxf(0.0, float(data.get("pending_offline_coins", 0)))
 	var saved_seconds: float = maxf(0.0, float(data.get("pending_offline_seconds", 0)))

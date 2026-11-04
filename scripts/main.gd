@@ -54,6 +54,11 @@ var _competitor_rows: Dictionary = {}
 var _notice_layer: Control
 var _notice_title: Label
 var _notice_body: Label
+var _franchise_label: Label
+var _sell_info: Label
+var _sell_button: Button
+var _sell_layer: Control
+var _sell_body: Label
 var _offline_layer: Control
 var _offline_label: Label
 var _offline_time_label: Label
@@ -71,6 +76,7 @@ func _ready() -> void:
 	GameState.regions_changed.connect(_on_regions_changed)
 	GameState.reputation_changed.connect(_on_reputation_changed)
 	GameState.competitors_changed.connect(_on_competitors_changed)
+	GameState.franchise_changed.connect(_on_franchise_changed)
 	GameState.offline_reward_ready.connect(_show_offline_popup)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -81,7 +87,9 @@ func _ready() -> void:
 	_refresh_districts()
 	_refresh_regions()
 	_refresh_competitors()
+	_refresh_sell()
 	_on_reputation_changed(GameState.reputation)
+	_on_franchise_changed(GameState.get_franchise())
 	_show_offline_popup()
 
 
@@ -164,6 +172,7 @@ func _build_ui() -> void:
 	_show_page(PAGE_TAP)
 	_build_settings_popup()
 	_build_notice_popup()
+	_build_sell_popup()
 	_build_offline_popup()
 
 
@@ -218,6 +227,12 @@ func _build_header() -> HBoxContainer:
 	_reputation_label.add_theme_font_size_override("font_size", 30)
 	_reputation_label.add_theme_color_override("font_color", Color("8eb6ff"))
 	text_box.add_child(_reputation_label)
+
+	_franchise_label = Label.new()
+	_franchise_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_franchise_label.add_theme_font_size_override("font_size", 28)
+	_franchise_label.add_theme_color_override("font_color", COLOR_GOLD)
+	text_box.add_child(_franchise_label)
 
 	var settings_button := Button.new()
 	settings_button.text = "Настройки"
@@ -412,6 +427,8 @@ func _build_market_rows() -> void:
 			continue
 		_market_list.add_child(_make_competitor_row(competitor_id, info))
 
+	_market_list.add_child(_make_sell_panel())
+
 
 func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelContainer:
 	var panel := PanelContainer.new()
@@ -483,6 +500,120 @@ func _refresh_competitors() -> void:
 			var cost: float = GameState.get_competitor_cost(id)
 			offer_button.text = "Предложить выкуп\n%s" % GameState.format_number(cost)
 			offer_button.disabled = not GameState.can_offer_buyout(id)
+
+
+func _make_sell_panel() -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _panel_style())
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	panel.add_child(column)
+
+	var title := Label.new()
+	title.text = "Продать компанию"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 36)
+	column.add_child(title)
+
+	_sell_info = Label.new()
+	_sell_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sell_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_sell_info.add_theme_font_size_override("font_size", 26)
+	_sell_info.add_theme_color_override("font_color", COLOR_MUTED)
+	column.add_child(_sell_info)
+
+	_sell_button = Button.new()
+	_sell_button.text = "Продать компанию"
+	_sell_button.custom_minimum_size = Vector2(0, 110)
+	_sell_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(_sell_button)
+	_sell_button.pressed.connect(_ask_sell)
+	column.add_child(_sell_button)
+	return panel
+
+
+func _refresh_sell() -> void:
+	if _sell_info == null:
+		return
+	var bonus: float = GameState.get_prestige_bonus()
+	var now: float = GameState.get_franchise()
+	_sell_info.text = "Заработано за забег: %s\nФраншиза сейчас: ×%s\nПосле продажи станет ×%s" % [
+		GameState.format_number(GameState.get_run_earned()),
+		GameState.format_number(now),
+		GameState.format_number(now + bonus),
+	]
+	_sell_button.disabled = not GameState.can_sell_company()
+	if _sell_button.disabled:
+		_sell_button.text = "Нужно заработать %s" % GameState.format_number(1000.0)
+	else:
+		_sell_button.text = "Продать компанию"
+
+
+func _ask_sell() -> void:
+	var bonus: float = GameState.get_prestige_bonus()
+	var now: float = GameState.get_franchise()
+	_sell_body.text = "Монеты, улучшения, водители, районы, регионы и выкуп обнулятся.\nРепутация тоже начнётся заново.\n\nБонус этого забега: +%s\nФраншиза станет ×%s и останется навсегда." % [
+		GameState.format_number(bonus),
+		GameState.format_number(now + bonus),
+	]
+	_sell_layer.visible = true
+
+
+func _confirm_sell() -> void:
+	_sell_layer.visible = false
+	if GameState.sell_company():
+		_show_page(PAGE_TAP)
+		_show_notice("Компания продана", "Франшиза теперь ×%s. Она умножает весь доход." % GameState.format_number(GameState.get_franchise()))
+
+
+func _close_sell() -> void:
+	_sell_layer.visible = false
+
+
+func _on_franchise_changed(value: float) -> void:
+	_franchise_label.text = "Франшиза: ×%s" % GameState.format_number(value)
+	_refresh_sell()
+
+
+func _build_sell_popup() -> void:
+	_sell_layer = Control.new()
+	_sell_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_sell_layer.visible = false
+	_sell_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_sell_layer)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.72)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sell_layer.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sell_layer.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(860, 0)
+	var style := _panel_style()
+	style.content_margin_left = 40
+	style.content_margin_right = 40
+	style.content_margin_top = 40
+	style.content_margin_bottom = 36
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 18)
+	panel.add_child(box)
+	box.add_child(_make_center_label("Продать компанию?", 44, Color.WHITE))
+	_sell_body = _make_center_label("", 28, COLOR_MUTED)
+	_sell_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_sell_body)
+	box.add_child(_make_settings_button("Продать", COLOR_DANGER, _confirm_sell))
+	box.add_child(_make_settings_button("Отмена", COLOR_PANEL, _close_sell))
 
 
 func _on_competitors_changed() -> void:
@@ -1190,6 +1321,7 @@ func _on_coins_changed(value: float) -> void:
 	_refresh_districts()
 	_refresh_regions()
 	_refresh_competitors()
+	_refresh_sell()
 
 
 func _on_tap_power_changed(value: float) -> void:
