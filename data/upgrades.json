@@ -1,0 +1,42 @@
+[
+  {
+    "id": "tires",
+    "name": "Новые шины",
+    "description": "Машина лучше держит дорогу. +1 монета за тап.",
+    "base_cost": 15,
+    "cost_growth": 1.15,
+    "tap_bonus": 1
+  },
+  {
+    "id": "horn",
+    "name": "Громкий сигнал",
+    "description": "Клиенты замечают вас быстрее. +5 монет за тап.",
+    "base_cost": 100,
+    "cost_growth": 1.15,
+    "tap_bonus": 5
+  },
+  {
+    "id": "seats",
+    "name": "Мягкие сиденья",
+    "description": "Пассажиры довольны и дают чаевые. +25 монет за тап.",
+    "base_cost": 800,
+    "cost_growth": 1.15,
+    "tap_bonus": 25
+  },
+  {
+    "id": "meter",
+    "name": "Точный таксометр",
+    "description": "Ни одна копейка не теряется. +100 монет за тап.",
+    "base_cost": 7500,
+    "cost_growth": 1.15,
+    "tap_bonus": 100
+  },
+  {
+    "id": "wrap",
+    "name": "Яркая оклейка",
+    "description": "Ваше такси видно за квартал. +500 монет за тап.",
+    "base_cost": 80000,
+    "cost_growth": 1.15,
+    "tap_bonus": 500
+  }
+]
