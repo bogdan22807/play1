@@ -20,6 +20,8 @@ signal districts_changed
 signal reputation_changed(reputation: int)
 ## Открыли регион мира.
 signal regions_changed
+## Выкупили конкурента или он отказал.
+signal competitors_changed
 
 ## Сколько монет даёт тап без улучшений.
 const BASE_TAP_POWER: float = 1.0
@@ -27,6 +29,7 @@ const UPGRADES_PATH := "res://data/upgrades.json"
 const DRIVERS_PATH := "res://data/drivers.json"
 const CITIES_PATH := "res://data/cities.json"
 const REGIONS_PATH := "res://data/regions.json"
+const COMPETITORS_PATH := "res://data/competitors.json"
 ## Сколько тапов нужно для +1 репутации.
 const TAPS_PER_REPUTATION := 20
 ## Если кадр завис дольше секунды, не начисляем доход за всю паузу.
@@ -51,6 +54,9 @@ var _city_defs: Array = []
 ## id района -> 1, если район уже открыт.
 var _opened_districts: Dictionary = {}
 var _region_defs: Array = []
+var _competitor_defs: Array = []
+## id конкурента -> 1, если компания уже выкуплена.
+var _owned_competitors: Dictionary = {}
 ## id региона -> 1, если регион уже открыт.
 var _opened_regions: Dictionary = {}
 ## Репутация компании. Нужна, чтобы выходить в новые регионы.
@@ -74,6 +80,7 @@ func _ready() -> void:
 	_driver_defs = _read_json_array(DRIVERS_PATH)
 	_city_defs = _read_json_array(CITIES_PATH)
 	_region_defs = _read_json_array(REGIONS_PATH)
+	_competitor_defs = _read_json_array(COMPETITORS_PATH)
 	load_game()
 	_recalc_income()
 	coins_changed.emit(coins)
@@ -83,6 +90,7 @@ func _ready() -> void:
 	districts_changed.emit()
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
+	competitors_changed.emit()
 
 
 ## Пассивный доход капает каждый кадр. Рядом тикает автосохранение.
@@ -228,7 +236,7 @@ func get_income_per_second() -> float:
 
 ## Районы, регионы и франшиза умножают и тап, и пассивный доход.
 func get_income_multiplier() -> float:
-	return _district_multiplier() * _region_multiplier()
+	return _district_multiplier() * _region_multiplier() * _competitor_multiplier()
 
 
 func get_cities() -> Array:
@@ -352,6 +360,84 @@ func _region_multiplier() -> float:
 	return 1.0 + bonus
 
 
+func get_competitors() -> Array:
+	return _competitor_defs
+
+
+func is_competitor_owned(competitor_id: String) -> bool:
+	return int(_owned_competitors.get(competitor_id, 0)) > 0
+
+
+func get_competitor_cost(competitor_id: String) -> float:
+	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
+	return maxf(0.0, float(info.get("base_cost", 0)))
+
+
+## Шанс отказа: чем крупнее парк и жёстче характер, тем выше.
+func get_buyout_refuse_chance(competitor_id: String) -> float:
+	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
+	if info.is_empty():
+		return 1.0
+	var chance: float = 0.04 * float(info.get("size", 1))
+	match str(info.get("personality", "")):
+		"aggressive":
+			chance += 0.12
+		"cunning":
+			chance += 0.18
+		"family":
+			chance -= 0.05
+	return clampf(chance, 0.05, 0.85)
+
+
+func can_offer_buyout(competitor_id: String) -> bool:
+	if is_competitor_owned(competitor_id) or _find_def(_competitor_defs, competitor_id).is_empty():
+		return false
+	return coins + 0.001 >= get_competitor_cost(competitor_id)
+
+
+## Деньги списываются только если конкурент согласился.
+func offer_buyout(competitor_id: String) -> Dictionary:
+	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
+	if info.is_empty():
+		return {"ok": false, "refused": false, "text": "Такой компании нет."}
+	if is_competitor_owned(competitor_id):
+		return {"ok": false, "refused": false, "text": "Эта компания уже ваша."}
+	if not can_offer_buyout(competitor_id):
+		return {"ok": false, "refused": false, "text": "Не хватает монет."}
+	if randf() < get_buyout_refuse_chance(competitor_id):
+		return {
+			"ok": false,
+			"refused": true,
+			"text": str(info.get("refuse_text", "Нет, мы не продаёмся.")),
+		}
+	coins -= get_competitor_cost(competitor_id)
+	if coins < 0.0:
+		coins = 0.0
+	_owned_competitors[competitor_id] = 1
+	_recalc_income()
+	coins_changed.emit(coins)
+	tap_power_changed.emit(get_tap_power())
+	competitors_changed.emit()
+	save_game()
+	return {
+		"ok": true,
+		"refused": false,
+		"text": str(info.get("success_text", "Сделка состоялась.")),
+	}
+
+
+func _competitor_multiplier() -> float:
+	var bonus: float = 0.0
+	for raw: Variant in _competitor_defs:
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var info: Dictionary = raw
+		var competitor_id: String = str(info.get("id", ""))
+		if is_competitor_owned(competitor_id):
+			bonus += float(info.get("income_bonus", 0))
+	return 1.0 + bonus
+
+
 func _add_reputation(amount: int) -> void:
 	if amount <= 0:
 		return
@@ -411,6 +497,7 @@ func reset_progress() -> void:
 	_offline_capped = false
 	_opened_districts.clear()
 	_opened_regions.clear()
+	_owned_competitors.clear()
 	reputation = 0
 	_taps_toward_reputation = 0
 	_recalc_income()
@@ -421,6 +508,7 @@ func reset_progress() -> void:
 	districts_changed.emit()
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
+	competitors_changed.emit()
 	save_game()
 
 
@@ -528,6 +616,7 @@ func save_game() -> void:
 		"regions": _opened_regions.duplicate(),
 		"reputation": reputation,
 		"reputation_taps": _taps_toward_reputation,
+		"competitors": _owned_competitors.duplicate(),
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -556,6 +645,7 @@ func load_game() -> void:
 	_driver_counts = _read_count_dict(data.get("drivers", {}))
 	_opened_districts = _read_count_dict(data.get("districts", {}))
 	_opened_regions = _read_count_dict(data.get("regions", {}))
+	_owned_competitors = _read_count_dict(data.get("competitors", {}))
 	reputation = maxi(0, int(data.get("reputation", 0)))
 	_taps_toward_reputation = maxi(0, int(data.get("reputation_taps", 0)))
 	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))

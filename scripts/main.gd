@@ -21,6 +21,7 @@ const PAGE_TAP := 0
 const PAGE_UPGRADES := 1
 const PAGE_DRIVERS := 2
 const PAGE_CITY := 3
+const PAGE_MARKET := 4
 
 var _coins_label: Label
 var _tap_label: Label
@@ -31,9 +32,11 @@ var _tap_page: Control
 var _upgrades_page: Control
 var _drivers_page: Control
 var _city_page: Control
+var _market_page: Control
 var _upgrade_list: VBoxContainer
 var _driver_list: VBoxContainer
 var _city_list: VBoxContainer
+var _market_list: VBoxContainer
 var _multiplier_label: Label
 var _tab_buttons: Array[Button] = []
 var _float_layer: Control
@@ -47,6 +50,10 @@ var _upgrade_rows: Dictionary = {}
 var _driver_rows: Dictionary = {}
 var _district_rows: Dictionary = {}
 var _region_rows: Dictionary = {}
+var _competitor_rows: Dictionary = {}
+var _notice_layer: Control
+var _notice_title: Label
+var _notice_body: Label
 var _offline_layer: Control
 var _offline_label: Label
 var _offline_time_label: Label
@@ -63,6 +70,7 @@ func _ready() -> void:
 	GameState.districts_changed.connect(_on_districts_changed)
 	GameState.regions_changed.connect(_on_regions_changed)
 	GameState.reputation_changed.connect(_on_reputation_changed)
+	GameState.competitors_changed.connect(_on_competitors_changed)
 	GameState.offline_reward_ready.connect(_show_offline_popup)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -72,6 +80,7 @@ func _ready() -> void:
 	_refresh_drivers()
 	_refresh_districts()
 	_refresh_regions()
+	_refresh_competitors()
 	_on_reputation_changed(GameState.reputation)
 	_show_offline_popup()
 
@@ -145,9 +154,16 @@ func _build_ui() -> void:
 	_city_list = _city_page.get_child(0).get_child(0) as VBoxContainer
 	_build_city_rows()
 
+	_market_page = _build_scroll_page()
+	_market_page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pages.add_child(_market_page)
+	_market_list = _market_page.get_child(0).get_child(0) as VBoxContainer
+	_build_market_rows()
+
 	column.add_child(_build_tab_bar())
 	_show_page(PAGE_TAP)
 	_build_settings_popup()
+	_build_notice_popup()
 	_build_offline_popup()
 
 
@@ -257,6 +273,7 @@ func _build_tab_bar() -> HBoxContainer:
 		_make_tab("Улучшения"),
 		_make_tab("Водители"),
 		_make_tab("Город"),
+		_make_tab("Рынок"),
 	]
 	for index in _tab_buttons.size():
 		var button: Button = _tab_buttons[index]
@@ -271,7 +288,7 @@ func _make_tab(title: String) -> Button:
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.custom_minimum_size = Vector2(0, 112)
 	button.focus_mode = Control.FOCUS_NONE
-	button.add_theme_font_size_override("font_size", 28)
+	button.add_theme_font_size_override("font_size", 24)
 	button.clip_text = false
 	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return button
@@ -369,6 +386,159 @@ func _make_wheel() -> Panel:
 	style.set_corner_radius_all(42)
 	wheel.add_theme_stylebox_override("panel", style)
 	return wheel
+
+
+func _build_market_rows() -> void:
+	var title := Label.new()
+	title.text = "РЫНОК"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 42)
+	_market_list.add_child(title)
+
+	var hint := Label.new()
+	hint.text = "Можно предложить выкуп. Конкурент может отказаться, тогда деньги останутся у вас."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 26)
+	hint.add_theme_color_override("font_color", COLOR_MUTED)
+	_market_list.add_child(hint)
+
+	for raw: Variant in GameState.get_competitors():
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var info: Dictionary = raw
+		var competitor_id: String = str(info.get("id", ""))
+		if competitor_id == "":
+			continue
+		_market_list.add_child(_make_competitor_row(competitor_id, info))
+
+
+func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _panel_style())
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 8)
+	panel.add_child(column)
+
+	var title := Label.new()
+	title.text = str(info.get("name", competitor_id))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.add_theme_font_size_override("font_size", 36)
+	column.add_child(title)
+
+	var meta := Label.new()
+	var chance: float = GameState.get_buyout_refuse_chance(competitor_id) * 100.0
+	meta.text = "%s, размер %s. Шанс отказа %s%%." % [
+		str(info.get("personality_name", "")),
+		GameState.format_number(float(info.get("size", 0))),
+		GameState.format_number(chance),
+	]
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	meta.add_theme_font_size_override("font_size", 26)
+	meta.add_theme_color_override("font_color", COLOR_MUTED)
+	column.add_child(meta)
+
+	var description := Label.new()
+	description.text = str(info.get("description", ""))
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_font_size_override("font_size", 26)
+	column.add_child(description)
+
+	var bonus: float = float(info.get("income_bonus", 0))
+	var bonus_label := Label.new()
+	bonus_label.text = "После выкупа доход +%s%%" % GameState.format_number(bonus * 100.0)
+	bonus_label.add_theme_font_size_override("font_size", 26)
+	bonus_label.add_theme_color_override("font_color", COLOR_INCOME)
+	column.add_child(bonus_label)
+
+	var offer_button := Button.new()
+	offer_button.custom_minimum_size = Vector2(0, 110)
+	offer_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(offer_button)
+	offer_button.pressed.connect(_on_offer_buyout.bind(competitor_id))
+	column.add_child(offer_button)
+
+	_competitor_rows[competitor_id] = offer_button
+	return panel
+
+
+func _on_offer_buyout(competitor_id: String) -> void:
+	var result: Dictionary = GameState.offer_buyout(competitor_id)
+	var title := "Отказ"
+	if bool(result.get("ok", false)):
+		title = "Сделка"
+	_show_notice(title, str(result.get("text", "")))
+
+
+func _refresh_competitors() -> void:
+	for competitor_id: Variant in _competitor_rows.keys():
+		var offer_button: Button = _competitor_rows[competitor_id]
+		var id := str(competitor_id)
+		if GameState.is_competitor_owned(id):
+			offer_button.text = "Компания ваша"
+			offer_button.disabled = true
+		else:
+			var cost: float = GameState.get_competitor_cost(id)
+			offer_button.text = "Предложить выкуп\n%s" % GameState.format_number(cost)
+			offer_button.disabled = not GameState.can_offer_buyout(id)
+
+
+func _on_competitors_changed() -> void:
+	_refresh_competitors()
+	_refresh_districts()
+
+
+func _build_notice_popup() -> void:
+	_notice_layer = Control.new()
+	_notice_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_notice_layer.visible = false
+	_notice_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_notice_layer)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.72)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_notice_layer.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_notice_layer.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(860, 0)
+	var style := _panel_style()
+	style.content_margin_left = 40
+	style.content_margin_right = 40
+	style.content_margin_top = 40
+	style.content_margin_bottom = 36
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 20)
+	panel.add_child(box)
+
+	_notice_title = _make_center_label("", 44, Color.WHITE)
+	box.add_child(_notice_title)
+	_notice_body = _make_center_label("", 30, COLOR_MUTED)
+	_notice_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_notice_body)
+	var close_button := _make_settings_button("Понятно", COLOR_BUY, _close_notice)
+	box.add_child(close_button)
+
+
+func _show_notice(title: String, body: String) -> void:
+	_notice_title.text = title
+	_notice_body.text = body
+	_notice_layer.visible = true
+
+
+func _close_notice() -> void:
+	_notice_layer.visible = false
 
 
 func _build_city_rows() -> void:
@@ -879,6 +1049,7 @@ func _show_page(page: int) -> void:
 	_upgrades_page.visible = page == PAGE_UPGRADES
 	_drivers_page.visible = page == PAGE_DRIVERS
 	_city_page.visible = page == PAGE_CITY
+	_market_page.visible = page == PAGE_MARKET
 	for index in _tab_buttons.size():
 		var button: Button = _tab_buttons[index]
 		var active: bool = index == page
@@ -895,7 +1066,6 @@ func _style_plain_button(button: Button, color: Color) -> void:
 	button.add_theme_stylebox_override("hover", _button_style(color.lightened(0.08)))
 	button.add_theme_stylebox_override("pressed", _button_style(color.darkened(0.08)))
 	button.add_theme_stylebox_override("focus", _button_style(color))
-	button.add_theme_font_size_override("font_size", 32)
 
 
 func _open_settings() -> void:
@@ -993,6 +1163,7 @@ func _make_settings_button(text: String, color: Color, callback: Callable) -> Bu
 	button.custom_minimum_size = Vector2(0, 110)
 	button.focus_mode = Control.FOCUS_NONE
 	_style_plain_button(button, color)
+	button.add_theme_font_size_override("font_size", 32)
 	button.add_theme_color_override("font_color", Color.WHITE)
 	button.add_theme_color_override("font_hover_color", Color.WHITE)
 	button.add_theme_color_override("font_pressed_color", Color.WHITE)
@@ -1018,6 +1189,7 @@ func _on_coins_changed(value: float) -> void:
 	_refresh_drivers()
 	_refresh_districts()
 	_refresh_regions()
+	_refresh_competitors()
 
 
 func _on_tap_power_changed(value: float) -> void:
