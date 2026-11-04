@@ -19,6 +19,8 @@ const UPGRADES_PATH := "res://data/upgrades.json"
 const DRIVERS_PATH := "res://data/drivers.json"
 ## Если кадр завис дольше секунды, не начисляем доход за всю паузу.
 const MAX_INCOME_STEP := 1.0
+const SAVE_PATH := "user://save.json"
+const AUTOSAVE_SECONDS := 10.0
 
 ## Текущие монеты игрока.
 var coins: float = 0.0
@@ -30,11 +32,15 @@ var _driver_defs: Array = []
 ## id водителя -> сколько таких водителей нанято.
 var _driver_counts: Dictionary = {}
 var _income_per_second: float = 0.0
+## Время последнего сохранения. Нужно, чтобы потом посчитать офлайн-доход.
+var _last_exit_unix: int = 0
+var _autosave_left: float = AUTOSAVE_SECONDS
 
 
 func _ready() -> void:
 	_upgrade_defs = _read_json_array(UPGRADES_PATH)
 	_driver_defs = _read_json_array(DRIVERS_PATH)
+	load_game()
 	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
@@ -42,15 +48,28 @@ func _ready() -> void:
 	drivers_changed.emit()
 
 
-## Пассивный доход капает каждый кадр и не зависит от частоты кадров.
+## Пассивный доход капает каждый кадр. Рядом тикает автосохранение.
 func _process(delta: float) -> void:
-	if _income_per_second <= 0.0:
-		return
-	var step: float = delta
-	if step > MAX_INCOME_STEP:
-		step = MAX_INCOME_STEP
-	coins += _income_per_second * step
-	coins_changed.emit(coins)
+	if _income_per_second > 0.0:
+		var step: float = delta
+		if step > MAX_INCOME_STEP:
+			step = MAX_INCOME_STEP
+		coins += _income_per_second * step
+		coins_changed.emit(coins)
+	_autosave_left -= delta
+	if _autosave_left <= 0.0:
+		_autosave_left = AUTOSAVE_SECONDS
+		save_game()
+
+
+## Сворачивание, уход в фон и закрытие окна сразу пишут сохранение.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST \
+			or what == NOTIFICATION_APPLICATION_PAUSED \
+			or what == NOTIFICATION_APPLICATION_FOCUS_OUT \
+			or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT \
+			or what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		save_game()
 
 
 ## Игрок нажал на такси. Возвращает, сколько монет добавилось.
@@ -109,6 +128,7 @@ func buy_upgrade(upgrade_id: String) -> bool:
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
+	save_game()
 	return true
 
 
@@ -146,6 +166,7 @@ func hire_driver(driver_id: String) -> bool:
 	_recalc_income()
 	coins_changed.emit(coins)
 	drivers_changed.emit()
+	save_game()
 	return true
 
 
@@ -185,6 +206,53 @@ func _find_def(defs: Array, entry_id: String) -> Dictionary:
 		if str(info.get("id", "")) == entry_id:
 			return info
 	return {}
+
+
+## Записывает монеты, улучшения, водителей и время выхода.
+func save_game() -> void:
+	_last_exit_unix = int(Time.get_unix_time_from_system())
+	var data := {
+		"coins": coins,
+		"upgrades": _upgrade_levels.duplicate(),
+		"drivers": _driver_counts.duplicate(),
+		"last_exit_unix": _last_exit_unix,
+	}
+	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if file == null:
+		push_error("Не удалось сохранить игру: %s" % error_string(FileAccess.get_open_error()))
+		return
+	file.store_string(JSON.stringify(data, "\t"))
+	file.close()
+
+
+## Читает сохранение. Если файла нет или он битый, игра начинается с нуля.
+func load_game() -> void:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return
+	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if file == null:
+		push_error("Не удалось открыть сохранение")
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_error("Сохранение повреждено, начинаем заново")
+		return
+	var data: Dictionary = parsed
+	coins = maxf(0.0, float(data.get("coins", 0)))
+	_upgrade_levels = _read_count_dict(data.get("upgrades", {}))
+	_driver_counts = _read_count_dict(data.get("drivers", {}))
+	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
+
+
+func _read_count_dict(raw: Variant) -> Dictionary:
+	var result: Dictionary = {}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return result
+	var source: Dictionary = raw
+	for key: Variant in source.keys():
+		result[str(key)] = maxi(0, int(source[key]))
+	return result
 
 
 func _read_json_array(path: String) -> Array:
