@@ -20,6 +20,7 @@ const COLOR_DANGER := Color("d45d5d")
 const PAGE_TAP := 0
 const PAGE_UPGRADES := 1
 const PAGE_DRIVERS := 2
+const PAGE_CITY := 3
 
 var _coins_label: Label
 var _tap_label: Label
@@ -28,8 +29,11 @@ var _taxi_button: Button
 var _tap_page: Control
 var _upgrades_page: Control
 var _drivers_page: Control
+var _city_page: Control
 var _upgrade_list: VBoxContainer
 var _driver_list: VBoxContainer
+var _city_list: VBoxContainer
+var _multiplier_label: Label
 var _tab_buttons: Array[Button] = []
 var _float_layer: Control
 var _tap_tween: Tween
@@ -40,6 +44,7 @@ var _settings_confirm: VBoxContainer
 var _upgrade_rows: Dictionary = {}
 ## id водителя -> подписи и кнопка этой строки.
 var _driver_rows: Dictionary = {}
+var _district_rows: Dictionary = {}
 var _offline_layer: Control
 var _offline_label: Label
 var _offline_time_label: Label
@@ -53,6 +58,7 @@ func _ready() -> void:
 	GameState.upgrades_changed.connect(_on_upgrades_changed)
 	GameState.drivers_changed.connect(_on_drivers_changed)
 	GameState.income_changed.connect(_on_income_changed)
+	GameState.districts_changed.connect(_on_districts_changed)
 	GameState.offline_reward_ready.connect(_show_offline_popup)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -60,6 +66,7 @@ func _ready() -> void:
 	_on_income_changed(GameState.get_income_per_second())
 	_refresh_upgrades()
 	_refresh_drivers()
+	_refresh_districts()
 	_show_offline_popup()
 
 
@@ -125,6 +132,12 @@ func _build_ui() -> void:
 	pages.add_child(_drivers_page)
 	_driver_list = _drivers_page.get_child(0).get_child(0) as VBoxContainer
 	_build_driver_rows()
+
+	_city_page = _build_scroll_page()
+	_city_page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pages.add_child(_city_page)
+	_city_list = _city_page.get_child(0).get_child(0) as VBoxContainer
+	_build_city_rows()
 
 	column.add_child(_build_tab_bar())
 	_show_page(PAGE_TAP)
@@ -231,6 +244,7 @@ func _build_tab_bar() -> HBoxContainer:
 		_make_tab("Тап"),
 		_make_tab("Улучшения"),
 		_make_tab("Водители"),
+		_make_tab("Город"),
 	]
 	for index in _tab_buttons.size():
 		var button: Button = _tab_buttons[index]
@@ -243,9 +257,11 @@ func _make_tab(title: String) -> Button:
 	var button := Button.new()
 	button.text = title
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.custom_minimum_size = Vector2(0, 120)
+	button.custom_minimum_size = Vector2(0, 112)
 	button.focus_mode = Control.FOCUS_NONE
-	button.add_theme_font_size_override("font_size", 32)
+	button.add_theme_font_size_override("font_size", 28)
+	button.clip_text = false
+	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return button
 
 
@@ -341,6 +357,108 @@ func _make_wheel() -> Panel:
 	style.set_corner_radius_all(42)
 	wheel.add_theme_stylebox_override("panel", style)
 	return wheel
+
+
+func _build_city_rows() -> void:
+	for raw: Variant in GameState.get_cities():
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var city: Dictionary = raw
+		var title := Label.new()
+		title.text = str(city.get("name", "Город"))
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		title.add_theme_font_size_override("font_size", 42)
+		_city_list.add_child(title)
+
+		var about := Label.new()
+		about.text = str(city.get("description", ""))
+		about.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		about.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		about.add_theme_font_size_override("font_size", 26)
+		about.add_theme_color_override("font_color", COLOR_MUTED)
+		_city_list.add_child(about)
+
+		_multiplier_label = Label.new()
+		_multiplier_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_multiplier_label.add_theme_font_size_override("font_size", 32)
+		_multiplier_label.add_theme_color_override("font_color", COLOR_INCOME)
+		_city_list.add_child(_multiplier_label)
+
+		var districts: Variant = city.get("districts", [])
+		if typeof(districts) != TYPE_ARRAY:
+			continue
+		for item: Variant in districts:
+			if typeof(item) != TYPE_DICTIONARY:
+				continue
+			var info: Dictionary = item
+			var district_id: String = str(info.get("id", ""))
+			if district_id == "":
+				continue
+			_city_list.add_child(_make_district_row(district_id, info))
+
+
+func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _panel_style())
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(row)
+
+	var text_box := VBoxContainer.new()
+	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_box.add_theme_constant_override("separation", 4)
+	row.add_child(text_box)
+
+	var title := Label.new()
+	title.text = str(info.get("name", district_id))
+	title.add_theme_font_size_override("font_size", 36)
+	text_box.add_child(title)
+
+	var description := Label.new()
+	description.text = str(info.get("description", ""))
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_font_size_override("font_size", 26)
+	description.add_theme_color_override("font_color", COLOR_MUTED)
+	text_box.add_child(description)
+
+	var bonus: float = float(info.get("income_bonus", 0))
+	var bonus_label := Label.new()
+	bonus_label.text = "Доход +%s%%" % GameState.format_number(bonus * 100.0)
+	bonus_label.add_theme_font_size_override("font_size", 26)
+	bonus_label.add_theme_color_override("font_color", COLOR_INCOME)
+	text_box.add_child(bonus_label)
+
+	var open_button := Button.new()
+	open_button.custom_minimum_size = Vector2(230, 130)
+	open_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(open_button)
+	open_button.pressed.connect(_on_open_district.bind(district_id))
+	row.add_child(open_button)
+
+	_district_rows[district_id] = open_button
+	return panel
+
+
+func _on_open_district(district_id: String) -> void:
+	GameState.open_district(district_id)
+
+
+func _refresh_districts() -> void:
+	if _multiplier_label != null:
+		_multiplier_label.text = "Множитель дохода: x%s" % GameState.format_number(GameState.get_income_multiplier())
+	for district_id: Variant in _district_rows.keys():
+		var open_button: Button = _district_rows[district_id]
+		var id := str(district_id)
+		if GameState.is_district_open(id):
+			open_button.text = "Открыт"
+			open_button.disabled = true
+		else:
+			var cost: float = GameState.get_district_cost(id)
+			open_button.text = "Открыть\n%s" % GameState.format_number(cost)
+			open_button.disabled = not GameState.can_open_district(id)
 
 
 func _build_upgrade_rows() -> void:
@@ -643,6 +761,7 @@ func _show_page(page: int) -> void:
 	_tap_page.visible = page == PAGE_TAP
 	_upgrades_page.visible = page == PAGE_UPGRADES
 	_drivers_page.visible = page == PAGE_DRIVERS
+	_city_page.visible = page == PAGE_CITY
 	for index in _tab_buttons.size():
 		var button: Button = _tab_buttons[index]
 		var active: bool = index == page
@@ -780,6 +899,7 @@ func _on_coins_changed(value: float) -> void:
 	_coins_label.text = text
 	_refresh_upgrades()
 	_refresh_drivers()
+	_refresh_districts()
 
 
 func _on_tap_power_changed(value: float) -> void:
@@ -796,6 +916,12 @@ func _on_upgrades_changed() -> void:
 
 func _on_drivers_changed() -> void:
 	_refresh_drivers()
+
+
+func _on_districts_changed() -> void:
+	_refresh_districts()
+	if _multiplier_label != null:
+		_multiplier_label.text = "Множитель дохода: x%s" % GameState.format_number(GameState.get_income_multiplier())
 
 
 func _refresh_upgrades() -> void:

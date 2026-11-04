@@ -1,0 +1,44 @@
+[
+  {
+    "id": "home",
+    "name": "Родной город",
+    "description": "Здесь всё началось. Каждый новый район приносит больше заказов.",
+    "districts": [
+      {
+        "id": "center",
+        "name": "Центр",
+        "description": "Короткие поездки и чаевые у кафе.",
+        "cost": 100,
+        "income_bonus": 0.1
+      },
+      {
+        "id": "station",
+        "name": "Вокзал",
+        "description": "Люди с чемоданами не торгуются.",
+        "cost": 800,
+        "income_bonus": 0.15
+      },
+      {
+        "id": "airport",
+        "name": "Аэропорт",
+        "description": "Дальние рейсы и ночные доплаты.",
+        "cost": 5000,
+        "income_bonus": 0.25
+      },
+      {
+        "id": "sleep",
+        "name": "Спальный район",
+        "description": "Утром все едут на работу разом.",
+        "cost": 25000,
+        "income_bonus": 0.4
+      },
+      {
+        "id": "business",
+        "name": "Деловой квартал",
+        "description": "Корпоративные счета без сдачи.",
+        "cost": 120000,
+        "income_bonus": 0.75
+      }
+    ]
+  }
+]

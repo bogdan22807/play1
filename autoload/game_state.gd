@@ -14,11 +14,14 @@ signal drivers_changed
 signal income_changed(income: float)
 ## Пора показать окно «Пока вас не было».
 signal offline_reward_ready
+## Открыли район.
+signal districts_changed
 
 ## Сколько монет даёт тап без улучшений.
 const BASE_TAP_POWER: float = 1.0
 const UPGRADES_PATH := "res://data/upgrades.json"
 const DRIVERS_PATH := "res://data/drivers.json"
+const CITIES_PATH := "res://data/cities.json"
 ## Если кадр завис дольше секунды, не начисляем доход за всю паузу.
 const MAX_INCOME_STEP := 1.0
 const SAVE_PATH := "user://save.json"
@@ -37,6 +40,9 @@ var _upgrade_levels: Dictionary = {}
 var _driver_defs: Array = []
 ## id водителя -> сколько таких водителей нанято.
 var _driver_counts: Dictionary = {}
+var _city_defs: Array = []
+## id района -> 1, если район уже открыт.
+var _opened_districts: Dictionary = {}
 var _income_per_second: float = 0.0
 ## Время последнего сохранения. От него считаем, сколько игра не работала.
 var _last_exit_unix: int = 0
@@ -52,12 +58,14 @@ var _paused_in_background: bool = false
 func _ready() -> void:
 	_upgrade_defs = _read_json_array(UPGRADES_PATH)
 	_driver_defs = _read_json_array(DRIVERS_PATH)
+	_city_defs = _read_json_array(CITIES_PATH)
 	load_game()
 	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
 	drivers_changed.emit()
+	districts_changed.emit()
 
 
 ## Пассивный доход капает каждый кадр. Рядом тикает автосохранение.
@@ -115,7 +123,7 @@ func get_tap_power() -> float:
 		var upgrade_id: String = str(info.get("id", ""))
 		var bonus: float = float(info.get("tap_bonus", 0))
 		power += bonus * float(get_upgrade_level(upgrade_id))
-	return power
+	return power * get_income_multiplier()
 
 
 ## Список улучшений из data/upgrades.json. Экран только читает его.
@@ -199,6 +207,81 @@ func get_income_per_second() -> float:
 	return _income_per_second
 
 
+## Районы, регионы и франшиза умножают и тап, и пассивный доход.
+func get_income_multiplier() -> float:
+	return _district_multiplier()
+
+
+func get_cities() -> Array:
+	return _city_defs
+
+
+func is_district_open(district_id: String) -> bool:
+	return int(_opened_districts.get(district_id, 0)) > 0
+
+
+func get_district_cost(district_id: String) -> float:
+	var info: Dictionary = _find_district(district_id)
+	return maxf(0.0, float(info.get("cost", 0)))
+
+
+func can_open_district(district_id: String) -> bool:
+	if is_district_open(district_id) or _find_district(district_id).is_empty():
+		return false
+	return coins + 0.001 >= get_district_cost(district_id)
+
+
+func open_district(district_id: String) -> bool:
+	if not can_open_district(district_id):
+		return false
+	coins -= get_district_cost(district_id)
+	if coins < 0.0:
+		coins = 0.0
+	_opened_districts[district_id] = 1
+	_recalc_income()
+	coins_changed.emit(coins)
+	tap_power_changed.emit(get_tap_power())
+	districts_changed.emit()
+	save_game()
+	return true
+
+
+func _district_multiplier() -> float:
+	var bonus: float = 0.0
+	for raw: Variant in _city_defs:
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var city: Dictionary = raw
+		var districts: Variant = city.get("districts", [])
+		if typeof(districts) != TYPE_ARRAY:
+			continue
+		for item: Variant in districts:
+			if typeof(item) != TYPE_DICTIONARY:
+				continue
+			var info: Dictionary = item
+			var district_id: String = str(info.get("id", ""))
+			if is_district_open(district_id):
+				bonus += float(info.get("income_bonus", 0))
+	return 1.0 + bonus
+
+
+func _find_district(district_id: String) -> Dictionary:
+	for raw: Variant in _city_defs:
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var city: Dictionary = raw
+		var districts: Variant = city.get("districts", [])
+		if typeof(districts) != TYPE_ARRAY:
+			continue
+		for item: Variant in districts:
+			if typeof(item) != TYPE_DICTIONARY:
+				continue
+			var info: Dictionary = item
+			if str(info.get("id", "")) == district_id:
+				return info
+	return {}
+
+
 func has_offline_reward() -> bool:
 	return _offline_coins >= 1.0
 
@@ -223,11 +306,13 @@ func reset_progress() -> void:
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
 	_offline_capped = false
+	_opened_districts.clear()
 	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
 	drivers_changed.emit()
+	districts_changed.emit()
 	save_game()
 
 
@@ -254,7 +339,7 @@ func _sum_income() -> float:
 		var driver_id: String = str(info.get("id", ""))
 		var per_second: float = float(info.get("income_per_second", 0))
 		total += per_second * float(get_driver_count(driver_id))
-	return total
+	return total * get_income_multiplier()
 
 
 func _recalc_income() -> void:
@@ -331,6 +416,7 @@ func save_game() -> void:
 		"last_exit_unix": _last_exit_unix,
 		"pending_offline_coins": _offline_coins,
 		"pending_offline_seconds": _offline_seconds,
+		"districts": _opened_districts.duplicate(),
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -357,6 +443,7 @@ func load_game() -> void:
 	coins = maxf(0.0, float(data.get("coins", 0)))
 	_upgrade_levels = _read_count_dict(data.get("upgrades", {}))
 	_driver_counts = _read_count_dict(data.get("drivers", {}))
+	_opened_districts = _read_count_dict(data.get("districts", {}))
 	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
 	var saved_offline: float = maxf(0.0, float(data.get("pending_offline_coins", 0)))
 	var saved_seconds: float = maxf(0.0, float(data.get("pending_offline_seconds", 0)))
