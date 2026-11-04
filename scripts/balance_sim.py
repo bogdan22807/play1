@@ -48,6 +48,12 @@ class Player:
         self.competitors = load("competitors.json")
         balance = load("balance.json")
         self.tap_from_income = float(balance.get("tap_from_income", 0.01))
+        self.rent_share = float(balance.get("car_rent_share", 0.3))
+        self.cars = load("cars.json")
+        # Индекс машины, на которой ездим, и арендована ли она.
+        self.car = 0
+        self.rented = False
+        self.owned_cars = set()
         self.levels = {item["id"]: 0 for item in self.upgrades}
         self.counts = {item["id"]: 0 for item in self.drivers}
         self.districts = []
@@ -88,8 +94,15 @@ class Player:
             power += item["tap_bonus"] * self.levels[item["id"]]
         return power
 
+    def car_factor(self, index=None, rented=None):
+        index = self.car if index is None else index
+        rented = self.rented if rented is None else rented
+        mult = float(self.cars[index]["tap_mult"]) if self.cars else 1.0
+        return mult * ((1.0 - self.rent_share) if rented else 1.0)
+
     def tap_power(self):
-        return self.flat_tap() * self.multiplier() + self.passive() * self.tap_from_income
+        ride = self.flat_tap() * self.car_factor() * self.multiplier()
+        return ride + self.passive() * self.tap_from_income
 
     def reputation(self):
         hired = sum(self.counts.values())
@@ -111,8 +124,23 @@ class Player:
         for item in self.upgrades:
             owned = self.levels[item["id"]]
             cost = scaled_cost(item["base_cost"], item["cost_growth"], owned)
-            gain = item["tap_bonus"] * mult * TAPS_PER_SECOND
+            gain = item["tap_bonus"] * self.car_factor() * mult * TAPS_PER_SECOND
             found.append(("upgrade", item["id"], item["name"], cost, gain / cost))
+        ride = self.flat_tap() * mult * TAPS_PER_SECOND
+        for index in range(1, len(self.cars)):
+            item = self.cars[index]
+            if item["id"] in self.owned_cars or index < self.car:
+                continue
+            if index > self.car:
+                gain = ride * (self.car_factor(index, True) - self.car_factor())
+                if gain > 0:
+                    found.append(("rent", index, item["name"], float(item["rent_cost"]), gain / item["rent_cost"]))
+            buy = float(item["buy_cost"])
+            if self.rented and index == self.car:
+                buy -= float(item["rent_cost"])
+            gain = ride * (self.car_factor(index, False) - self.car_factor())
+            if gain > 0:
+                found.append(("car", index, item["name"], buy, gain / buy))
         for item in self.drivers:
             owned = self.counts[item["id"]]
             cost = scaled_cost(item["base_cost"], item["cost_growth"], owned)
@@ -156,6 +184,15 @@ class Player:
         self.coins -= cost
         if kind == "upgrade":
             self.levels[entry_id] += 1
+        elif kind == "rent":
+            self.car = entry_id
+            self.rented = True
+            self.log.append((self.time, "Аренда", name, cost))
+        elif kind == "car":
+            self.car = entry_id
+            self.rented = False
+            self.owned_cars.add(self.cars[entry_id]["id"])
+            self.log.append((self.time, "Машина", name, cost))
         elif kind == "driver":
             self.counts[entry_id] += 1
         elif kind == "district":

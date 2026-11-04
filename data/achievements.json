@@ -16,6 +16,22 @@
     "reward_reputation": 0
   },
   {
+    "id": "first_car",
+    "name": "Своя машина",
+    "kind": "cars",
+    "need": 1,
+    "reward_coins": 100,
+    "reward_reputation": 0
+  },
+  {
+    "id": "limo",
+    "name": "Лимузин у подъезда",
+    "kind": "cars",
+    "need": 7,
+    "reward_coins": 1000000,
+    "reward_reputation": 0
+  },
+  {
     "id": "first_driver",
     "name": "Первый водитель",
     "kind": "drivers",
