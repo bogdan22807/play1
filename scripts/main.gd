@@ -26,6 +26,8 @@ const PAGE_MARKET := 4
 var _coins_label: Label
 var _tap_label: Label
 var _reputation_label: Label
+var _share_label: Label
+var _share_fill: ColorRect
 var _taxi_button: Button
 var _tap_page: Control
 var _upgrades_page: Control
@@ -222,6 +224,32 @@ func _build_header() -> HBoxContainer:
 	_coins_label.add_theme_font_size_override("font_size", 64)
 	_coins_label.add_theme_color_override("font_color", COLOR_GOLD)
 	coin_frame.add_child(_coins_label)
+
+	_share_label = Label.new()
+	_share_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_share_label.add_theme_font_size_override("font_size", 22)
+	_share_label.add_theme_color_override("font_color", COLOR_MUTED)
+	text_box.add_child(_share_label)
+
+	var track := Control.new()
+	track.custom_minimum_size = Vector2(0, 10)
+	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	track.clip_contents = true
+	text_box.add_child(track)
+
+	var track_bg := ColorRect.new()
+	track_bg.color = COLOR_PANEL
+	track_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	track_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	track.add_child(track_bg)
+
+	_share_fill = ColorRect.new()
+	_share_fill.color = COLOR_INCOME
+	_share_fill.anchor_right = 0.0
+	_share_fill.anchor_bottom = 1.0
+	_share_fill.offset_right = 0.0
+	_share_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	track.add_child(_share_fill)
 
 	_tap_label = Label.new()
 	_tap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1555,6 +1583,21 @@ func _refresh_rate_line() -> void:
 		GameState.format_number(GameState.get_tap_power()),
 		GameState.format_number(GameState.get_income_per_second()),
 	]
+	_refresh_market_share()
+
+
+func _refresh_market_share() -> void:
+	var share: float = GameState.get_market_share()
+	var percent: float = share * 100.0
+	var text: String
+	if percent >= 100.0:
+		text = "100%"
+	elif percent >= 10.0:
+		text = "%d%%" % int(percent)
+	else:
+		text = "%.1f%%" % percent
+	_share_label.text = "Доля мирового рынка: %s" % text
+	_share_fill.anchor_right = share
 
 
 func _refresh_meta_line() -> void:

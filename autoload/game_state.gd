@@ -98,6 +98,8 @@ var _offline_capped: bool = false
 var _paused_in_background: bool = false
 ## Доля пассивного дохода, которая добавляется к каждому тапу.
 var _tap_from_income: float = 0.01
+## Доход в секунду, при котором доля мирового рынка становится 100%.
+var _world_market_size: float = 600000000.0
 
 
 func _ready() -> void:
@@ -107,7 +109,7 @@ func _ready() -> void:
 	_region_defs = _read_json_array(REGIONS_PATH)
 	_competitor_defs = _read_json_array(COMPETITORS_PATH)
 	_achievement_defs = _read_json_array(ACHIEVEMENTS_PATH)
-	_tap_from_income = _read_tap_from_income()
+	_read_balance()
 	load_game()
 	_recalc_income()
 	_note_progress()
@@ -272,6 +274,13 @@ func hire_driver(driver_id: String) -> bool:
 
 func get_income_per_second() -> float:
 	return _income_per_second
+
+
+## 0..1. Считается от пассивного дохода и размера рынка из balance.json.
+func get_market_share() -> float:
+	if _world_market_size <= 0.0:
+		return 0.0
+	return clampf(get_income_per_second() / _world_market_size, 0.0, 1.0)
 
 
 ## Районы, регионы и франшиза умножают и тап, и пассивный доход.
@@ -938,15 +947,17 @@ func _read_json_array(path: String) -> Array:
 	return parsed
 
 
-func _read_tap_from_income() -> float:
+func _read_balance() -> void:
 	var file := FileAccess.open(BALANCE_PATH, FileAccess.READ)
 	if file == null:
-		return 0.01
+		return
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
 	file.close()
 	if typeof(parsed) != TYPE_DICTIONARY:
-		return 0.01
-	return maxf(0.0, float(parsed.get("tap_from_income", 0.01)))
+		return
+	var data: Dictionary = parsed
+	_tap_from_income = maxf(0.0, float(data.get("tap_from_income", _tap_from_income)))
+	_world_market_size = maxf(1.0, float(data.get("world_market_size", _world_market_size)))
 
 
 ## Короткий вид числа: 999, 1.5K, 2.3M, 4.1B.
