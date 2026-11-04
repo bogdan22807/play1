@@ -40,21 +40,24 @@
       "chance": 0.6,
       "income_mult": 1.0,
       "salary": 0.2,
-      "hire_cost": 40
+      "hire_cost": 40,
+      "rating_bonus": 0.0
     },
     {
       "stars": 2,
       "chance": 0.3,
       "income_mult": 1.4,
       "salary": 0.27,
-      "hire_cost": 150
+      "hire_cost": 150,
+      "rating_bonus": 0.15
     },
     {
       "stars": 3,
       "chance": 0.1,
       "income_mult": 1.9,
       "salary": 0.35,
-      "hire_cost": 600
+      "hire_cost": 600,
+      "rating_bonus": 0.3
     }
   ],
   "traits": [
@@ -63,56 +66,64 @@
       "name": "Гонщик",
       "description": "Успевает больше заказов. Пассажиры визжат.",
       "income_bonus": 0.15,
-      "salary_bonus": 0.0
+      "salary_bonus": 0.0,
+      "rating_bonus": -0.4
     },
     {
       "id": "talker",
       "name": "Болтун",
       "description": "Рассказывает про своих кошек. Чаевые за терпение.",
       "income_bonus": 0.1,
-      "salary_bonus": 0.0
+      "salary_bonus": 0.0,
+      "rating_bonus": 0.25
     },
     {
       "id": "local",
       "name": "Знает все переулки",
       "description": "Объезжает пробки через чужие дворы.",
       "income_bonus": 0.1,
-      "salary_bonus": 0.02
+      "salary_bonus": 0.02,
+      "rating_bonus": 0.1
     },
     {
       "id": "honest",
       "name": "Честный",
       "description": "Отдаёт сдачу до цента. Просит меньше.",
       "income_bonus": 0.0,
-      "salary_bonus": -0.05
+      "salary_bonus": -0.05,
+      "rating_bonus": 0.3
     },
     {
       "id": "greedy",
       "name": "Жадина",
       "description": "Берёт лишних пассажиров и лишнюю зарплату.",
       "income_bonus": 0.12,
-      "salary_bonus": 0.08
+      "salary_bonus": 0.08,
+      "rating_bonus": -0.2
     },
     {
       "id": "sleepy",
       "name": "Соня",
       "description": "Дремлет на светофорах. Зато дёшев.",
       "income_bonus": -0.1,
-      "salary_bonus": -0.06
+      "salary_bonus": -0.06,
+      "rating_bonus": -0.2
     },
     {
       "id": "karaoke",
       "name": "Караоке",
       "description": "Поёт всю дорогу. Кому-то нравится.",
       "income_bonus": 0.05,
-      "salary_bonus": 0.0
+      "salary_bonus": 0.0,
+      "rating_bonus": 0.1
     },
     {
       "id": "none",
       "name": "Обычный",
       "description": "Просто хорошо водит.",
       "income_bonus": 0.0,
-      "salary_bonus": 0.0
+      "salary_bonus": 0.0,
+      "rating_bonus": 0.0
     }
   ]
 }

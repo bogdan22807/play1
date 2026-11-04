@@ -14,6 +14,8 @@ signal drivers_changed
 signal garage_changed
 ## Изменились чистота или состояние машин.
 signal wear_changed
+## Изменились часы смен или рейтинг компании (раз в секунду и после «Сменить»).
+signal shifts_changed
 ## Изменился пассивный доход в секунду.
 signal income_changed(income: float)
 ## Пора показать окно «Пока вас не было».
@@ -95,6 +97,11 @@ var _my_health: float = 1.0
 var _wear: Dictionary = {}
 ## Износ парка считаем раз в секунду, а не каждый кадр.
 var _wear_left: float = 1.0
+## Настройки смен и рейтинга из balance.json.
+var _shift_cfg: Dictionary = {}
+var _rating_cfg: Dictionary = {}
+## Рейтинг компании, 1..5. Плавно идёт к оценке текущих поездок — как копятся отзывы.
+var rating: float = 4.0
 var _city_defs: Array = []
 ## id района -> 1, если район уже открыт.
 var _opened_districts: Dictionary = {}
@@ -729,13 +736,14 @@ func _wear_my_car() -> void:
 
 ## Машины с водителем пачкаются и ломаются, пока работают. Только пока игра открыта.
 func _tick_fleet_wear(step: float) -> void:
-	if _team.is_empty():
-		return
 	_wear_left -= step
 	if _wear_left > 0.0:
 		return
 	var seconds: float = 1.0 - _wear_left
 	_wear_left = 1.0
+	_tick_shifts(seconds)
+	if _team.is_empty():
+		return
 	var clean_rate: float = _wear_value("fleet_clean_per_second", 0.0016667)
 	var health_rate: float = _wear_value("fleet_health_per_second", 0.00033333)
 	for car: Variant in get_assignments().values():
@@ -744,6 +752,142 @@ func _tick_fleet_wear(step: float) -> void:
 	_recalc_income()
 	tap_power_changed.emit(get_tap_power())
 	wear_changed.emit()
+
+
+# --- Смены и рейтинг -----------------------------------------------------------
+
+func _shift_value(key: String, fallback: float) -> float:
+	return float(_shift_cfg.get(key, fallback))
+
+
+func _rating_value(key: String, fallback: float) -> float:
+	return float(_rating_cfg.get(key, fallback))
+
+
+func get_shift_hours() -> float:
+	return _shift_value("shift_hours", 8)
+
+
+func get_driver_hours(person: Dictionary) -> float:
+	return maxf(0.0, float(person.get("hours", 0)))
+
+
+## 0 — свежий или в пределах смены, 1 — валится с ног.
+func get_tiredness(person: Dictionary) -> float:
+	var shift: float = get_shift_hours()
+	var exhausted: float = maxf(shift + 0.1, _shift_value("exhausted_hours", 14))
+	return clampf((get_driver_hours(person) - shift) / (exhausted - shift), 0.0, 1.0)
+
+
+## Уставший водитель возит медленнее: доход падает до tired_min_mult.
+func get_tired_mult(person: Dictionary) -> float:
+	return lerpf(1.0, _shift_value("tired_min_mult", 0.5), get_tiredness(person))
+
+
+## Оценка одной поездки, 1..5: грязь, поломки, усталость, характер водителя.
+func get_ride_rating(clean: float, health: float, person: Dictionary = {}) -> float:
+	var value: float = _rating_value("base", 5)
+	if clean < 0.5:
+		value -= _rating_value("dirty_penalty", 1.5) * (1.0 - clean / 0.5)
+	if is_broken(health):
+		value -= _rating_value("broken_penalty", 3)
+	elif health < 0.5:
+		value -= _rating_value("worn_penalty", 1.5) * (1.0 - health / 0.5)
+	if not person.is_empty():
+		value -= _rating_value("tired_penalty", 2.5) * get_tiredness(person)
+		value += float(get_trait_info(str(person.get("trait", ""))).get("rating_bonus", 0))
+		value += float(get_star_info(int(person.get("stars", 1))).get("rating_bonus", 0))
+	return clampf(value, 1.0, 5.0)
+
+
+## Куда сейчас тянутся отзывы: средняя оценка своей поездки и всех работающих водителей.
+func get_rating_target() -> float:
+	var total: float = get_ride_rating(_my_clean, _my_health)
+	var count: int = 1
+	var cars: Dictionary = get_assignments()
+	for raw: Variant in _team:
+		var person: Dictionary = raw
+		var car: Dictionary = cars.get(int(person.get("uid", 0)), {})
+		if car.is_empty():
+			continue
+		total += get_ride_rating(float(car.get("clean", 1)), float(car.get("health", 1)), person)
+		count += 1
+	return total / float(count)
+
+
+func get_rating() -> float:
+	return rating
+
+
+## 4 звезды — обычный доход. Каждая звезда выше или ниже — ±mult_per_star.
+func get_rating_multiplier() -> float:
+	return maxf(0.1, 1.0 + (rating - 4.0) * _rating_value("mult_per_star", 0.15))
+
+
+func can_change_shift(uid: int) -> bool:
+	var person: Dictionary = _find_person(uid)
+	return not person.is_empty() and get_driver_hours(person) >= 0.5
+
+
+## Выходит сменщик: часы водителя обнуляются.
+func change_shift(uid: int) -> bool:
+	if not can_change_shift(uid):
+		return false
+	_find_person(uid)["hours"] = 0.0
+	_after_shift_change()
+	return true
+
+
+func get_tired_count() -> int:
+	var count: int = 0
+	for person: Variant in _team:
+		if get_driver_hours(person) >= get_shift_hours():
+			count += 1
+	return count
+
+
+## Сменить всех, кто отработал смену.
+func change_tired_shifts() -> int:
+	var changed: int = 0
+	for person: Variant in _team:
+		if get_driver_hours(person) >= get_shift_hours():
+			person["hours"] = 0.0
+			changed += 1
+	if changed > 0:
+		_after_shift_change()
+	return changed
+
+
+func _find_person(uid: int) -> Dictionary:
+	for person: Variant in _team:
+		if int(person.get("uid", 0)) == uid:
+			return person
+	return {}
+
+
+func _after_shift_change() -> void:
+	_recalc_income()
+	tap_power_changed.emit(get_tap_power())
+	shifts_changed.emit()
+	save_game()
+
+
+## Раз в секунду: часы идут у тех, кто за рулём, рейтинг плавно тянется к оценке поездок.
+func _tick_shifts(seconds: float) -> void:
+	var hour: float = maxf(1.0, _shift_value("hour_seconds", 60))
+	var cars: Dictionary = get_assignments()
+	for person: Variant in _team:
+		if cars.has(int(person.get("uid", 0))):
+			person["hours"] = get_driver_hours(person) + seconds / hour
+	var target: float = get_rating_target()
+	var step: float = _rating_value("ease_per_second", 0.02) * seconds
+	var before: float = rating
+	rating = move_toward(rating, target, step)
+	if not is_equal_approx(before, rating):
+		_recalc_income()
+		tap_power_changed.emit(get_tap_power())
+		_note_progress()
+	shifts_changed.emit()
 
 
 # --- Водители ----------------------------------------------------------------
@@ -813,6 +957,7 @@ func hire(index: int) -> bool:
 	var person: Dictionary = _candidates[index].duplicate()
 	coins = maxf(0.0, coins - get_hire_cost(person))
 	person["uid"] = _next_uid
+	person["hours"] = 0.0
 	_next_uid += 1
 	_team.append(person)
 	_candidates[index] = _make_candidate()
@@ -869,7 +1014,7 @@ func get_driver_net(person: Dictionary, car_id: String) -> float:
 ## То же, но с учётом грязи и поломок конкретной машины.
 func get_driver_net_on(person: Dictionary, car: Dictionary) -> float:
 	var model: String = str(car.get("model", ""))
-	return get_driver_net(person, model) * get_fleet_condition_mult(car)
+	return get_driver_net(person, model) * get_fleet_condition_mult(car) * get_tired_mult(person)
 
 
 ## Сколько в секунду уходит на зарплаты.
@@ -880,7 +1025,7 @@ func get_salary_per_second() -> float:
 		var person: Dictionary = raw
 		var car: Dictionary = cars.get(int(person.get("uid", 0)), {})
 		var gross: float = get_car_driver_income(str(car.get("model", ""))) * get_driver_power(person)
-		total += gross * get_salary_share(person) * get_fleet_condition_mult(car)
+		total += gross * get_salary_share(person) * get_fleet_condition_mult(car) * get_tired_mult(person)
 	return total * get_income_multiplier()
 
 
@@ -930,6 +1075,7 @@ func _make_candidate() -> Dictionary:
 
 
 func _reset_staff() -> void:
+	rating = _rating_value("start", 4)
 	_garage.clear()
 	_garage_level = 0
 	_team.clear()
@@ -951,7 +1097,7 @@ func get_market_share() -> float:
 
 ## Районы, регионы и франшиза умножают и тап, и пассивный доход.
 func get_income_multiplier() -> float:
-	return _district_multiplier() * _region_multiplier() * _competitor_multiplier() * franchise
+	return _district_multiplier() * _region_multiplier() * _competitor_multiplier() * franchise * get_rating_multiplier()
 
 
 func get_cities() -> Array:
@@ -1407,6 +1553,7 @@ func save_game() -> void:
 		"upgrades": _upgrade_levels.duplicate(),
 		"garage": _garage.duplicate(true),
 		"my_clean": _my_clean,
+		"rating": rating,
 		"my_health": _my_health,
 		"garage_level": _garage_level,
 		"team": _team.duplicate(true),
@@ -1468,6 +1615,7 @@ func load_game() -> void:
 	_load_car(data)
 	_my_clean = clampf(float(data.get("my_clean", 1.0)), 0.0, 1.0)
 	_my_health = clampf(float(data.get("my_health", 1.0)), 0.0, 1.0)
+	rating = clampf(float(data.get("rating", _rating_value("start", 4))), 1.0, 5.0)
 	_load_staff(data)
 	company_name = str(data.get("company_name", "")).strip_edges().substr(0, COMPANY_NAME_MAX)
 	_sync_reputation()
@@ -1542,6 +1690,7 @@ func _read_people(raw: Variant, need_uid: bool) -> Array:
 			if uid <= 0:
 				continue
 			person["uid"] = uid
+			person["hours"] = maxf(0.0, float(item.get("hours", 0)))
 		result.append(person)
 	return result
 
@@ -1613,6 +1762,8 @@ func get_achievement_value(kind: String) -> float:
 			return franchise
 		"cars":
 			return float(get_owned_car_count())
+		"rating":
+			return rating
 		_:
 			return 0.0
 
@@ -1762,6 +1913,11 @@ func _read_balance() -> void:
 	_garage_start = maxi(1, int(data.get("garage_start", _garage_start)))
 	var wear: Variant = data.get("wear", {})
 	_wear = wear if typeof(wear) == TYPE_DICTIONARY else {}
+	var shifts: Variant = data.get("shifts", {})
+	_shift_cfg = shifts if typeof(shifts) == TYPE_DICTIONARY else {}
+	var rating_cfg: Variant = data.get("rating", {})
+	_rating_cfg = rating_cfg if typeof(rating_cfg) == TYPE_DICTIONARY else {}
+	rating = _rating_value("start", 4)
 	var expansions: Variant = data.get("garage_expansions", [])
 	_garage_expansions = expansions if typeof(expansions) == TYPE_ARRAY else []
 

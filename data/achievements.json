@@ -94,5 +94,13 @@
     "need": 2,
     "reward_coins": 500,
     "reward_reputation": 0
+  },
+  {
+    "id": "five_stars",
+    "name": "Пять звёзд",
+    "kind": "rating",
+    "need": 4.9,
+    "reward_coins": 500,
+    "reward_reputation": 0
   }
 ]
