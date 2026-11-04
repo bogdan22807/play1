@@ -16,12 +16,19 @@ signal income_changed(income: float)
 signal offline_reward_ready
 ## Открыли район.
 signal districts_changed
+## Изменилась репутация.
+signal reputation_changed(reputation: int)
+## Открыли регион мира.
+signal regions_changed
 
 ## Сколько монет даёт тап без улучшений.
 const BASE_TAP_POWER: float = 1.0
 const UPGRADES_PATH := "res://data/upgrades.json"
 const DRIVERS_PATH := "res://data/drivers.json"
 const CITIES_PATH := "res://data/cities.json"
+const REGIONS_PATH := "res://data/regions.json"
+## Сколько тапов нужно для +1 репутации.
+const TAPS_PER_REPUTATION := 20
 ## Если кадр завис дольше секунды, не начисляем доход за всю паузу.
 const MAX_INCOME_STEP := 1.0
 const SAVE_PATH := "user://save.json"
@@ -43,6 +50,13 @@ var _driver_counts: Dictionary = {}
 var _city_defs: Array = []
 ## id района -> 1, если район уже открыт.
 var _opened_districts: Dictionary = {}
+var _region_defs: Array = []
+## id региона -> 1, если регион уже открыт.
+var _opened_regions: Dictionary = {}
+## Репутация компании. Нужна, чтобы выходить в новые регионы.
+var reputation: int = 0
+## Сколько тапов уже накоплено до следующей единицы репутации.
+var _taps_toward_reputation: int = 0
 var _income_per_second: float = 0.0
 ## Время последнего сохранения. От него считаем, сколько игра не работала.
 var _last_exit_unix: int = 0
@@ -59,6 +73,7 @@ func _ready() -> void:
 	_upgrade_defs = _read_json_array(UPGRADES_PATH)
 	_driver_defs = _read_json_array(DRIVERS_PATH)
 	_city_defs = _read_json_array(CITIES_PATH)
+	_region_defs = _read_json_array(REGIONS_PATH)
 	load_game()
 	_recalc_income()
 	coins_changed.emit(coins)
@@ -66,6 +81,8 @@ func _ready() -> void:
 	upgrades_changed.emit()
 	drivers_changed.emit()
 	districts_changed.emit()
+	regions_changed.emit()
+	reputation_changed.emit(reputation)
 
 
 ## Пассивный доход капает каждый кадр. Рядом тикает автосохранение.
@@ -109,6 +126,7 @@ func _notification(what: int) -> void:
 func tap() -> float:
 	var gained: float = get_tap_power()
 	coins += gained
+	_run_tap_for_reputation()
 	coins_changed.emit(coins)
 	return gained
 
@@ -197,6 +215,7 @@ func hire_driver(driver_id: String) -> bool:
 		coins = 0.0
 	_driver_counts[driver_id] = get_driver_count(driver_id) + 1
 	_recalc_income()
+	_add_reputation(1)
 	coins_changed.emit(coins)
 	drivers_changed.emit()
 	save_game()
@@ -209,7 +228,7 @@ func get_income_per_second() -> float:
 
 ## Районы, регионы и франшиза умножают и тап, и пассивный доход.
 func get_income_multiplier() -> float:
-	return _district_multiplier()
+	return _district_multiplier() * _region_multiplier()
 
 
 func get_cities() -> Array:
@@ -265,6 +284,90 @@ func _district_multiplier() -> float:
 	return 1.0 + bonus
 
 
+func get_regions() -> Array:
+	return _region_defs
+
+
+func is_region_open(region_id: String) -> bool:
+	return int(_opened_regions.get(region_id, 0)) > 0
+
+
+func get_region_cost(region_id: String) -> float:
+	var info: Dictionary = _find_def(_region_defs, region_id)
+	return maxf(0.0, float(info.get("cost", 0)))
+
+
+func get_region_reputation(region_id: String) -> int:
+	var info: Dictionary = _find_def(_region_defs, region_id)
+	return maxi(0, int(info.get("reputation", 0)))
+
+
+## Пустая строка, если регион можно открыть. Иначе текст, чего не хватает.
+func get_region_block_reason(region_id: String) -> String:
+	if is_region_open(region_id):
+		return ""
+	var missing: PackedStringArray = PackedStringArray()
+	var need_reputation: int = get_region_reputation(region_id)
+	if reputation < need_reputation:
+		missing.append("Не хватает репутации: %d" % (need_reputation - reputation))
+	if coins + 0.001 < get_region_cost(region_id):
+		missing.append("Не хватает монет")
+	if missing.is_empty():
+		return ""
+	return "\n".join(missing)
+
+
+func can_open_region(region_id: String) -> bool:
+	if is_region_open(region_id) or _find_def(_region_defs, region_id).is_empty():
+		return false
+	if reputation < get_region_reputation(region_id):
+		return false
+	return coins + 0.001 >= get_region_cost(region_id)
+
+
+func open_region(region_id: String) -> bool:
+	if not can_open_region(region_id):
+		return false
+	coins -= get_region_cost(region_id)
+	if coins < 0.0:
+		coins = 0.0
+	_opened_regions[region_id] = 1
+	_recalc_income()
+	coins_changed.emit(coins)
+	tap_power_changed.emit(get_tap_power())
+	regions_changed.emit()
+	save_game()
+	return true
+
+
+func _region_multiplier() -> float:
+	var bonus: float = 0.0
+	for raw: Variant in _region_defs:
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var info: Dictionary = raw
+		var region_id: String = str(info.get("id", ""))
+		if is_region_open(region_id):
+			bonus += float(info.get("income_bonus", 0))
+	return 1.0 + bonus
+
+
+func _add_reputation(amount: int) -> void:
+	if amount <= 0:
+		return
+	reputation += amount
+	reputation_changed.emit(reputation)
+
+
+func _run_tap_for_reputation() -> void:
+	_taps_toward_reputation += 1
+	if _taps_toward_reputation < TAPS_PER_REPUTATION:
+		return
+	_taps_toward_reputation = 0
+	_add_reputation(1)
+	save_game()
+
+
 func _find_district(district_id: String) -> Dictionary:
 	for raw: Variant in _city_defs:
 		if typeof(raw) != TYPE_DICTIONARY:
@@ -307,12 +410,17 @@ func reset_progress() -> void:
 	_offline_seconds = 0.0
 	_offline_capped = false
 	_opened_districts.clear()
+	_opened_regions.clear()
+	reputation = 0
+	_taps_toward_reputation = 0
 	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
 	drivers_changed.emit()
 	districts_changed.emit()
+	regions_changed.emit()
+	reputation_changed.emit(reputation)
 	save_game()
 
 
@@ -417,6 +525,9 @@ func save_game() -> void:
 		"pending_offline_coins": _offline_coins,
 		"pending_offline_seconds": _offline_seconds,
 		"districts": _opened_districts.duplicate(),
+		"regions": _opened_regions.duplicate(),
+		"reputation": reputation,
+		"reputation_taps": _taps_toward_reputation,
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -444,6 +555,9 @@ func load_game() -> void:
 	_upgrade_levels = _read_count_dict(data.get("upgrades", {}))
 	_driver_counts = _read_count_dict(data.get("drivers", {}))
 	_opened_districts = _read_count_dict(data.get("districts", {}))
+	_opened_regions = _read_count_dict(data.get("regions", {}))
+	reputation = maxi(0, int(data.get("reputation", 0)))
+	_taps_toward_reputation = maxi(0, int(data.get("reputation_taps", 0)))
 	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
 	var saved_offline: float = maxf(0.0, float(data.get("pending_offline_coins", 0)))
 	var saved_seconds: float = maxf(0.0, float(data.get("pending_offline_seconds", 0)))

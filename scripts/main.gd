@@ -25,6 +25,7 @@ const PAGE_CITY := 3
 var _coins_label: Label
 var _tap_label: Label
 var _income_label: Label
+var _reputation_label: Label
 var _taxi_button: Button
 var _tap_page: Control
 var _upgrades_page: Control
@@ -45,6 +46,7 @@ var _upgrade_rows: Dictionary = {}
 ## id водителя -> подписи и кнопка этой строки.
 var _driver_rows: Dictionary = {}
 var _district_rows: Dictionary = {}
+var _region_rows: Dictionary = {}
 var _offline_layer: Control
 var _offline_label: Label
 var _offline_time_label: Label
@@ -59,6 +61,8 @@ func _ready() -> void:
 	GameState.drivers_changed.connect(_on_drivers_changed)
 	GameState.income_changed.connect(_on_income_changed)
 	GameState.districts_changed.connect(_on_districts_changed)
+	GameState.regions_changed.connect(_on_regions_changed)
+	GameState.reputation_changed.connect(_on_reputation_changed)
 	GameState.offline_reward_ready.connect(_show_offline_popup)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -67,6 +71,8 @@ func _ready() -> void:
 	_refresh_upgrades()
 	_refresh_drivers()
 	_refresh_districts()
+	_refresh_regions()
+	_on_reputation_changed(GameState.reputation)
 	_show_offline_popup()
 
 
@@ -190,6 +196,12 @@ func _build_header() -> HBoxContainer:
 	_income_label.add_theme_font_size_override("font_size", 32)
 	_income_label.add_theme_color_override("font_color", COLOR_INCOME)
 	text_box.add_child(_income_label)
+
+	_reputation_label = Label.new()
+	_reputation_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_reputation_label.add_theme_font_size_override("font_size", 30)
+	_reputation_label.add_theme_color_override("font_color", Color("8eb6ff"))
+	text_box.add_child(_reputation_label)
 
 	var settings_button := Button.new()
 	settings_button.text = "Настройки"
@@ -395,6 +407,7 @@ func _build_city_rows() -> void:
 			if district_id == "":
 				continue
 			_city_list.add_child(_make_district_row(district_id, info))
+	_build_region_rows()
 
 
 func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer:
@@ -442,8 +455,95 @@ func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer
 	return panel
 
 
+func _build_region_rows() -> void:
+	var title := Label.new()
+	title.text = "МИР"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 42)
+	_city_list.add_child(title)
+
+	var hint := Label.new()
+	hint.text = "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого нанятого водителя."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 26)
+	hint.add_theme_color_override("font_color", COLOR_MUTED)
+	_city_list.add_child(hint)
+
+	for raw: Variant in GameState.get_regions():
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var info: Dictionary = raw
+		var region_id: String = str(info.get("id", ""))
+		if region_id == "":
+			continue
+		_city_list.add_child(_make_region_row(region_id, info))
+
+
+func _make_region_row(region_id: String, info: Dictionary) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _panel_style())
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(row)
+
+	var text_box := VBoxContainer.new()
+	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_box.add_theme_constant_override("separation", 4)
+	row.add_child(text_box)
+
+	var title := Label.new()
+	title.text = str(info.get("name", region_id))
+	title.add_theme_font_size_override("font_size", 36)
+	text_box.add_child(title)
+
+	var description := Label.new()
+	description.text = str(info.get("description", ""))
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_font_size_override("font_size", 26)
+	description.add_theme_color_override("font_color", COLOR_MUTED)
+	text_box.add_child(description)
+
+	var bonus: float = float(info.get("income_bonus", 0))
+	var bonus_label := Label.new()
+	bonus_label.text = "Доход +%s%%, нужно репутации: %d" % [
+		GameState.format_number(bonus * 100.0),
+		int(info.get("reputation", 0)),
+	]
+	bonus_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	bonus_label.add_theme_font_size_override("font_size", 26)
+	bonus_label.add_theme_color_override("font_color", COLOR_INCOME)
+	text_box.add_child(bonus_label)
+
+	var reason_label := Label.new()
+	reason_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	reason_label.add_theme_font_size_override("font_size", 26)
+	reason_label.add_theme_color_override("font_color", COLOR_DANGER)
+	text_box.add_child(reason_label)
+
+	var open_button := Button.new()
+	open_button.custom_minimum_size = Vector2(230, 130)
+	open_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(open_button)
+	open_button.pressed.connect(_on_open_region.bind(region_id))
+	row.add_child(open_button)
+
+	_region_rows[region_id] = {
+		"button": open_button,
+		"reason": reason_label,
+	}
+	return panel
+
+
 func _on_open_district(district_id: String) -> void:
 	GameState.open_district(district_id)
+
+
+func _on_open_region(region_id: String) -> void:
+	GameState.open_region(region_id)
 
 
 func _refresh_districts() -> void:
@@ -459,6 +559,23 @@ func _refresh_districts() -> void:
 			var cost: float = GameState.get_district_cost(id)
 			open_button.text = "Открыть\n%s" % GameState.format_number(cost)
 			open_button.disabled = not GameState.can_open_district(id)
+
+
+func _refresh_regions() -> void:
+	for region_id: Variant in _region_rows.keys():
+		var row: Dictionary = _region_rows[region_id]
+		var open_button: Button = row["button"]
+		var reason_label: Label = row["reason"]
+		var id := str(region_id)
+		if GameState.is_region_open(id):
+			open_button.text = "Открыт"
+			open_button.disabled = true
+			reason_label.text = ""
+		else:
+			var cost: float = GameState.get_region_cost(id)
+			open_button.text = "Открыть\n%s" % GameState.format_number(cost)
+			open_button.disabled = not GameState.can_open_region(id)
+			reason_label.text = GameState.get_region_block_reason(id)
 
 
 func _build_upgrade_rows() -> void:
@@ -900,6 +1017,7 @@ func _on_coins_changed(value: float) -> void:
 	_refresh_upgrades()
 	_refresh_drivers()
 	_refresh_districts()
+	_refresh_regions()
 
 
 func _on_tap_power_changed(value: float) -> void:
@@ -920,8 +1038,17 @@ func _on_drivers_changed() -> void:
 
 func _on_districts_changed() -> void:
 	_refresh_districts()
-	if _multiplier_label != null:
-		_multiplier_label.text = "Множитель дохода: x%s" % GameState.format_number(GameState.get_income_multiplier())
+
+
+func _on_regions_changed() -> void:
+	_refresh_regions()
+	_refresh_districts()
+
+
+func _on_reputation_changed(value: int) -> void:
+	if _reputation_label != null:
+		_reputation_label.text = "Репутация: %d" % value
+	_refresh_regions()
 
 
 func _refresh_upgrades() -> void:

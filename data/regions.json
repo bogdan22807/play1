@@ -1,0 +1,50 @@
+[
+  {
+    "id": "europe",
+    "name": "Европа",
+    "description": "Короткие границы и плотный поток туристов.",
+    "cost": 5000,
+    "reputation": 5,
+    "income_bonus": 0.2
+  },
+  {
+    "id": "asia",
+    "name": "Азия",
+    "description": "Ночные мегаполисы не спят.",
+    "cost": 20000,
+    "reputation": 15,
+    "income_bonus": 0.35
+  },
+  {
+    "id": "africa",
+    "name": "Африка",
+    "description": "Дальние маршруты между городами.",
+    "cost": 40000,
+    "reputation": 20,
+    "income_bonus": 0.4
+  },
+  {
+    "id": "south_america",
+    "name": "Южная Америка",
+    "description": "Жаркие вечера и полные машины.",
+    "cost": 60000,
+    "reputation": 25,
+    "income_bonus": 0.45
+  },
+  {
+    "id": "north_america",
+    "name": "Северная Америка",
+    "description": "Длинные шоссе и крупные чаевые.",
+    "cost": 80000,
+    "reputation": 30,
+    "income_bonus": 0.5
+  },
+  {
+    "id": "oceania",
+    "name": "Океания",
+    "description": "Редкие заказы, зато очень дорогие.",
+    "cost": 150000,
+    "reputation": 45,
+    "income_bonus": 0.7
+  }
+]
