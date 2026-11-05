@@ -30,6 +30,37 @@ func _init() -> void:
 	check(gs.get_region_block_reason("europe").contains("Бангкок"), "причина: сначала Бангкок")
 	check(not gs.can_play_trick("lotus", "nails"), "пакостить можно только текущему сопернику")
 
+	# У каждого конкурента свой босс с сюжетом, среди боссов есть женщины.
+	var women: int = 0
+	for raw: Variant in gs._competitor_defs:
+		var id: String = str(raw["id"])
+		var boss: Dictionary = gs.get_boss(id)
+		var full: bool = boss.has("name") and boss.has("intro") and boss.has("half") and boss.has("surrender")
+		check(full and gs.get_boss_replies(id).size() == 2 and boss["attacks"].size() >= 3, "сюжет босса %s" % id)
+		if str(boss.get("gender", "")) == "f":
+			women += 1
+	check(women >= 5, "женщин-боссов: %d" % women)
+	check(gs.boss_line("lotus", "intro").contains("Жёлтая молния"), "босс обращается к компании по имени")
+
+	# Сюжет: знакомство в начале дуэли и реплика на половине пути — по одному разу.
+	var scenes: Array = []
+	gs.rival_story.connect(func(id: String, beat: String) -> void: scenes.append(id + ":" + beat))
+	gs._tick_market(0.0)
+	gs._tick_market(0.0)
+	check(scenes == ["wolf:intro"], "знакомство с Волком один раз: %s" % str(scenes))
+	# Ослабляем Волка так, чтобы игрок был на 60% его силы (двумя «пакостями» — каждая не больше 95%).
+	var factor: float = gs.get_player_power() / (gs.get_competitor_power("wolf") * 0.6)
+	var cut: float = 1.0 - sqrt(factor)
+	gs._rival_cuts["wolf"] = [
+		{"cut": cut, "until": gs._now() + 100, "source": "a"},
+		{"cut": cut, "until": gs._now() + 100, "source": "b"},
+	]
+	gs._tick_market(0.0)
+	check(scenes.has("wolf:half"), "на половине пути Волк нервничает: %s, прогресс %s" % [str(scenes), gs.get_duel_progress()])
+	gs._rival_cuts.clear()
+	gs._rival_perm.clear()
+	gs._surrendered.clear()
+
 	# Соперник растёт, пока идёт дуэль, но не бесконечно.
 	var wolf_start: float = gs.get_competitor_power("wolf")
 	gs._tick_market(3600.0)
@@ -46,7 +77,29 @@ func _init() -> void:
 	check(gs.get_player_power() > before, "реклама подняла силу")
 	check(not gs.can_buy_ad("tv"), "вторая кампания ждёт окончания первой")
 	check(gs.get_ad_left() > 290, "реклама идёт 5 минут")
+	check(gs.get_income_multiplier() > 1.49 * gs.get_income_multiplier() / (1.0 + gs.get_ad_boost()), "реклама подняла и доход")
+	# Кончилась — доход обычный.
+	var income_with_ad: float = gs.get_ride_value()
+	gs._ad["until"] = gs._now() - 1
+	gs._tick_market()
+	check(gs._ad.is_empty() and gs.get_ride_value() < income_with_ad, "после рекламы доход вернулся")
+
+	# Кампании за ролик: без денег, но с паузой.
+	gs.coins = 0.0
+	check(gs.get_ad_pay("tv") == "video" and gs.can_buy_ad("tv"), "ТВ — за ролик, монеты не нужны")
+	check(not gs.can_buy_ad("flyers"), "листовки — только за монеты")
+	check(gs.buy_ad("tv") and gs.coins == 0.0, "ТВ запущено бесплатно")
 	gs._ad = {}
+	check(not gs.can_buy_ad("tv") and gs.get_ad_wait("tv") > 3600, "следующий ролик ТВ не раньше чем через пару часов")
+	check(gs.can_buy_ad("billboard"), "билборд — отдельная пауза")
+	gs.save_game()
+	var gs4 := _make_state()
+	await process_frame
+	check(gs4.get_ad_wait("tv") > 3600, "пауза ролика сохранилась")
+	gs4.queue_free()
+	gs._ad_ready.clear()
+	gs._ad = {}
+	gs._recalc_income()
 
 	# Пакость: проверяем обе ветки.
 	seed(1)
@@ -106,7 +159,7 @@ func _init() -> void:
 	var elephant_before: float = gs.get_competitor_power("elephant")
 	gs._rival_attack("elephant")
 	check(gs.get_competitor_power("elephant") > elephant_before, "Слон устроил акцию и стал сильнее")
-	check(attacks.size() == 3 and str(attacks[1][1]).contains("Жёлтая молния"), "ходы с текстом: %s" % str(attacks))
+	check(attacks.size() == 3 and str(attacks[0][1]).length() > 30, "ходы с текстом голосом босса: %s" % str(attacks))
 	gs._rival_cuts.clear()
 	gs.rating = 4.0
 	gs._duel_rival = ""

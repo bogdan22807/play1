@@ -33,27 +33,28 @@
       "name": "Листовки на рынке",
       "description": "Бабушка Ним раздаёт листовки вместе с манго.",
       "price_seconds": 60,
-      "min_price": 200,
-      "boost": 0.3,
-      "duration": 300
+      "min_price": 50,
+      "boost": 0.5,
+      "duration": 300,
+      "pay": "coins"
     },
     {
       "id": "billboard",
       "name": "Билборд у аэропорта",
       "description": "Ваше название трёхметровыми буквами. Одна буква с ошибкой, зато заметно.",
-      "price_seconds": 240,
-      "min_price": 2000,
-      "boost": 0.8,
-      "duration": 600
+      "boost": 1.0,
+      "duration": 600,
+      "pay": "video",
+      "cooldown": 1800
     },
     {
       "id": "tv",
       "name": "Ролик на ТВ",
       "description": "Таксист танцует со слоном. Почему — никто не знает, но запоминается.",
-      "price_seconds": 900,
-      "min_price": 20000,
       "boost": 2.0,
-      "duration": 900
+      "duration": 900,
+      "pay": "video",
+      "cooldown": 7200
     }
   ],
   "tricks": [

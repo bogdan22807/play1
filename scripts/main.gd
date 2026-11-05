@@ -148,6 +148,24 @@ var _island_reason: Label
 var _island_button: Button
 var _notice_layer: Control
 var _notice_queue: Array = []
+## Окно-заглушка рекламного ролика.
+const VIDEO_STUB_SECONDS := 5.0
+var _video_layer: Control
+var _video_label: Label
+var _video_button: Button
+var _video_left: float = 0.0
+var _video_reward: Callable = Callable()
+## Сцены с боссами конкурентов.
+const ATTACK_TOAST_SECONDS := 8.0
+var _story_layer: Control
+var _story_badge: PanelContainer
+var _story_initial: Label
+var _story_name: Label
+var _story_title: Label
+var _story_you: Label
+var _story_text: Label
+var _story_buttons: VBoxContainer
+var _story_queue: Array = []
 var _notice_title: Label
 var _notice_body: Label
 var _sell_info: Label
@@ -196,6 +214,7 @@ func _ready() -> void:
 	GameState.island_captured.connect(_on_island_captured)
 	GameState.rival_surrendered.connect(_on_rival_surrendered)
 	GameState.rival_attacked.connect(_on_rival_attacked)
+	GameState.rival_story.connect(_on_rival_story)
 	GameState.franchise_changed.connect(_on_franchise_changed)
 	GameState.achievement_unlocked.connect(_on_achievement_unlocked)
 	GameState.achievements_changed.connect(_refresh_achievements)
@@ -337,6 +356,8 @@ func _build_ui() -> void:
 	_build_mentor()
 	_build_settings_popup()
 	_build_notice_popup()
+	_build_video_popup()
+	_build_story_popup()
 	_build_sell_popup()
 	_build_toast()
 	_build_daily_popup()
@@ -576,11 +597,15 @@ func _apply_safe_area() -> void:
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_WM_GO_BACK_REQUEST:
 		return
-	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer]:
+	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer, _video_layer, _story_layer]:
 		var popup: Control = layer
 		if popup != null and popup.visible:
 			if popup == _notice_layer:
 				_close_notice()
+			elif popup == _video_layer:
+				_cancel_video()
+			elif popup == _story_layer:
+				_close_story()
 			else:
 				popup.visible = false
 			return
@@ -1032,7 +1057,7 @@ func _build_scroll_page() -> Control:
 
 ## Открыто окно поверх экрана — списки под ним не листаем.
 func _is_modal_open() -> bool:
-	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer, _name_layer]:
+	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer, _name_layer, _video_layer, _story_layer]:
 		var popup: Control = layer
 		if popup != null and popup.visible:
 			return true
@@ -1171,7 +1196,7 @@ func _build_market_rows() -> void:
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
 			_market_list.add_child(_make_competitor_row(str(raw.get("id", "")), raw))
 
-	_market_list.add_child(_make_section_title("Реклама — рывок на время"))
+	_market_list.add_child(_make_section_title("Рекламная кампания"))
 	for raw: Variant in GameState.get_ads():
 		if typeof(raw) == TYPE_DICTIONARY:
 			_market_list.add_child(_make_ad_row(raw))
@@ -1186,9 +1211,11 @@ func _make_ad_row(info: Dictionary) -> PanelContainer:
 	var text_box := _make_text_box(row)
 	_add_label(text_box, str(info.get("name", ad_id)), 34)
 	_add_label(text_box, str(info.get("description", "")), 24, COLOR_MUTED)
-	_add_label(text_box, "+%d%% к вашей силе на %d мин" % [
+	var pay_text: String = "за просмотр ролика" if str(info.get("pay", "coins")) == "video" else "за монеты"
+	_add_label(text_box, "+%d%% к доходу на %d мин · %s" % [
 		int(roundf(float(info.get("boost", 0)) * 100.0)),
 		int(float(info.get("duration", 0)) / 60.0),
+		pay_text,
 	], 24, COLOR_INCOME)
 	var status := _add_label(text_box, "", 26, COLOR_GOLD)
 	var button := _make_row_button(_on_buy_ad.bind(ad_id))
@@ -1275,7 +1302,90 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 
 
 func _on_buy_ad(ad_id: String) -> void:
+	if GameState.get_ad_pay(ad_id) == "video":
+		if GameState.can_buy_ad(ad_id):
+			_show_rewarded(func() -> void: GameState.buy_ad(ad_id))
+		return
 	GameState.buy_ad(ad_id)
+
+
+# --- Рекламный ролик за награду ----------------------------------------------
+
+## Показывает ролик и после просмотра вызывает on_reward.
+## Пока рекламной сети нет — заглушка: окно с отсчётом. Сюда потом подключим AdMob и т.п.
+func _show_rewarded(on_reward: Callable) -> void:
+	_video_reward = on_reward
+	_video_left = VIDEO_STUB_SECONDS
+	_video_layer.visible = true
+	_refresh_video()
+
+
+func _build_video_popup() -> void:
+	_video_layer = Control.new()
+	_video_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_video_layer.visible = false
+	_video_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_video_layer)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.85)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_video_layer.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_video_layer.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(860, 0)
+	var style := _panel_style()
+	style.content_margin_left = 40
+	style.content_margin_right = 40
+	style.content_margin_top = 40
+	style.content_margin_bottom = 36
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 20)
+	panel.add_child(box)
+	box.add_child(_display(_make_center_label("Рекламный ролик", 44, Color.WHITE), 46, COLOR_GOLD))
+	_video_label = _make_center_label("", 30, COLOR_MUTED)
+	_video_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_video_label)
+	_video_button = _make_settings_button("", COLOR_BUY, _finish_video)
+	box.add_child(_video_button)
+	box.add_child(_make_settings_button("Закрыть без награды", COLOR_DISABLED, _cancel_video))
+
+
+func _refresh_video() -> void:
+	var done: bool = _video_left <= 0.0
+	_video_label.text = "Здесь будет настоящий рекламный ролик.\n%s" % (
+		"Досмотрели — забирайте награду!" if done else "Осталось %d с…" % int(ceilf(_video_left)))
+	_video_button.text = "Получить награду" if done else "Смотрим…"
+	_video_button.disabled = not done
+
+
+func _process(delta: float) -> void:
+	_tick_video(delta)
+
+
+func _tick_video(delta: float) -> void:
+	if _video_layer == null or not _video_layer.visible or _video_left <= 0.0:
+		return
+	_video_left -= delta
+	_refresh_video()
+
+
+func _finish_video() -> void:
+	_video_layer.visible = false
+	var reward: Callable = _video_reward
+	_video_reward = Callable()
+	if reward.is_valid():
+		reward.call()
+
+
+func _cancel_video() -> void:
+	_video_layer.visible = false
+	_video_reward = Callable()
 
 
 func _on_trick(competitor_id: String, trick_id: String) -> void:
@@ -1295,17 +1405,145 @@ func _on_trick(competitor_id: String, trick_id: String) -> void:
 func _on_buy_rival(competitor_id: String) -> void:
 	var result: Dictionary = GameState.buy_rival(competitor_id)
 	if bool(result.get("ok", false)):
-		_show_notice("Сделка", str(result.get("text", "")))
+		_show_story({"id": competitor_id, "beat": "deal", "text": str(result.get("text", ""))})
 
 
 func _on_rival_surrendered(competitor_id: String, text: String) -> void:
-	_show_notice("Сдаются!", text)
+	_show_story({"id": competitor_id, "beat": "surrender", "text": text})
 	_mentor.on_event("surrender")
 
 
+## Ход соперника висит подольше (тап — закрыть), с именем босса: чтобы успеть прочитать.
 func _on_rival_attacked(competitor_id: String, text: String) -> void:
-	_enqueue_toast("Ход соперника", text)
+	var boss: Dictionary = GameState.get_boss(competitor_id)
+	var who: String = str(boss.get("name", _rival_name(competitor_id)))
+	_enqueue_toast("%s делает ход" % who, text, ATTACK_TOAST_SECONDS)
 	_mentor.on_event("rival_attack")
+
+
+func _on_rival_story(competitor_id: String, beat: String) -> void:
+	var text: String = ""
+	match beat:
+		"intro":
+			text = GameState.boss_line(competitor_id, "intro")
+		"half":
+			text = GameState.boss_line(competitor_id, "half")
+	if text != "":
+		_show_story({"id": competitor_id, "beat": beat, "text": text})
+
+
+# --- Сцены с боссами конкурентов ----------------------------------------------
+
+## Окно-диалог: значок босса, имя, реплика и ответы игрока. Сцены идут по очереди.
+func _show_story(scene: Dictionary) -> void:
+	if _story_layer.visible:
+		_story_queue.append(scene)
+		return
+	var competitor_id: String = str(scene.get("id", ""))
+	var boss: Dictionary = GameState.get_boss(competitor_id)
+	var color: Color = _market_color(competitor_id)
+	var badge_style := StyleBoxFlat.new()
+	badge_style.bg_color = color
+	badge_style.set_corner_radius_all(60)
+	badge_style.border_width_left = 6
+	badge_style.border_width_right = 6
+	badge_style.border_width_top = 6
+	badge_style.border_width_bottom = 6
+	badge_style.border_color = Color.WHITE
+	_story_badge.add_theme_stylebox_override("panel", badge_style)
+	var boss_name: String = str(boss.get("name", _rival_name(competitor_id)))
+	_story_initial.text = boss_name.substr(0, 1)
+	_story_initial.add_theme_color_override("font_color", _text_on(color))
+	_story_name.text = boss_name
+	_story_title.text = str(boss.get("title", _rival_name(competitor_id)))
+	_story_you.visible = false
+	_story_text.text = str(scene.get("text", ""))
+	for child in _story_buttons.get_children():
+		_story_buttons.remove_child(child)
+		child.queue_free()
+	var beat: String = str(scene.get("beat", ""))
+	var replies: Array = GameState.get_boss_replies(competitor_id) if beat == "intro" else []
+	if replies.is_empty():
+		var label: String = {"half": "Посмотрим, кто кого!", "surrender": "Понятно", "deal": "По рукам!"}.get(beat, "Понятно")
+		_story_buttons.add_child(_make_settings_button(label, COLOR_BUY, _close_story))
+	else:
+		for reply: Variant in replies:
+			var button := _make_settings_button(str(reply["say"]), COLOR_SKY, _on_story_reply.bind(str(reply["say"]), str(reply["answer"])))
+			button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			button.add_theme_font_size_override("font_size", 28)
+			_story_buttons.add_child(button)
+	_story_layer.visible = true
+
+
+## Игрок ответил боссу — босс отвечает на ответ.
+func _on_story_reply(said: String, answer: String) -> void:
+	_story_you.text = "Вы: «%s»" % said
+	_story_you.visible = true
+	_story_text.text = answer
+	for child in _story_buttons.get_children():
+		_story_buttons.remove_child(child)
+		child.queue_free()
+	_story_buttons.add_child(_make_settings_button("Ну, посмотрим!", COLOR_BUY, _close_story))
+
+
+func _close_story() -> void:
+	_story_layer.visible = false
+	if not _story_queue.is_empty():
+		_show_story(_story_queue.pop_front())
+
+
+func _build_story_popup() -> void:
+	_story_layer = Control.new()
+	_story_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_story_layer.visible = false
+	_story_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_story_layer)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.72)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_story_layer.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_story_layer.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(900, 0)
+	var style := _panel_style()
+	style.content_margin_left = 40
+	style.content_margin_right = 40
+	style.content_margin_top = 36
+	style.content_margin_bottom = 36
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 18)
+	panel.add_child(box)
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 20)
+	box.add_child(head)
+	_story_badge = PanelContainer.new()
+	_story_badge.custom_minimum_size = Vector2(120, 120)
+	head.add_child(_story_badge)
+	_story_initial = _make_center_label("", 56, COLOR_INK)
+	_display(_story_initial, 56, COLOR_INK)
+	_story_initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_story_badge.add_child(_story_initial)
+	var names := VBoxContainer.new()
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	names.alignment = BoxContainer.ALIGNMENT_CENTER
+	head.add_child(names)
+	_story_name = Label.new()
+	_display(_story_name, 42, COLOR_GOLD)
+	names.add_child(_story_name)
+	_story_title = _add_label(names, "", 26, COLOR_MUTED)
+
+	_story_you = _add_label(box, "", 28, COLOR_MUTED)
+	_story_text = _add_label(box, "", 32, COLOR_TEXT)
+	_story_buttons = VBoxContainer.new()
+	_story_buttons.add_theme_constant_override("separation", 12)
+	box.add_child(_story_buttons)
 
 
 func _on_island_captured(island_id: String, text: String) -> void:
@@ -1368,13 +1606,21 @@ func _refresh_competitors() -> void:
 		var status: Label = row["status"]
 		var button: Button = row["button"]
 		var id := str(ad_id)
+		var video: bool = GameState.get_ad_pay(id) == "video"
 		if str(active.get("id", "")) == id:
 			status.text = "Идёт, осталось %s" % _mmss(GameState.get_ad_left())
 		elif not active.is_empty():
 			status.text = "Сначала закончится текущая кампания"
 		else:
-			status.text = ""
-		button.text = "Запустить\n%s" % GameState.format_money(GameState.get_ad_price(id))
+			status.text = _ad_duel_hint(id)
+		if video and GameState.get_ad_wait(id) > 0:
+			var wait: int = GameState.get_ad_wait(id)
+			var wait_text: String = _mmss(wait) if wait < 3600 else "%d ч %02d мин" % [int(wait / 3600), int(wait % 3600 / 60)]
+			button.text = "Ролик\nчерез %s" % wait_text
+		elif video:
+			button.text = "▶ Смотреть\nролик"
+		else:
+			button.text = "Запустить\n%s" % GameState.format_money(GameState.get_ad_price(id))
 		button.disabled = not GameState.can_buy_ad(id)
 
 	for raw: Variant in rivals:
@@ -1436,7 +1682,7 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	var tips: PackedStringArray = PackedStringArray()
 	tips.append("Сила — это доход в секунду плюс заказы с тапов.")
 	if GameState.get_active_ad().is_empty():
-		tips.append("Реклама даёт рывок на несколько минут — обгоните на нём, и победа засчитается.")
+		tips.append("Рекламная кампания поднимает доход, а с ним и силу — обгоните на ней, и победа засчитается.")
 	tips.append("Пакости ослабляют соперника, но могут поймать.")
 	hint.text = " ".join(tips)
 	var notes: PackedStringArray = PackedStringArray()
@@ -1474,6 +1720,21 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 			int(roundf(GameState.get_catch_chance(id, tid) * 100.0)),
 		]
 		button.disabled = not GameState.can_play_trick(id, tid)
+
+
+## Подсказка у кампании: хватит ли её, чтобы обогнать текущего соперника.
+func _ad_duel_hint(ad_id: String) -> String:
+	var rival_id: String = GameState.get_active_rival()
+	if rival_id == "":
+		return ""
+	var boost: float = 0.0
+	for raw: Variant in GameState.get_ads():
+		if str(raw.get("id", "")) == ad_id:
+			boost = float(raw.get("boost", 0))
+	var short_name: String = _rival_name(rival_id).replace("Таксопарк ", "")
+	if GameState.get_player_power() * (1.0 + boost) >= GameState.get_competitor_power(rival_id):
+		return "С ней вы обгоните %s — он сдастся!" % short_name
+	return "Обогнать %s пока не хватит, но доход вырастет." % short_name
 
 
 func _rival_name(competitor_id: String) -> String:
@@ -2844,8 +3105,8 @@ func _on_achievement_unlocked(title: String, body: String) -> void:
 	_refresh_achievements()
 
 
-func _enqueue_toast(title: String, body: String) -> void:
-	_toast_queue.append("%s\n%s" % [title, body])
+func _enqueue_toast(title: String, body: String, seconds: float = 2.2) -> void:
+	_toast_queue.append(["%s\n%s" % [title, body], seconds])
 	if _toast_layer != null and not _toast_layer.visible:
 		_show_next_toast()
 
@@ -2854,9 +3115,13 @@ func _show_next_toast() -> void:
 	if _toast_queue.is_empty():
 		_toast_layer.visible = false
 		return
-	_toast_label.text = str(_toast_queue.pop_front())
+	var next: Array = _toast_queue.pop_front()
+	_toast_label.text = str(next[0])
 	_toast_layer.visible = true
-	_toast_timer.start(2.2)
+	# Долгие сообщения можно закрыть тапом, короткие пропускают тапы насквозь.
+	var seconds: float = float(next[1])
+	_toast_layer.mouse_filter = Control.MOUSE_FILTER_STOP if seconds > 3.0 else Control.MOUSE_FILTER_IGNORE
+	_toast_timer.start(seconds)
 
 
 func _build_toast() -> void:
@@ -2884,6 +3149,10 @@ func _build_toast() -> void:
 	_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_toast_layer.add_child(_toast_label)
 
+	_toast_layer.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and not event.pressed:
+			_toast_timer.stop()
+			_show_next_toast())
 	_toast_timer = Timer.new()
 	_toast_timer.one_shot = true
 	_toast_timer.timeout.connect(_show_next_toast)
