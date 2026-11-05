@@ -1,5 +1,6 @@
 {
   "tap_from_income": 0.008,
   "world_market_size": 600000000,
-  "offline_income_rate": 0.8
+  "offline_income_rate": 0.8,
+  "car_rent_share": 0.3
 }

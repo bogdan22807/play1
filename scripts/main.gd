@@ -72,6 +72,15 @@ var _daily_layer: Control
 var _offline_layer: Control
 var _offline_label: Label
 var _offline_time_label: Label
+var _company_label: Label
+var _taxi_sign_label: Label
+var _car_now_label: Label
+var _car_rent_label: Label
+## id машины -> {"status", "rent", "buy"}.
+var _car_rows: Dictionary = {}
+var _name_layer: Control
+var _name_edit: LineEdit
+var _name_error: Label
 
 
 func _ready() -> void:
@@ -92,6 +101,8 @@ func _ready() -> void:
 	GameState.achievement_unlocked.connect(_on_achievement_unlocked)
 	GameState.achievements_changed.connect(_refresh_achievements)
 	GameState.offline_reward_ready.connect(_show_offline_popup)
+	GameState.car_changed.connect(_on_car_changed)
+	GameState.company_changed.connect(_on_company_changed)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
 	_on_tap_power_changed(GameState.get_tap_power())
@@ -105,6 +116,8 @@ func _ready() -> void:
 	_on_reputation_changed(GameState.reputation)
 	_on_franchise_changed(GameState.get_franchise())
 	_refresh_achievements()
+	_on_car_changed()
+	_on_company_changed(GameState.company_name)
 	for item: Variant in GameState.take_fresh_achievements():
 		if typeof(item) == TYPE_DICTIONARY:
 			var info: Dictionary = item
@@ -112,6 +125,7 @@ func _ready() -> void:
 	_show_offline_popup()
 	if _offline_layer == null or not _offline_layer.visible:
 		_show_daily_popup()
+	_show_name_popup()
 
 
 func _apply_theme() -> void:
@@ -196,6 +210,7 @@ func _build_ui() -> void:
 	_build_toast()
 	_build_daily_popup()
 	_build_offline_popup()
+	_build_name_popup()
 
 
 func _build_header() -> HBoxContainer:
@@ -207,6 +222,13 @@ func _build_header() -> HBoxContainer:
 	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_box.add_theme_constant_override("separation", 0)
 	header.add_child(text_box)
+
+	_company_label = Label.new()
+	_company_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_company_label.clip_text = true
+	_company_label.add_theme_font_size_override("font_size", 26)
+	_company_label.add_theme_color_override("font_color", COLOR_TAXI)
+	text_box.add_child(_company_label)
 
 	# Фиксированная рамка: одна надпись не прыгает по ширине и не оставляет старые цифры.
 	var coin_frame := Control.new()
@@ -316,7 +338,7 @@ func _build_tab_bar() -> HBoxContainer:
 	bar.add_theme_constant_override("separation", 12)
 	_tab_buttons = [
 		_make_tab("Тап"),
-		_make_tab("Улучшения"),
+		_make_tab("Машина"),
 		_make_tab("Водители"),
 		_make_tab("Город"),
 		_make_tab("Рынок"),
@@ -383,12 +405,12 @@ func _build_taxi_face(parent: Button) -> void:
 	sign.add_theme_stylebox_override("panel", sign_style)
 	sign_center.add_child(sign)
 
-	var sign_label := Label.new()
-	sign_label.text = "ТАКСИ"
-	sign_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	sign_label.add_theme_font_size_override("font_size", 42)
-	sign_label.add_theme_color_override("font_color", COLOR_TAXI)
-	sign.add_child(sign_label)
+	_taxi_sign_label = Label.new()
+	_taxi_sign_label.text = "ТАКСИ"
+	_taxi_sign_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_taxi_sign_label.add_theme_font_size_override("font_size", 42)
+	_taxi_sign_label.add_theme_color_override("font_color", COLOR_TAXI)
+	sign.add_child(_taxi_sign_label)
 
 	var windows := HBoxContainer.new()
 	windows.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -978,6 +1000,8 @@ func _refresh_regions() -> void:
 
 
 func _build_upgrade_rows() -> void:
+	_build_car_rows()
+	_upgrade_list.add_child(_make_section_title("Тюнинг"))
 	for raw: Variant in GameState.get_upgrades():
 		if typeof(raw) != TYPE_DICTIONARY:
 			continue
@@ -986,6 +1010,232 @@ func _build_upgrade_rows() -> void:
 		if upgrade_id == "":
 			continue
 		_upgrade_list.add_child(_make_upgrade_row(upgrade_id, info))
+
+
+func _make_section_title(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", 40)
+	label.add_theme_color_override("font_color", COLOR_GOLD)
+	return label
+
+
+## Сверху — на чём ездим сейчас, ниже — машины, которые можно арендовать или купить.
+func _build_car_rows() -> void:
+	var now_panel := PanelContainer.new()
+	now_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	now_panel.add_theme_stylebox_override("panel", _panel_style())
+	_upgrade_list.add_child(now_panel)
+	var now_box := VBoxContainer.new()
+	now_box.add_theme_constant_override("separation", 4)
+	now_panel.add_child(now_box)
+	_car_now_label = Label.new()
+	_car_now_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_car_now_label.add_theme_font_size_override("font_size", 36)
+	now_box.add_child(_car_now_label)
+	_car_rent_label = Label.new()
+	_car_rent_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_car_rent_label.add_theme_font_size_override("font_size", 26)
+	_car_rent_label.add_theme_color_override("font_color", COLOR_MUTED)
+	now_box.add_child(_car_rent_label)
+
+	_upgrade_list.add_child(_make_section_title("Автосалон"))
+	var cars: Array = GameState.get_cars()
+	# Первая машина — стартовая, её не продают.
+	for index in range(1, cars.size()):
+		var raw: Variant = cars[index]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var info: Dictionary = raw
+		var car_id: String = str(info.get("id", ""))
+		if car_id != "":
+			_upgrade_list.add_child(_make_car_row(car_id, info))
+
+
+func _make_car_row(car_id: String, info: Dictionary) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _panel_style())
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(row)
+
+	var text_box := VBoxContainer.new()
+	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_box.add_theme_constant_override("separation", 4)
+	row.add_child(text_box)
+
+	var title := Label.new()
+	title.text = str(info.get("name", car_id))
+	title.add_theme_font_size_override("font_size", 36)
+	text_box.add_child(title)
+
+	var description := Label.new()
+	description.text = str(info.get("description", ""))
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_font_size_override("font_size", 26)
+	description.add_theme_color_override("font_color", COLOR_MUTED)
+	text_box.add_child(description)
+
+	var mult_label := Label.new()
+	mult_label.text = "Доход с тапа ×%s" % GameState.format_number(float(info.get("tap_mult", 1)))
+	mult_label.add_theme_font_size_override("font_size", 26)
+	mult_label.add_theme_color_override("font_color", COLOR_INCOME)
+	text_box.add_child(mult_label)
+
+	var status_label := Label.new()
+	status_label.add_theme_font_size_override("font_size", 28)
+	status_label.add_theme_color_override("font_color", COLOR_GOLD)
+	text_box.add_child(status_label)
+
+	var buttons := VBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 10)
+	row.add_child(buttons)
+
+	var rent_button := Button.new()
+	rent_button.custom_minimum_size = Vector2(230, 110)
+	rent_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(rent_button)
+	rent_button.pressed.connect(_on_rent_car.bind(car_id))
+	buttons.add_child(rent_button)
+
+	var buy_button := Button.new()
+	buy_button.custom_minimum_size = Vector2(230, 110)
+	buy_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(buy_button)
+	buy_button.pressed.connect(_on_buy_car.bind(car_id))
+	buttons.add_child(buy_button)
+
+	_car_rows[car_id] = {"status": status_label, "rent": rent_button, "buy": buy_button}
+	return panel
+
+
+func _on_rent_car(car_id: String) -> void:
+	GameState.rent_car(car_id)
+
+
+func _on_buy_car(car_id: String) -> void:
+	GameState.buy_car(car_id)
+
+
+func _on_car_changed() -> void:
+	var info: Dictionary = GameState.get_car_info()
+	if _taxi_sign_label != null:
+		_taxi_sign_label.text = str(info.get("sign", "ТАКСИ"))
+	_refresh_cars()
+	_refresh_rate_line()
+
+
+func _refresh_cars() -> void:
+	if _car_now_label == null:
+		return
+	var info: Dictionary = GameState.get_car_info()
+	var current_id: String = GameState.get_car_id()
+	_car_now_label.text = "Вы ездите: %s  ·  тап ×%s" % [
+		str(info.get("name", "")),
+		GameState.format_number(GameState.get_car_tap_mult()),
+	]
+	if GameState.is_car_rented():
+		_car_rent_label.text = "Машина в аренде: владелец забирает %d%% дохода с тапа. Выкупите её — и всё ваше." % int(roundf(GameState.get_rent_share() * 100.0))
+	else:
+		_car_rent_label.text = "Машина ваша, весь доход с тапа — тоже."
+	for car_id: Variant in _car_rows.keys():
+		var id := str(car_id)
+		var row: Dictionary = _car_rows[car_id]
+		var status_label: Label = row["status"]
+		var rent_button: Button = row["rent"]
+		var buy_button: Button = row["buy"]
+		if id == current_id:
+			status_label.text = "В аренде, вы на ней ездите" if GameState.is_car_rented() else "Ваша, вы на ней ездите"
+		elif GameState.is_car_owned(id):
+			status_label.text = "Куплена, стоит в гараже"
+		else:
+			status_label.text = ""
+		rent_button.text = "Аренда\n%s" % GameState.format_money(GameState.get_car_rent_cost(id))
+		rent_button.disabled = not GameState.can_rent_car(id)
+		rent_button.visible = not GameState.is_car_owned(id) and id != current_id
+		buy_button.text = "Купить\n%s" % GameState.format_money(GameState.get_car_buy_cost(id))
+		buy_button.disabled = not GameState.can_buy_car(id)
+		buy_button.visible = not GameState.is_car_owned(id)
+
+
+func _on_company_changed(company_name: String) -> void:
+	if _company_label != null:
+		_company_label.text = "Такси «%s»" % company_name if company_name != "" else ""
+
+
+## Окно при первом запуске: игрок называет свою компанию.
+func _build_name_popup() -> void:
+	_name_layer = Control.new()
+	_name_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_name_layer.visible = false
+	_name_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_name_layer)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.85)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_name_layer.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_name_layer.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(880, 0)
+	var style := _panel_style()
+	style.content_margin_left = 40
+	style.content_margin_right = 40
+	style.content_margin_top = 44
+	style.content_margin_bottom = 40
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 20)
+	panel.add_child(box)
+	box.add_child(_make_center_label("Ваше такси", 52, Color.WHITE))
+	var hint := _make_center_label("Бангкок ждёт. Как будет называться ваша компания? Конкуренты должны знать, кого бояться.", 28, COLOR_MUTED)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(hint)
+
+	_name_edit = LineEdit.new()
+	_name_edit.placeholder_text = "Например: Жёлтая молния"
+	_name_edit.max_length = GameState.COMPANY_NAME_MAX
+	_name_edit.custom_minimum_size = Vector2(0, 100)
+	_name_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_name_edit.add_theme_font_size_override("font_size", 36)
+	_name_edit.text_submitted.connect(_on_name_submitted)
+	box.add_child(_name_edit)
+
+	_name_error = _make_center_label("", 26, COLOR_DANGER)
+	box.add_child(_name_error)
+	box.add_child(_make_settings_button("Открыть компанию", COLOR_BUY, _on_name_confirm))
+
+
+func _show_name_popup() -> void:
+	if GameState.has_company_name():
+		_name_layer.visible = false
+		return
+	_name_edit.text = ""
+	_name_error.text = ""
+	_name_layer.visible = true
+	move_child(_name_layer, get_child_count() - 1)
+
+
+func _on_name_submitted(_text: String) -> void:
+	_on_name_confirm()
+
+
+func _on_name_confirm() -> void:
+	if not GameState.set_company_name(_name_edit.text):
+		_name_error.text = "Без названия клиенты вас не найдут."
+		return
+	_name_layer.visible = false
 
 
 func _build_driver_rows() -> void:
@@ -1465,6 +1715,7 @@ func _confirm_reset() -> void:
 	_show_page(PAGE_TAP)
 	if _offline_layer != null:
 		_offline_layer.visible = false
+	_show_name_popup()
 
 
 func _build_settings_popup() -> void:
@@ -1568,6 +1819,7 @@ func _on_coins_changed(value: float) -> void:
 	_refresh_regions()
 	_refresh_competitors()
 	_refresh_sell()
+	_refresh_cars()
 
 
 func _on_tap_power_changed(_value: float) -> void:

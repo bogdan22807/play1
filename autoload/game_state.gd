@@ -25,6 +25,10 @@ signal competitors_changed
 signal franchise_changed(franchise: float)
 signal achievement_unlocked(title: String, body: String)
 signal achievements_changed
+## Сменилась машина игрока: арендовали, купили или пересели.
+signal car_changed
+## Игрок назвал компанию.
+signal company_changed(company_name: String)
 
 ## Сколько монет даёт тап без улучшений.
 const BASE_TAP_POWER: float = 1.0
@@ -35,6 +39,9 @@ const REGIONS_PATH := "res://data/regions.json"
 const COMPETITORS_PATH := "res://data/competitors.json"
 const ACHIEVEMENTS_PATH := "res://data/achievements.json"
 const BALANCE_PATH := "res://data/balance.json"
+const CARS_PATH := "res://data/cars.json"
+## Длина названия компании.
+const COMPANY_NAME_MAX := 24
 const DAILY_COINS := 250.0
 ## Сколько тапов нужно для +1 репутации.
 const TAPS_PER_REPUTATION := 20
@@ -102,6 +109,17 @@ var _tap_from_income: float = 0.01
 var _world_market_size: float = 600000000.0
 ## Какая доля обычного дохода капает, пока игра закрыта. 0.8 = 80%.
 var _offline_income_rate: float = 0.8
+## Какую долю дохода с тапа забирает владелец арендованной машины. 0.3 = 30%.
+var _car_rent_share: float = 0.3
+var _car_defs: Array = []
+## На какой машине игрок ездит сам. Первая в cars.json — стартовая.
+var _car_id: String = ""
+## true, если текущая машина взята в аренду.
+var _car_rented: bool = false
+## id машины -> 1, если машина куплена. Позже их получат водители (этап 2).
+var _owned_cars: Dictionary = {}
+## Название компании. Пустое, пока игрок его не ввёл.
+var company_name: String = ""
 
 
 func _ready() -> void:
@@ -111,6 +129,8 @@ func _ready() -> void:
 	_region_defs = _read_json_array(REGIONS_PATH)
 	_competitor_defs = _read_json_array(COMPETITORS_PATH)
 	_achievement_defs = _read_json_array(ACHIEVEMENTS_PATH)
+	_car_defs = _read_json_array(CARS_PATH)
+	_car_id = _start_car_id()
 	_read_balance()
 	load_game()
 	_recalc_income()
@@ -124,6 +144,8 @@ func _ready() -> void:
 	reputation_changed.emit(reputation)
 	competitors_changed.emit()
 	franchise_changed.emit(franchise)
+	car_changed.emit()
+	company_changed.emit(company_name)
 
 
 ## Пассивный доход капает каждый кадр. Рядом тикает автосохранение.
@@ -188,9 +210,145 @@ func get_flat_tap() -> float:
 	return power
 
 
-## Сила тапа: небольшая база от улучшений плюс доля текущего дохода в секунду.
+## Сила тапа: улучшения × машина (минус аренда) × множители плюс доля дохода в секунду.
 func get_tap_power() -> float:
-	return get_flat_tap() * get_income_multiplier() + get_income_per_second() * _tap_from_income
+	var ride: float = get_flat_tap() * get_car_tap_mult() * (1.0 - get_rent_share())
+	return ride * get_income_multiplier() + get_income_per_second() * _tap_from_income
+
+
+# --- Машина игрока ---------------------------------------------------------
+
+## Список машин из data/cars.json, от худшей к лучшей.
+func get_cars() -> Array:
+	return _car_defs
+
+
+func get_car_id() -> String:
+	return _car_id
+
+
+func get_car_info() -> Dictionary:
+	return _find_def(_car_defs, _car_id)
+
+
+func is_car_rented() -> bool:
+	return _car_rented
+
+
+func is_car_owned(car_id: String) -> bool:
+	return car_id == _start_car_id() or int(_owned_cars.get(car_id, 0)) > 0
+
+
+## Сколько машин куплено. Стартовая не считается.
+func get_owned_car_count() -> int:
+	return _owned_cars.size()
+
+
+## Во сколько раз машина умножает доход с тапа.
+func get_car_tap_mult() -> float:
+	return maxf(1.0, float(get_car_info().get("tap_mult", 1)))
+
+
+## Доля тапа, которая уходит за аренду. 0, если машина своя.
+func get_rent_share() -> float:
+	return _car_rent_share if _car_rented else 0.0
+
+
+func get_car_rent_cost(car_id: String) -> float:
+	return maxf(0.0, float(_find_def(_car_defs, car_id).get("rent_cost", 0)))
+
+
+## Цена покупки. Если эту машину сейчас арендуем, залог засчитывается.
+func get_car_buy_cost(car_id: String) -> float:
+	var cost: float = maxf(0.0, float(_find_def(_car_defs, car_id).get("buy_cost", 0)))
+	if _car_rented and car_id == _car_id:
+		cost = maxf(0.0, cost - get_car_rent_cost(car_id))
+	return cost
+
+
+## Арендовать можно только машину лучше той, на которой ездим.
+func can_rent_car(car_id: String) -> bool:
+	if _car_index(car_id) <= _car_index(_car_id) or is_car_owned(car_id):
+		return false
+	var cost: float = get_car_rent_cost(car_id)
+	return cost > 0.0 and coins + 0.001 >= cost
+
+
+## Купить можно машину не хуже текущей, если она ещё не наша.
+func can_buy_car(car_id: String) -> bool:
+	if _car_index(car_id) < _car_index(_car_id) or is_car_owned(car_id):
+		return false
+	return coins + 0.001 >= get_car_buy_cost(car_id)
+
+
+## Платим залог и пересаживаемся. Прошлая аренда просто заканчивается.
+func rent_car(car_id: String) -> bool:
+	if not can_rent_car(car_id):
+		return false
+	coins = maxf(0.0, coins - get_car_rent_cost(car_id))
+	_car_id = car_id
+	_car_rented = true
+	_after_car_change()
+	return true
+
+
+## Покупаем и сразу пересаживаемся: машина не хуже текущей.
+func buy_car(car_id: String) -> bool:
+	if not can_buy_car(car_id):
+		return false
+	coins = maxf(0.0, coins - get_car_buy_cost(car_id))
+	_owned_cars[car_id] = 1
+	_car_id = car_id
+	_car_rented = false
+	_after_car_change()
+	return true
+
+
+func _after_car_change() -> void:
+	coins_changed.emit(coins)
+	tap_power_changed.emit(get_tap_power())
+	car_changed.emit()
+	_note_progress()
+	save_game()
+
+
+func _start_car_id() -> String:
+	if _car_defs.is_empty() or typeof(_car_defs[0]) != TYPE_DICTIONARY:
+		return ""
+	var first: Dictionary = _car_defs[0]
+	return str(first.get("id", ""))
+
+
+## Место машины в списке. -1, если такой нет.
+func _car_index(car_id: String) -> int:
+	for index in _car_defs.size():
+		var raw: Variant = _car_defs[index]
+		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) == car_id:
+			return index
+	return -1
+
+
+func _reset_car() -> void:
+	_car_id = _start_car_id()
+	_car_rented = false
+	_owned_cars.clear()
+
+
+# --- Название компании -----------------------------------------------------
+
+func has_company_name() -> bool:
+	return company_name != ""
+
+
+## Обрезает пробелы и длину. Возвращает false, если имя пустое.
+func set_company_name(raw_name: String) -> bool:
+	var clean: String = raw_name.strip_edges().substr(0, COMPANY_NAME_MAX)
+	if clean == "":
+		return false
+	company_name = clean
+	company_changed.emit(company_name)
+	save_game()
+	return true
 
 
 ## Список улучшений из data/upgrades.json. Экран только читает его.
@@ -552,6 +710,8 @@ func reset_progress() -> void:
 	_done_achievements.clear()
 	_last_daily_day = 0
 	_fresh_achievements.clear()
+	_reset_car()
+	company_name = ""
 	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
@@ -564,6 +724,8 @@ func reset_progress() -> void:
 	competitors_changed.emit()
 	franchise_changed.emit(franchise)
 	achievements_changed.emit()
+	car_changed.emit()
+	company_changed.emit(company_name)
 	save_game()
 
 
@@ -613,6 +775,7 @@ func sell_company() -> bool:
 	_opened_regions.clear()
 	_owned_competitors.clear()
 	run_taps = 0
+	_reset_car()
 	_recalc_income()
 	_sync_reputation()
 	coins_changed.emit(coins)
@@ -624,6 +787,7 @@ func sell_company() -> bool:
 	reputation_changed.emit(reputation)
 	competitors_changed.emit()
 	franchise_changed.emit(franchise)
+	car_changed.emit()
 	_note_progress()
 	save_game()
 	return true
@@ -748,6 +912,10 @@ func save_game() -> void:
 		"lifetime_earned": lifetime_earned,
 		"achievements": _done_achievements.keys(),
 		"last_daily_day": _last_daily_day,
+		"car": _car_id,
+		"car_rented": _car_rented,
+		"owned_cars": _owned_cars.keys(),
+		"company_name": company_name,
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -785,11 +953,30 @@ func load_game() -> void:
 	lifetime_earned = maxf(run_earned, float(data.get("lifetime_earned", run_earned)))
 	_done_achievements = _read_id_set(data.get("achievements", []))
 	_last_daily_day = maxi(0, int(data.get("last_daily_day", 0)))
+	_load_car(data)
+	company_name = str(data.get("company_name", "")).strip_edges().substr(0, COMPANY_NAME_MAX)
 	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
 	var saved_offline: float = maxf(0.0, float(data.get("pending_offline_coins", 0)))
 	var saved_seconds: float = maxf(0.0, float(data.get("pending_offline_seconds", 0)))
 	_refresh_offline_reward(saved_offline, saved_seconds)
 	_fold_offline_dust()
+
+
+## Машина из сохранения. Незнакомый id (машину убрали из cars.json) — стартовая.
+func _load_car(data: Dictionary) -> void:
+	_owned_cars.clear()
+	for car_id: Variant in _read_id_set(data.get("owned_cars", [])).keys():
+		if _car_index(str(car_id)) > 0:
+			_owned_cars[str(car_id)] = 1
+	_car_id = str(data.get("car", _start_car_id()))
+	_car_rented = bool(data.get("car_rented", false))
+	if _car_index(_car_id) < 0:
+		_car_id = _start_car_id()
+		_car_rented = false
+	if _car_id == _start_car_id():
+		_car_rented = false
+	elif not _car_rented and not is_car_owned(_car_id):
+		_car_rented = true
 
 
 ## Старое сохранение не хранило число тапов. Собираем его из счётчика репутации,
@@ -831,6 +1018,8 @@ func get_achievement_value(kind: String) -> float:
 			return float(_sum_counts(_upgrade_levels))
 		"franchise":
 			return franchise
+		"cars":
+			return float(get_owned_car_count())
 		_:
 			return 0.0
 
@@ -961,6 +1150,7 @@ func _read_balance() -> void:
 	_tap_from_income = maxf(0.0, float(data.get("tap_from_income", _tap_from_income)))
 	_world_market_size = maxf(1.0, float(data.get("world_market_size", _world_market_size)))
 	_offline_income_rate = clampf(float(data.get("offline_income_rate", _offline_income_rate)), 0.0, 1.0)
+	_car_rent_share = clampf(float(data.get("car_rent_share", _car_rent_share)), 0.0, 0.9)
 
 
 ## Сумма в долларах: $999, $1.5K, $-20.
