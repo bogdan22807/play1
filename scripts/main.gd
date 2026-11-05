@@ -52,7 +52,16 @@ var _settings_confirm: VBoxContainer
 ## id улучшения -> подписи и кнопка этой строки.
 var _upgrade_rows: Dictionary = {}
 ## id водителя -> подписи и кнопка этой строки.
-var _driver_rows: Dictionary = {}
+var _team_box: VBoxContainer
+var _candidate_box: VBoxContainer
+var _staff_summary: Label
+var _garage_label: Label
+var _expand_button: Button
+var _refresh_button: Button
+## id машины -> {"count", "button", "note"} для покупки в парк.
+var _fleet_rows: Dictionary = {}
+## Кнопки, которые зависят от денег: [кнопка, Callable проверки].
+var _staff_buttons: Array = []
 var _district_rows: Dictionary = {}
 var _region_rows: Dictionary = {}
 var _competitor_rows: Dictionary = {}
@@ -102,13 +111,14 @@ func _ready() -> void:
 	GameState.achievements_changed.connect(_refresh_achievements)
 	GameState.offline_reward_ready.connect(_show_offline_popup)
 	GameState.car_changed.connect(_on_car_changed)
+	GameState.garage_changed.connect(_on_drivers_changed)
 	GameState.company_changed.connect(_on_company_changed)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
 	_on_tap_power_changed(GameState.get_tap_power())
 	_on_income_changed(GameState.get_income_per_second())
 	_refresh_upgrades()
-	_refresh_drivers()
+	_refresh_staff_money()
 	_refresh_districts()
 	_refresh_regions()
 	_refresh_competitors()
@@ -1150,7 +1160,7 @@ func _refresh_cars() -> void:
 		if id == current_id:
 			status_label.text = "В аренде, вы на ней ездите" if GameState.is_car_rented() else "Ваша, вы на ней ездите"
 		elif GameState.is_car_owned(id):
-			status_label.text = "Куплена, стоит в гараже"
+			status_label.text = "Куплена"
 		else:
 			status_label.text = ""
 		rent_button.text = "Аренда\n%s" % GameState.format_money(GameState.get_car_rent_cost(id))
@@ -1240,74 +1250,277 @@ func _on_name_confirm() -> void:
 
 func _build_driver_rows() -> void:
 	var hint := Label.new()
-	hint.text = "Водители приносят доллары сами, даже если не нажимать на такси."
+	hint.text = "Водитель + свободная машина из гаража = доход, даже когда вы не тапаете. Зарплата вычитается сама. Лучшим водителям диспетчер сам даёт лучшие машины."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 26)
 	hint.add_theme_color_override("font_color", COLOR_MUTED)
 	_driver_list.add_child(hint)
 
-	for raw: Variant in GameState.get_drivers():
+	var summary := PanelContainer.new()
+	summary.add_theme_stylebox_override("panel", _panel_style())
+	_driver_list.add_child(summary)
+	var summary_row := HBoxContainer.new()
+	summary_row.add_theme_constant_override("separation", 16)
+	summary.add_child(summary_row)
+	var summary_text := VBoxContainer.new()
+	summary_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	summary_row.add_child(summary_text)
+	_garage_label = Label.new()
+	_garage_label.add_theme_font_size_override("font_size", 34)
+	summary_text.add_child(_garage_label)
+	_staff_summary = Label.new()
+	_staff_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_staff_summary.add_theme_font_size_override("font_size", 26)
+	_staff_summary.add_theme_color_override("font_color", COLOR_INCOME)
+	summary_text.add_child(_staff_summary)
+	_expand_button = _make_row_button(_on_expand_garage)
+	summary_row.add_child(_expand_button)
+
+	_driver_list.add_child(_make_section_title("Команда"))
+	_team_box = VBoxContainer.new()
+	_team_box.add_theme_constant_override("separation", 16)
+	_driver_list.add_child(_team_box)
+
+	_driver_list.add_child(_make_section_title("Кандидаты"))
+	_candidate_box = VBoxContainer.new()
+	_candidate_box.add_theme_constant_override("separation", 16)
+	_driver_list.add_child(_candidate_box)
+	_refresh_button = Button.new()
+	_refresh_button.custom_minimum_size = Vector2(0, 96)
+	_refresh_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(_refresh_button)
+	_refresh_button.pressed.connect(_on_refresh_candidates)
+	_driver_list.add_child(_refresh_button)
+	var timer := Timer.new()
+	timer.wait_time = 1.0
+	timer.autostart = true
+	timer.timeout.connect(_refresh_candidate_timer)
+	add_child(timer)
+
+	_driver_list.add_child(_make_section_title("Купить машину в парк"))
+	var cars: Array = GameState.get_cars()
+	for index in range(1, cars.size()):
+		var raw: Variant = cars[index]
 		if typeof(raw) != TYPE_DICTIONARY:
 			continue
 		var info: Dictionary = raw
-		var driver_id: String = str(info.get("id", ""))
-		if driver_id == "":
-			continue
-		_driver_list.add_child(_make_driver_row(driver_id, info))
+		var car_id: String = str(info.get("id", ""))
+		if car_id != "":
+			_driver_list.add_child(_make_fleet_row(car_id, info))
+	_rebuild_staff()
 
 
-func _make_driver_row(driver_id: String, info: Dictionary) -> PanelContainer:
-	var panel := PanelContainer.new()
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override("panel", _panel_style())
+func _make_row_button(callback: Callable) -> Button:
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(230, 120)
+	button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(button)
+	button.pressed.connect(callback)
+	return button
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 16)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	panel.add_child(row)
 
+func _make_text_box(row: HBoxContainer) -> VBoxContainer:
 	var text_box := VBoxContainer.new()
 	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_box.add_theme_constant_override("separation", 4)
 	row.add_child(text_box)
+	return text_box
 
-	var title := Label.new()
-	title.text = str(info.get("name", driver_id))
-	title.add_theme_font_size_override("font_size", 36)
-	text_box.add_child(title)
 
-	var description := Label.new()
-	description.text = str(info.get("description", ""))
-	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	description.add_theme_font_size_override("font_size", 26)
-	description.add_theme_color_override("font_color", COLOR_MUTED)
-	text_box.add_child(description)
+## Панель-строка: [PanelContainer, HBoxContainer внутри].
+func _make_row_panel() -> Array:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(row)
+	return [panel, row]
 
-	var rate: float = float(info.get("income_per_second", 0))
-	var rate_label := Label.new()
-	rate_label.text = "Приносит %s в секунду" % GameState.format_money(rate)
-	rate_label.add_theme_font_size_override("font_size", 26)
-	rate_label.add_theme_color_override("font_color", COLOR_INCOME)
-	text_box.add_child(rate_label)
 
-	var count_label := Label.new()
-	count_label.add_theme_font_size_override("font_size", 28)
-	count_label.add_theme_color_override("font_color", COLOR_GOLD)
-	text_box.add_child(count_label)
+func _add_label(box: Container, text: String, font_size: int, color: Color = Color.WHITE) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	box.add_child(label)
+	return label
 
-	var hire_button := Button.new()
-	hire_button.custom_minimum_size = Vector2(230, 130)
-	hire_button.focus_mode = Control.FOCUS_NONE
-	_style_buy_button(hire_button)
-	hire_button.pressed.connect(_on_hire_driver.bind(driver_id))
-	row.add_child(hire_button)
 
-	_driver_rows[driver_id] = {
-		"count": count_label,
-		"button": hire_button,
-	}
-	return panel
+func _stars_text(stars: int) -> String:
+	return "★".repeat(stars) + "☆".repeat(maxi(0, 3 - stars))
+
+
+func _person_line(person: Dictionary) -> String:
+	var trait_info: Dictionary = GameState.get_trait_info(str(person.get("trait", "")))
+	return "%s  ·  %s" % [_stars_text(int(person.get("stars", 1))), str(trait_info.get("name", ""))]
+
+
+func _car_name(car_id: String) -> String:
+	for raw: Variant in GameState.get_cars():
+		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) == car_id:
+			return str(raw.get("name", car_id))
+	return car_id
+
+
+func _make_fleet_row(car_id: String, info: Dictionary) -> PanelContainer:
+	var parts: Array = _make_row_panel()
+	var row: HBoxContainer = parts[1]
+	var text_box := _make_text_box(row)
+	_add_label(text_box, str(info.get("name", car_id)), 36)
+	_add_label(text_box, "Водителю: %s/с без звёзд и бонусов" % GameState.format_money(float(info.get("driver_income", 0))), 26, COLOR_INCOME)
+	var count_label := _add_label(text_box, "", 28, COLOR_GOLD)
+	var note := _add_label(text_box, "", 24, COLOR_MUTED)
+	var button := _make_row_button(_on_buy_fleet.bind(car_id))
+	row.add_child(button)
+	_fleet_rows[car_id] = {"count": count_label, "button": button, "note": note}
+	return parts[0]
+
+
+## Команда и кандидаты меняются по составу — пересобираем их целиком.
+func _rebuild_staff() -> void:
+	if _team_box == null:
+		return
+	_staff_buttons.clear()
+	for child in _team_box.get_children():
+		child.queue_free()
+	for child in _candidate_box.get_children():
+		child.queue_free()
+
+	var cars: Dictionary = GameState.get_assignments()
+	if GameState.get_team().is_empty():
+		_add_label(_team_box, "Пока никого. Купите машину в парк и наймите первого водителя.", 26, COLOR_MUTED)
+	for raw: Variant in GameState.get_team():
+		var person: Dictionary = raw
+		var uid: int = int(person.get("uid", 0))
+		var parts: Array = _make_row_panel()
+		var row: HBoxContainer = parts[1]
+		var text_box := _make_text_box(row)
+		_add_label(text_box, str(person.get("name", "")), 34)
+		_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
+		var car_id: String = str(cars.get(uid, ""))
+		if car_id == "":
+			_add_label(text_box, "Без машины — купите ещё одну в парк", 26, COLOR_DANGER)
+		else:
+			_add_label(text_box, "%s  ·  %s/с  ·  зарплата %d%%" % [
+				_car_name(car_id),
+				GameState.format_money(GameState.get_driver_net(person, car_id)),
+				int(roundf(GameState.get_salary_share(person) * 100.0)),
+			], 26, COLOR_INCOME)
+		var fire_button := Button.new()
+		fire_button.text = "Уволить"
+		fire_button.custom_minimum_size = Vector2(200, 90)
+		fire_button.focus_mode = Control.FOCUS_NONE
+		_style_plain_button(fire_button, COLOR_DANGER)
+		fire_button.add_theme_font_size_override("font_size", 26)
+		fire_button.pressed.connect(_on_fire.bind(uid))
+		row.add_child(fire_button)
+		_team_box.add_child(parts[0])
+
+	var free_cars: Array = GameState.get_free_garage_cars()
+	var candidates: Array = GameState.get_candidates()
+	for index in candidates.size():
+		var person: Dictionary = candidates[index]
+		var parts: Array = _make_row_panel()
+		var row: HBoxContainer = parts[1]
+		var text_box := _make_text_box(row)
+		_add_label(text_box, str(person.get("name", "")), 34)
+		_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
+		var trait_info: Dictionary = GameState.get_trait_info(str(person.get("trait", "")))
+		_add_label(text_box, str(trait_info.get("description", "")), 24, COLOR_MUTED)
+		if free_cars.is_empty():
+			_add_label(text_box, "Нет свободной машины в гараже", 26, COLOR_DANGER)
+		else:
+			_add_label(text_box, "На «%s» ≈ %s/с  ·  зарплата %d%%" % [
+				_car_name(str(free_cars[0])),
+				GameState.format_money(GameState.get_driver_net(person, str(free_cars[0]))),
+				int(roundf(GameState.get_salary_share(person) * 100.0)),
+			], 26, COLOR_INCOME)
+		var hire_button := _make_row_button(_on_hire.bind(index))
+		hire_button.text = "Нанять\n%s" % GameState.format_money(GameState.get_hire_cost(person))
+		row.add_child(hire_button)
+		_staff_buttons.append([hire_button, GameState.can_hire.bind(index)])
+		_candidate_box.add_child(parts[0])
+	_refresh_staff_money()
+
+
+## Только то, что зависит от денег: доступность кнопок и цены.
+func _refresh_staff_money() -> void:
+	if _garage_label == null:
+		return
+	for pair: Variant in _staff_buttons:
+		var button: Button = pair[0]
+		var check: Callable = pair[1]
+		if is_instance_valid(button):
+			button.disabled = not check.call()
+	_garage_label.text = "Гараж: %d / %d  ·  водителей: %d" % [
+		GameState.get_garage().size(),
+		GameState.get_garage_capacity(),
+		GameState.get_team().size(),
+	]
+	_staff_summary.text = "Команда приносит %s/с  ·  зарплаты %s/с" % [
+		GameState.format_money(GameState.get_income_per_second()),
+		GameState.format_money(GameState.get_salary_per_second()),
+	]
+	var step: Dictionary = GameState.get_next_expansion()
+	if step.is_empty():
+		_expand_button.text = "Гараж\nмаксимум"
+		_expand_button.disabled = true
+	else:
+		_expand_button.text = "+%d мест\n%s" % [int(step.get("add", 0)), GameState.format_money(float(step.get("cost", 0)))]
+		_expand_button.disabled = not GameState.can_expand_garage()
+	var full: bool = GameState.is_garage_full()
+	var worst: String = GameState.get_worst_garage_car()
+	for car_id: Variant in _fleet_rows.keys():
+		var id := str(car_id)
+		var row: Dictionary = _fleet_rows[car_id]
+		var count_label: Label = row["count"]
+		var button: Button = row["button"]
+		var note: Label = row["note"]
+		count_label.text = "В парке: %d" % GameState.get_fleet_count(id)
+		var price: String = GameState.format_money(GameState.get_fleet_cost(id))
+		if full:
+			button.text = "Обмен\n%s" % price
+			if GameState.get_car_driver_income(id) > GameState.get_car_driver_income(worst):
+				note.text = "Гараж полон: отдадите «%s» за %s" % [_car_name(worst), GameState.format_money(GameState.get_trade_in_value(worst))]
+			else:
+				note.text = "Гараж полон, а эта машина не лучше худшей в парке"
+		else:
+			button.text = "В парк\n%s" % price
+			note.text = ""
+		button.disabled = not GameState.can_buy_fleet(id)
+	_refresh_candidate_timer()
+
+
+func _refresh_candidate_timer() -> void:
+	if _refresh_button == null:
+		return
+	var left: int = GameState.get_refresh_left()
+	_refresh_button.disabled = left > 0
+	_refresh_button.text = "Позвать других кандидатов" if left == 0 else "Новые кандидаты через %d с" % left
+
+
+func _on_hire(index: int) -> void:
+	GameState.hire(index)
+
+
+func _on_fire(uid: int) -> void:
+	GameState.fire(uid)
+
+
+func _on_buy_fleet(car_id: String) -> void:
+	GameState.buy_fleet(car_id)
+
+
+func _on_expand_garage() -> void:
+	GameState.expand_garage()
+
+
+func _on_refresh_candidates() -> void:
+	GameState.refresh_candidates()
 
 
 func _make_upgrade_row(upgrade_id: String, info: Dictionary) -> PanelContainer:
@@ -1802,10 +2015,6 @@ func _on_buy_upgrade(upgrade_id: String) -> void:
 	GameState.buy_upgrade(upgrade_id)
 
 
-func _on_hire_driver(driver_id: String) -> void:
-	GameState.hire_driver(driver_id)
-
-
 func _on_coins_changed(value: float) -> void:
 	_refresh_achievements()
 	var text := GameState.format_money(value)
@@ -1814,7 +2023,7 @@ func _on_coins_changed(value: float) -> void:
 		return
 	_coins_label.text = text
 	_refresh_upgrades()
-	_refresh_drivers()
+	_refresh_staff_money()
 	_refresh_districts()
 	_refresh_regions()
 	_refresh_competitors()
@@ -1864,7 +2073,7 @@ func _on_upgrades_changed() -> void:
 
 
 func _on_drivers_changed() -> void:
-	_refresh_drivers()
+	_rebuild_staff()
 
 
 func _on_districts_changed() -> void:
@@ -1892,15 +2101,3 @@ func _refresh_upgrades() -> void:
 		var cost: float = GameState.get_upgrade_cost(id)
 		buy_button.text = "Купить\n%s" % GameState.format_money(cost)
 		buy_button.disabled = not GameState.can_buy_upgrade(id)
-
-
-func _refresh_drivers() -> void:
-	for driver_id: Variant in _driver_rows.keys():
-		var row: Dictionary = _driver_rows[driver_id]
-		var count_label: Label = row["count"]
-		var hire_button: Button = row["button"]
-		var id := str(driver_id)
-		count_label.text = "Нанято: %d" % GameState.get_driver_count(id)
-		var cost: float = GameState.get_driver_cost(id)
-		hire_button.text = "Нанять\n%s" % GameState.format_money(cost)
-		hire_button.disabled = not GameState.can_hire_driver(id)

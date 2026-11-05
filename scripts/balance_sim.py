@@ -12,6 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 TAPS_PER_SECOND = 4.0
 TAPS_PER_REPUTATION = 20
+# Игрок выбирает лучшего из трёх кандидатов: считаем водителя чуть выше среднего.
+DRIVER_POWER = 1.3
+DRIVER_SALARY = 0.24
+HIRE_BASE = 100.0
 DT = 1.0
 HORIZON = 7 * 3600
 
@@ -42,7 +46,7 @@ def fmt_time(seconds):
 class Player:
     def __init__(self):
         self.upgrades = load("upgrades.json")
-        self.drivers = load("drivers.json")
+        self.staff = load("drivers.json")
         self.cities = load("cities.json")
         self.regions = load("regions.json")
         self.competitors = load("competitors.json")
@@ -55,7 +59,13 @@ class Player:
         self.rented = False
         self.owned_cars = set()
         self.levels = {item["id"]: 0 for item in self.upgrades}
-        self.counts = {item["id"]: 0 for item in self.drivers}
+        self.fleet_growth = float(balance.get("fleet_growth", 1.15))
+        self.trade_share = float(balance.get("trade_in_share", 0.5))
+        self.capacity = int(balance.get("garage_start", 5))
+        self.expansions = list(balance.get("garage_expansions", []))
+        # Гараж — индексы машин, команда — сколько нанято (сидят на лучших машинах).
+        self.garage = []
+        self.team = 0
         self.districts = []
         for city in self.cities:
             for district in city["districts"]:
@@ -82,11 +92,23 @@ class Player:
         )
         return district * region * rival * self.franchise
 
+    def car_income(self, index):
+        return float(self.cars[index].get("driver_income", 0))
+
+    def driver_net(self, index):
+        return self.car_income(index) * DRIVER_POWER * (1.0 - DRIVER_SALARY)
+
+    def staffed(self):
+        return sorted(self.garage, key=self.car_income, reverse=True)[: self.team]
+
     def passive(self):
-        raw = 0.0
-        for item in self.drivers:
-            raw += item["income_per_second"] * self.counts[item["id"]]
-        return raw * self.multiplier()
+        return sum(self.driver_net(index) for index in self.staffed()) * self.multiplier()
+
+    def fleet_cost(self, index):
+        return scaled_cost(float(self.cars[index]["buy_cost"]), self.fleet_growth, self.garage.count(index))
+
+    def hire_cost(self):
+        return scaled_cost(HIRE_BASE, float(self.staff.get("hire_growth", 1.5)), self.team)
 
     def flat_tap(self):
         power = 1.0
@@ -105,8 +127,7 @@ class Player:
         return ride + self.passive() * self.tap_from_income
 
     def reputation(self):
-        hired = sum(self.counts.values())
-        return self.taps // TAPS_PER_REPUTATION + hired
+        return self.taps // TAPS_PER_REPUTATION + self.team
 
     def total_dps(self):
         return self.tap_power() * TAPS_PER_SECOND + self.passive()
@@ -141,11 +162,33 @@ class Player:
             gain = ride * (self.car_factor(index, False) - self.car_factor())
             if gain > 0:
                 found.append(("car", index, item["name"], buy, gain / buy))
-        for item in self.drivers:
-            owned = self.counts[item["id"]]
-            cost = scaled_cost(item["base_cost"], item["cost_growth"], owned)
-            gain = item["income_per_second"] * mult * (1.0 + self.tap_from_income * TAPS_PER_SECOND)
-            found.append(("driver", item["id"], item["name"], cost, gain / cost))
+        boost = mult * (1.0 + self.tap_from_income * TAPS_PER_SECOND)
+        full = len(self.garage) >= self.capacity
+        if len(self.garage) > self.team:
+            free = sorted(self.garage, key=self.car_income, reverse=True)[self.team]
+            cost = self.hire_cost()
+            found.append(("hire", free, "Водитель", cost, self.driver_net(free) * boost / cost))
+        best_slot = None
+        for index in range(1, len(self.cars)):
+            if full:
+                worst = min(self.garage, key=self.car_income)
+                if self.car_income(index) <= self.car_income(worst):
+                    continue
+                cost = max(1.0, self.fleet_cost(index) - math.floor(self.cars[worst]["buy_cost"] * self.trade_share))
+                gain = (self.driver_net(index) - self.driver_net(worst)) * boost
+                found.append(("trade", index, self.cars[index]["name"], cost, gain / cost))
+            else:
+                cost = self.fleet_cost(index) + self.hire_cost()
+                gain = self.driver_net(index) * boost
+                found.append(("slot", index, self.cars[index]["name"], cost, gain / cost))
+            # Слот за расширением: та же машина с водителем, но плюс цена расширения.
+            slot_cost = self.fleet_cost(index) + self.hire_cost()
+            if best_slot is None or self.driver_net(index) / slot_cost > best_slot[1] / best_slot[0]:
+                best_slot = (slot_cost, self.driver_net(index) * boost)
+        if full and self.expansions and best_slot:
+            step = self.expansions[0]
+            cost = float(step["cost"]) + best_slot[0]
+            found.append(("expand", 0, "Расширение гаража", float(step["cost"]), best_slot[1] / cost))
         for item in self.districts:
             if item["id"] in self.open_districts:
                 continue
@@ -185,16 +228,35 @@ class Player:
         if kind == "upgrade":
             self.levels[entry_id] += 1
         elif kind == "rent":
+            if not self.rented and self.car > 0:
+                self.garage.append(self.car)
             self.car = entry_id
             self.rented = True
             self.log.append((self.time, "Аренда", name, cost))
         elif kind == "car":
+            if not self.rented and self.car > 0:
+                self.garage.append(self.car)
             self.car = entry_id
             self.rented = False
             self.owned_cars.add(self.cars[entry_id]["id"])
             self.log.append((self.time, "Машина", name, cost))
-        elif kind == "driver":
-            self.counts[entry_id] += 1
+        elif kind == "hire":
+            self.team += 1
+            if self.team == 1:
+                self.log.append((self.time, "Водитель", "первый", cost))
+        elif kind == "slot":
+            self.garage.append(entry_id)
+            self.team += 1
+            if self.team == 1:
+                self.log.append((self.time, "Водитель", "первый", cost))
+            self.log.append((self.time, "В парк", name, cost)) if len(self.garage) <= 2 else None
+        elif kind == "trade":
+            self.garage.remove(min(self.garage, key=self.car_income))
+            self.garage.append(entry_id)
+        elif kind == "expand":
+            step = self.expansions.pop(0)
+            self.capacity += int(step["add"])
+            self.log.append((self.time, "Гараж", "мест: %d" % self.capacity, cost))
         elif kind == "district":
             self.open_districts.add(entry_id)
             self.log.append((self.time, "Район", name, cost))
@@ -262,6 +324,8 @@ def main():
     print("районы", len(player.open_districts), "/", len(player.districts))
     print("регионы", len(player.open_regions), "/", len(player.regions))
     print("конкуренты", len(player.owned_competitors))
+    print("гараж", len(player.garage), "/", player.capacity, " водителей", player.team)
+    print("машины в парке:", ", ".join(sorted(set(player.cars[i]["name"] for i in player.garage))))
 
 
 if __name__ == "__main__":

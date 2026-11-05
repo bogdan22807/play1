@@ -6,7 +6,8 @@
     "description": "Своя, скрипучая, крутишь педали сам. Зато бесплатно.",
     "tap_mult": 1,
     "rent_cost": 0,
-    "buy_cost": 0
+    "buy_cost": 0,
+    "driver_income": 0
   },
   {
     "id": "old_sedan",
@@ -15,7 +16,8 @@
     "description": "Пахнет ёлочкой и чужими сигаретами. Дверь закрывается с третьего раза.",
     "tap_mult": 2.5,
     "rent_cost": 60,
-    "buy_cost": 1200
+    "buy_cost": 1200,
+    "driver_income": 5
   },
   {
     "id": "city_taxi",
@@ -24,7 +26,8 @@
     "description": "Жёлтое, с шашечками. Пассажиры наконец перестали спрашивать, настоящее ли это такси.",
     "tap_mult": 6,
     "rent_cost": 900,
-    "buy_cost": 15000
+    "buy_cost": 15000,
+    "driver_income": 40
   },
   {
     "id": "comfort",
@@ -33,7 +36,8 @@
     "description": "Кондиционер работает. Иногда даже в нужную сторону.",
     "tap_mult": 15,
     "rent_cost": 12000,
-    "buy_cost": 200000
+    "buy_cost": 200000,
+    "driver_income": 400
   },
   {
     "id": "business",
@@ -42,7 +46,8 @@
     "description": "Кожаный салон и бутылка воды, которую никто не решается открыть.",
     "tap_mult": 40,
     "rent_cost": 150000,
-    "buy_cost": 2500000
+    "buy_cost": 2500000,
+    "driver_income": 4000
   },
   {
     "id": "electric",
@@ -51,7 +56,8 @@
     "description": "Едет бесшумно. Пассажиры пугаются, когда вы подъезжаете.",
     "tap_mult": 100,
     "rent_cost": 2000000,
-    "buy_cost": 30000000
+    "buy_cost": 30000000,
+    "driver_income": 40000
   },
   {
     "id": "minivan",
@@ -60,7 +66,8 @@
     "description": "Влезает вся семья, бабушка и два чемодана с манго.",
     "tap_mult": 250,
     "rent_cost": 25000000,
-    "buy_cost": 400000000
+    "buy_cost": 400000000,
+    "driver_income": 420000
   },
   {
     "id": "limo",
@@ -69,6 +76,7 @@
     "description": "Чтобы развернуться, нужен отдельный район.",
     "tap_mult": 700,
     "rent_cost": 300000000,
-    "buy_cost": 5000000000
+    "buy_cost": 5000000000,
+    "driver_income": 4500000
   }
 ]

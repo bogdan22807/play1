@@ -8,8 +8,10 @@ signal coins_changed(coins: float)
 signal tap_power_changed(power: float)
 ## Купили улучшение или изменился его уровень.
 signal upgrades_changed
-## Наняли водителя.
+## Изменилась команда водителей или кандидаты.
 signal drivers_changed
+## Изменился гараж: купили машину, обменяли или расширили.
+signal garage_changed
 ## Изменился пассивный доход в секунду.
 signal income_changed(income: float)
 ## Пора показать окно «Пока вас не было».
@@ -65,9 +67,25 @@ var coins: float = 0.0
 var _upgrade_defs: Array = []
 ## id улучшения -> сколько раз его купили.
 var _upgrade_levels: Dictionary = {}
-var _driver_defs: Array = []
-## id водителя -> сколько таких водителей нанято.
-var _driver_counts: Dictionary = {}
+## Настройки водителей из data/drivers.json: имена, звёзды, черты.
+var _staff: Dictionary = {}
+## Машины в гараже для водителей — список id моделей.
+var _garage: Array = []
+## Сколько раз расширяли гараж.
+var _garage_level: int = 0
+## Нанятые водители: {"uid", "name", "stars", "trait"}.
+var _team: Array = []
+## Кандидаты на найм, в том же виде, но без uid.
+var _candidates: Array = []
+var _next_uid: int = 1
+## Когда последний раз звали новых кандидатов (unix).
+var _candidates_unix: int = 0
+## Сколько вернули за старых водителей при переносе сохранения. Показываем один раз.
+var _legacy_refund: float = 0.0
+var _fleet_growth: float = 1.15
+var _trade_in_share: float = 0.5
+var _garage_start: int = 5
+var _garage_expansions: Array = []
 var _city_defs: Array = []
 ## id района -> 1, если район уже открыт.
 var _opened_districts: Dictionary = {}
@@ -124,7 +142,7 @@ var company_name: String = ""
 
 func _ready() -> void:
 	_upgrade_defs = _read_json_array(UPGRADES_PATH)
-	_driver_defs = _read_json_array(DRIVERS_PATH)
+	_staff = _read_json_dict(DRIVERS_PATH)
 	_city_defs = _read_json_array(CITIES_PATH)
 	_region_defs = _read_json_array(REGIONS_PATH)
 	_competitor_defs = _read_json_array(COMPETITORS_PATH)
@@ -133,12 +151,15 @@ func _ready() -> void:
 	_car_id = _start_car_id()
 	_read_balance()
 	load_game()
+	_fill_candidates()
 	_recalc_income()
 	_note_progress()
+	_announce_legacy_refund()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
 	drivers_changed.emit()
+	garage_changed.emit()
 	districts_changed.emit()
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
@@ -286,6 +307,7 @@ func rent_car(car_id: String) -> bool:
 	if not can_rent_car(car_id):
 		return false
 	coins = maxf(0.0, coins - get_car_rent_cost(car_id))
+	_park_current_car()
 	_car_id = car_id
 	_car_rented = true
 	_after_car_change()
@@ -298,10 +320,21 @@ func buy_car(car_id: String) -> bool:
 		return false
 	coins = maxf(0.0, coins - get_car_buy_cost(car_id))
 	_owned_cars[car_id] = 1
+	_park_current_car()
 	_car_id = car_id
 	_car_rented = false
 	_after_car_change()
 	return true
+
+
+## Своя прошлая машина не пропадает: уезжает в гараж к водителям.
+func _park_current_car() -> void:
+	if _car_rented or _car_id == _start_car_id() or not is_car_owned(_car_id):
+		return
+	_garage.append(_car_id)
+	_recalc_income()
+	garage_changed.emit()
+	drivers_changed.emit()
 
 
 func _after_car_change() -> void:
@@ -391,45 +424,287 @@ func buy_upgrade(upgrade_id: String) -> bool:
 	return true
 
 
-## Список водителей из data/drivers.json.
-func get_drivers() -> Array:
-	return _driver_defs
+# --- Гараж -----------------------------------------------------------------
+
+## Машины в гараже, от лучшей к худшей.
+func get_garage() -> Array:
+	var sorted: Array = _garage.duplicate()
+	sorted.sort_custom(func(a: Variant, b: Variant) -> bool:
+		return get_car_driver_income(str(a)) > get_car_driver_income(str(b)))
+	return sorted
 
 
-func get_driver_count(driver_id: String) -> int:
-	return int(_driver_counts.get(driver_id, 0))
+func get_garage_capacity() -> int:
+	var capacity: int = _garage_start
+	for index in mini(_garage_level, _garage_expansions.size()):
+		var step: Variant = _garage_expansions[index]
+		if typeof(step) == TYPE_DICTIONARY:
+			capacity += int(step.get("add", 0))
+	return capacity
 
 
-## Цена следующего найма этого типа. Каждый следующий водитель дороже.
-func get_driver_cost(driver_id: String) -> float:
-	var info: Dictionary = _find_def(_driver_defs, driver_id)
-	if info.is_empty():
-		return 0.0
-	var base_cost: float = float(info.get("base_cost", 1))
-	var growth: float = float(info.get("cost_growth", 1.15))
-	return _scaled_cost(base_cost, growth, get_driver_count(driver_id))
+func is_garage_full() -> bool:
+	return _garage.size() >= get_garage_capacity()
 
 
-func can_hire_driver(driver_id: String) -> bool:
-	var cost: float = get_driver_cost(driver_id)
-	return cost > 0.0 and coins + 0.001 >= cost
+## Следующее расширение гаража. Пустой словарь — расширять больше некуда.
+func get_next_expansion() -> Dictionary:
+	if _garage_level >= _garage_expansions.size():
+		return {}
+	var step: Variant = _garage_expansions[_garage_level]
+	return step if typeof(step) == TYPE_DICTIONARY else {}
 
 
-func hire_driver(driver_id: String) -> bool:
-	if not can_hire_driver(driver_id):
+func can_expand_garage() -> bool:
+	var step: Dictionary = get_next_expansion()
+	return not step.is_empty() and coins + 0.001 >= float(step.get("cost", 0))
+
+
+func expand_garage() -> bool:
+	if not can_expand_garage():
 		return false
-	coins -= get_driver_cost(driver_id)
-	if coins < 0.0:
-		coins = 0.0
-	_driver_counts[driver_id] = get_driver_count(driver_id) + 1
+	coins = maxf(0.0, coins - float(get_next_expansion().get("cost", 0)))
+	_garage_level += 1
+	_after_staff_change()
+	return true
+
+
+## Сколько базовой выручки в секунду даёт машина водителю (без звёзд и множителей).
+func get_car_driver_income(car_id: String) -> float:
+	return maxf(0.0, float(_find_def(_car_defs, car_id).get("driver_income", 0)))
+
+
+func get_fleet_count(car_id: String) -> int:
+	return _garage.count(car_id)
+
+
+## Самая слабая машина гаража — её отдают в обмен, когда места нет.
+func get_worst_garage_car() -> String:
+	var worst: String = ""
+	for raw: Variant in _garage:
+		var car_id := str(raw)
+		if worst == "" or get_car_driver_income(car_id) < get_car_driver_income(worst):
+			worst = car_id
+	return worst
+
+
+func get_trade_in_value(car_id: String) -> float:
+	return floorf(maxf(0.0, float(_find_def(_car_defs, car_id).get("buy_cost", 0))) * _trade_in_share)
+
+
+## Цена машины в парк. Каждая следующая такая же — дороже.
+## Когда гараж полон, из цены вычитается обмен слабой машины.
+func get_fleet_cost(car_id: String) -> float:
+	var info: Dictionary = _find_def(_car_defs, car_id)
+	var price: float = _scaled_cost(float(info.get("buy_cost", 0)), _fleet_growth, get_fleet_count(car_id))
+	if is_garage_full():
+		price = maxf(1.0, price - get_trade_in_value(get_worst_garage_car()))
+	return price
+
+
+func can_buy_fleet(car_id: String) -> bool:
+	if _car_index(car_id) <= 0:
+		return false
+	if is_garage_full():
+		var worst: String = get_worst_garage_car()
+		if worst == "" or get_car_driver_income(car_id) <= get_car_driver_income(worst):
+			return false
+	return coins + 0.001 >= get_fleet_cost(car_id)
+
+
+## Покупка в парк. Если гараж полон — самая слабая машина уходит в обмен.
+func buy_fleet(car_id: String) -> bool:
+	if not can_buy_fleet(car_id):
+		return false
+	coins = maxf(0.0, coins - get_fleet_cost(car_id))
+	if is_garage_full():
+		_garage.erase(get_worst_garage_car())
+	_garage.append(car_id)
+	_after_staff_change()
+	return true
+
+
+# --- Водители ----------------------------------------------------------------
+
+func get_team() -> Array:
+	return _team
+
+
+func get_candidates() -> Array:
+	return _candidates
+
+
+func get_star_info(stars: int) -> Dictionary:
+	for raw: Variant in _staff.get("stars", []):
+		if typeof(raw) == TYPE_DICTIONARY and int(raw.get("stars", 0)) == stars:
+			return raw
+	return {}
+
+
+func get_trait_info(trait_id: String) -> Dictionary:
+	return _find_def(_staff.get("traits", []), trait_id)
+
+
+## Цена найма: подъёмные по звёздам, каждый следующий водитель дороже.
+func get_hire_cost(person: Dictionary) -> float:
+	var base: float = float(get_star_info(int(person.get("stars", 1))).get("hire_cost", 40))
+	return _scaled_cost(base, float(_staff.get("hire_growth", 1.5)), _team.size())
+
+
+## Доля дохода, которую водитель забирает себе.
+func get_salary_share(person: Dictionary) -> float:
+	var share: float = float(get_star_info(int(person.get("stars", 1))).get("salary", 0.2))
+	share += float(get_trait_info(str(person.get("trait", ""))).get("salary_bonus", 0))
+	return clampf(share, 0.0, 0.9)
+
+
+## Насколько водитель лучше обычного: звёзды и черта характера.
+func get_driver_power(person: Dictionary) -> float:
+	var mult: float = float(get_star_info(int(person.get("stars", 1))).get("income_mult", 1))
+	mult *= 1.0 + float(get_trait_info(str(person.get("trait", ""))).get("income_bonus", 0))
+	return maxf(0.0, mult)
+
+
+## Машины без водителя, от лучшей к худшей.
+func get_free_garage_cars() -> Array:
+	var free: Array = get_garage()
+	for car_id: Variant in get_assignments().values():
+		free.erase(car_id)
+	return free
+
+
+func has_free_car() -> bool:
+	return _garage.size() > _team.size()
+
+
+func can_hire(index: int) -> bool:
+	if index < 0 or index >= _candidates.size() or not has_free_car():
+		return false
+	return coins + 0.001 >= get_hire_cost(_candidates[index])
+
+
+func hire(index: int) -> bool:
+	if not can_hire(index):
+		return false
+	var person: Dictionary = _candidates[index].duplicate()
+	coins = maxf(0.0, coins - get_hire_cost(person))
+	person["uid"] = _next_uid
+	_next_uid += 1
+	_team.append(person)
+	_candidates[index] = _make_candidate()
+	_after_staff_change()
+	return true
+
+
+func fire(uid: int) -> bool:
+	for index in _team.size():
+		if int(_team[index].get("uid", 0)) == uid:
+			_team.remove_at(index)
+			_after_staff_change()
+			return true
+	return false
+
+
+## Через сколько секунд можно позвать новых кандидатов. 0 — уже можно.
+func get_refresh_left() -> int:
+	var wait: int = int(_staff.get("refresh_seconds", 60))
+	var passed: int = int(Time.get_unix_time_from_system()) - _candidates_unix
+	return clampi(wait - passed, 0, wait)
+
+
+func refresh_candidates() -> bool:
+	if get_refresh_left() > 0:
+		return false
+	_candidates.clear()
+	_fill_candidates()
+	_candidates_unix = int(Time.get_unix_time_from_system())
+	drivers_changed.emit()
+	save_game()
+	return true
+
+
+## Кто на какой машине: сильнейшим водителям — лучшие машины.
+## Возвращает uid -> id машины.
+func get_assignments() -> Dictionary:
+	var people: Array = _team.duplicate()
+	people.sort_custom(func(a: Variant, b: Variant) -> bool:
+		return get_driver_power(a) > get_driver_power(b))
+	var cars: Array = get_garage()
+	var result: Dictionary = {}
+	for index in mini(people.size(), cars.size()):
+		result[int(people[index].get("uid", 0))] = str(cars[index])
+	return result
+
+
+## Чистый доход водителя в секунду, уже после зарплаты и всех множителей.
+func get_driver_net(person: Dictionary, car_id: String) -> float:
+	var gross: float = get_car_driver_income(car_id) * get_driver_power(person)
+	return gross * (1.0 - get_salary_share(person)) * get_income_multiplier()
+
+
+## Сколько в секунду уходит на зарплаты.
+func get_salary_per_second() -> float:
+	var total: float = 0.0
+	var cars: Dictionary = get_assignments()
+	for raw: Variant in _team:
+		var person: Dictionary = raw
+		var car_id: String = str(cars.get(int(person.get("uid", 0)), ""))
+		total += get_car_driver_income(car_id) * get_driver_power(person) * get_salary_share(person)
+	return total * get_income_multiplier()
+
+
+func _after_staff_change() -> void:
 	_recalc_income()
 	_sync_reputation()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
+	garage_changed.emit()
 	drivers_changed.emit()
 	_note_progress()
 	save_game()
-	return true
+
+
+func _fill_candidates() -> void:
+	var wanted: int = maxi(1, int(_staff.get("candidates", 3)))
+	while _candidates.size() < wanted:
+		_candidates.append(_make_candidate())
+
+
+## Случайный человек: имя без повторов, звёзды по шансам, случайная черта.
+func _make_candidate() -> Dictionary:
+	var taken: Dictionary = {}
+	for raw: Variant in _team + _candidates:
+		taken[str(raw.get("name", ""))] = true
+	var free_names: Array = []
+	for raw: Variant in _staff.get("names", []):
+		if not taken.has(str(raw)):
+			free_names.append(str(raw))
+	var person_name: String = "Новичок"
+	if not free_names.is_empty():
+		person_name = free_names[randi() % free_names.size()]
+	var stars: int = 1
+	var roll: float = randf()
+	for raw: Variant in _staff.get("stars", []):
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		roll -= float(raw.get("chance", 0))
+		if roll < 0.0:
+			stars = int(raw.get("stars", 1))
+			break
+	var traits: Array = _staff.get("traits", [])
+	var trait_id: String = "none"
+	if not traits.is_empty():
+		trait_id = str(traits[randi() % traits.size()].get("id", "none"))
+	return {"name": person_name, "stars": stars, "trait": trait_id}
+
+
+func _reset_staff() -> void:
+	_garage.clear()
+	_garage_level = 0
+	_team.clear()
+	_candidates.clear()
+	_candidates_unix = 0
+	_fill_candidates()
 
 
 func get_income_per_second() -> float:
@@ -650,9 +925,9 @@ func _competitor_multiplier() -> float:
 	return 1.0 + bonus
 
 
-## Репутация = целые двадцатки тапов за забег плюс каждый нанятый водитель.
+## Репутация = целые двадцатки тапов за забег плюс каждый водитель в команде.
 func _sync_reputation() -> void:
-	var next: int = int(run_taps / TAPS_PER_REPUTATION) + _sum_counts(_driver_counts)
+	var next: int = int(run_taps / TAPS_PER_REPUTATION) + _team.size()
 	if next == reputation:
 		return
 	reputation = next
@@ -696,7 +971,7 @@ func is_offline_capped() -> bool:
 func reset_progress() -> void:
 	coins = 0.0
 	_upgrade_levels.clear()
-	_driver_counts.clear()
+	_reset_staff()
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
 	_offline_capped = false
@@ -718,6 +993,7 @@ func reset_progress() -> void:
 	upgrades_changed.emit()
 	_sync_reputation()
 	drivers_changed.emit()
+	garage_changed.emit()
 	districts_changed.emit()
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
@@ -767,7 +1043,7 @@ func sell_company() -> bool:
 	coins = 0.0
 	run_earned = 0.0
 	_upgrade_levels.clear()
-	_driver_counts.clear()
+	_reset_staff()
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
 	_offline_capped = false
@@ -782,6 +1058,7 @@ func sell_company() -> bool:
 	tap_power_changed.emit(get_tap_power())
 	upgrades_changed.emit()
 	drivers_changed.emit()
+	garage_changed.emit()
 	districts_changed.emit()
 	regions_changed.emit()
 	reputation_changed.emit(reputation)
@@ -818,14 +1095,11 @@ func collect_offline_reward() -> float:
 
 func _sum_income() -> float:
 	var total: float = 0.0
-	for raw: Variant in _driver_defs:
-		if typeof(raw) != TYPE_DICTIONARY:
-			continue
-		var info: Dictionary = raw
-		var driver_id: String = str(info.get("id", ""))
-		var per_second: float = float(info.get("income_per_second", 0))
-		total += per_second * float(get_driver_count(driver_id))
-	return total * get_income_multiplier()
+	var cars: Dictionary = get_assignments()
+	for raw: Variant in _team:
+		var person: Dictionary = raw
+		total += get_driver_net(person, str(cars.get(int(person.get("uid", 0)), "")))
+	return total
 
 
 func _recalc_income() -> void:
@@ -898,7 +1172,12 @@ func save_game() -> void:
 	var data := {
 		"coins": coins,
 		"upgrades": _upgrade_levels.duplicate(),
-		"drivers": _driver_counts.duplicate(),
+		"garage": _garage.duplicate(),
+		"garage_level": _garage_level,
+		"team": _team.duplicate(true),
+		"candidates": _candidates.duplicate(true),
+		"next_uid": _next_uid,
+		"candidates_unix": _candidates_unix,
 		"last_exit_unix": _last_exit_unix,
 		"pending_offline_coins": _offline_coins,
 		"pending_offline_seconds": _offline_seconds,
@@ -941,12 +1220,10 @@ func load_game() -> void:
 	var data: Dictionary = parsed
 	coins = maxf(0.0, float(data.get("coins", 0)))
 	_upgrade_levels = _read_count_dict(data.get("upgrades", {}))
-	_driver_counts = _read_count_dict(data.get("drivers", {}))
 	_opened_districts = _read_count_dict(data.get("districts", {}))
 	_opened_regions = _read_count_dict(data.get("regions", {}))
 	_owned_competitors = _read_count_dict(data.get("competitors", {}))
 	run_taps = _read_run_taps(data)
-	_sync_reputation()
 	franchise = maxf(1.0, float(data.get("franchise", 1.0)))
 	# Старое сохранение без поля: уже лежащие монеты считаем заработком забега.
 	run_earned = maxf(0.0, float(data.get("run_earned", coins)))
@@ -954,12 +1231,81 @@ func load_game() -> void:
 	_done_achievements = _read_id_set(data.get("achievements", []))
 	_last_daily_day = maxi(0, int(data.get("last_daily_day", 0)))
 	_load_car(data)
+	_load_staff(data)
 	company_name = str(data.get("company_name", "")).strip_edges().substr(0, COMPANY_NAME_MAX)
+	_sync_reputation()
 	_last_exit_unix = maxi(0, int(data.get("last_exit_unix", 0)))
 	var saved_offline: float = maxf(0.0, float(data.get("pending_offline_coins", 0)))
 	var saved_seconds: float = maxf(0.0, float(data.get("pending_offline_seconds", 0)))
 	_refresh_offline_reward(saved_offline, saved_seconds)
 	_fold_offline_dust()
+
+
+## Старые водители-«типы» (до этапа 2): база цены и рост. Нужны только для возврата денег.
+const LEGACY_DRIVERS := {
+	"trainee": [30.0, 1.16], "driver": [250.0, 1.18], "veteran": [4000.0, 1.22],
+	"night_ace": [50000.0, 1.28], "brigadier": [450000.0, 1.32], "column": [4000000.0, 1.36],
+	"depot": [35000000.0, 1.4], "network": [300000000.0, 1.45], "holding": [2500000000.0, 1.5],
+}
+
+
+## Гараж и команда из сохранения. Старые «типы» водителей превращаем в деньги.
+func _load_staff(data: Dictionary) -> void:
+	_garage.clear()
+	var raw_garage: Variant = data.get("garage", [])
+	if typeof(raw_garage) == TYPE_ARRAY:
+		for item: Variant in raw_garage:
+			if _car_index(str(item)) > 0:
+				_garage.append(str(item))
+	_garage_level = clampi(int(data.get("garage_level", 0)), 0, _garage_expansions.size())
+	_team = _read_people(data.get("team", []), true)
+	_candidates = _read_people(data.get("candidates", []), false)
+	_next_uid = maxi(1, int(data.get("next_uid", 1)))
+	for person: Variant in _team:
+		_next_uid = maxi(_next_uid, int(person.get("uid", 0)) + 1)
+	_candidates_unix = maxi(0, int(data.get("candidates_unix", 0)))
+	var legacy: Variant = data.get("drivers", {})
+	if typeof(legacy) == TYPE_DICTIONARY:
+		var refund: float = 0.0
+		for key: Variant in legacy.keys():
+			var params: Array = LEGACY_DRIVERS.get(str(key), [])
+			if params.is_empty():
+				continue
+			for owned in maxi(0, int(legacy[key])):
+				refund += _scaled_cost(float(params[0]), float(params[1]), owned)
+		if refund > 0.0:
+			coins += refund
+			_legacy_refund = refund
+
+
+func _read_people(raw: Variant, need_uid: bool) -> Array:
+	var result: Array = []
+	if typeof(raw) != TYPE_ARRAY:
+		return result
+	for item: Variant in raw:
+		if typeof(item) != TYPE_DICTIONARY:
+			continue
+		var person: Dictionary = {
+			"name": str(item.get("name", "Водитель")),
+			"stars": clampi(int(item.get("stars", 1)), 1, 3),
+			"trait": str(item.get("trait", "none")),
+		}
+		if need_uid:
+			var uid: int = int(item.get("uid", 0))
+			if uid <= 0:
+				continue
+			person["uid"] = uid
+		result.append(person)
+	return result
+
+
+func _announce_legacy_refund() -> void:
+	if _legacy_refund <= 0.0:
+		return
+	var body: String = "Старые водители ушли на пенсию. Вам вернули %s — наймите новую команду." % format_money(_legacy_refund)
+	_fresh_achievements.append({"title": "Новые правила найма", "body": body})
+	_legacy_refund = 0.0
+	save_game()
 
 
 ## Машина из сохранения. Незнакомый id (машину убрали из cars.json) — стартовая.
@@ -984,7 +1330,7 @@ func _load_car(data: Dictionary) -> void:
 func _read_run_taps(data: Dictionary) -> int:
 	if data.has("run_taps"):
 		return maxi(0, int(data.get("run_taps", 0)))
-	var drivers: int = _sum_counts(_driver_counts)
+	var drivers: int = _team.size()
 	var stored: int = int(data.get("reputation", 0))
 	var from_taps: int = maxi(0, stored - drivers)
 	var remainder: int = int(data.get("reputation_taps", 0))
@@ -1005,7 +1351,7 @@ func get_achievement_value(kind: String) -> float:
 		"earned":
 			return lifetime_earned
 		"drivers":
-			return float(_sum_counts(_driver_counts))
+			return float(_team.size())
 		"districts":
 			return float(_opened_districts.size())
 		"regions":
@@ -1138,6 +1484,19 @@ func _read_json_array(path: String) -> Array:
 	return parsed
 
 
+func _read_json_dict(path: String) -> Dictionary:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		push_error("Не удалось открыть %s" % path)
+		return {}
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_error("В файле %s ожидался словарь" % path)
+		return {}
+	return parsed
+
+
 func _read_balance() -> void:
 	var file := FileAccess.open(BALANCE_PATH, FileAccess.READ)
 	if file == null:
@@ -1151,6 +1510,11 @@ func _read_balance() -> void:
 	_world_market_size = maxf(1.0, float(data.get("world_market_size", _world_market_size)))
 	_offline_income_rate = clampf(float(data.get("offline_income_rate", _offline_income_rate)), 0.0, 1.0)
 	_car_rent_share = clampf(float(data.get("car_rent_share", _car_rent_share)), 0.0, 0.9)
+	_fleet_growth = maxf(1.0, float(data.get("fleet_growth", _fleet_growth)))
+	_trade_in_share = clampf(float(data.get("trade_in_share", _trade_in_share)), 0.0, 1.0)
+	_garage_start = maxi(1, int(data.get("garage_start", _garage_start)))
+	var expansions: Variant = data.get("garage_expansions", [])
+	_garage_expansions = expansions if typeof(expansions) == TYPE_ARRAY else []
 
 
 ## Сумма в долларах: $999, $1.5K, $-20.

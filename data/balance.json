@@ -2,5 +2,22 @@
   "tap_from_income": 0.008,
   "world_market_size": 600000000,
   "offline_income_rate": 0.8,
-  "car_rent_share": 0.3
+  "car_rent_share": 0.3,
+  "fleet_growth": 1.15,
+  "trade_in_share": 0.5,
+  "garage_start": 5,
+  "garage_expansions": [
+    {
+      "cost": 4000,
+      "add": 5
+    },
+    {
+      "cost": 400000,
+      "add": 5
+    },
+    {
+      "cost": 40000000,
+      "add": 5
+    }
+  ]
 }

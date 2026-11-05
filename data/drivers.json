@@ -1,74 +1,118 @@
-[
-  {
-    "id": "trainee",
-    "name": "Стажёр",
-    "description": "Только получил права и ездит осторожно.",
-    "base_cost": 30,
-    "cost_growth": 1.16,
-    "income_per_second": 0.5
-  },
-  {
-    "id": "driver",
-    "name": "Водитель",
-    "description": "Знает короткие пути по району.",
-    "base_cost": 250,
-    "cost_growth": 1.18,
-    "income_per_second": 3
-  },
-  {
-    "id": "veteran",
-    "name": "Ветеран",
-    "description": "Десять лет за рулём и без аварий.",
-    "base_cost": 4000,
-    "cost_growth": 1.22,
-    "income_per_second": 20
-  },
-  {
-    "id": "night_ace",
-    "name": "Ночной ас",
-    "description": "Берёт заказы, когда город уже спит.",
-    "base_cost": 50000,
-    "cost_growth": 1.28,
-    "income_per_second": 120
-  },
-  {
-    "id": "brigadier",
-    "name": "Бригадир",
-    "description": "Раздаёт смены и не даёт машинам простаивать.",
-    "base_cost": 450000,
-    "cost_growth": 1.32,
-    "income_per_second": 1000
-  },
-  {
-    "id": "column",
-    "name": "Начальник колонны",
-    "description": "Держит десятки машин на линии.",
-    "base_cost": 4000000,
-    "cost_growth": 1.36,
-    "income_per_second": 9000
-  },
-  {
-    "id": "depot",
-    "name": "Автоколонна",
-    "description": "Свой парк, своя мойка и ночная диспетчерская.",
-    "base_cost": 35000000,
-    "cost_growth": 1.4,
-    "income_per_second": 80000
-  },
-  {
-    "id": "network",
-    "name": "Сеть парков",
-    "description": "Заказы идут из нескольких городов сразу.",
-    "base_cost": 300000000,
-    "cost_growth": 1.45,
-    "income_per_second": 700000
-  },
-  {
-    "id": "holding",
-    "name": "Холдинг",
-    "description": "Такси, грузовые и корпоративные контракты.",
-    "base_cost": 2500000000,
-    "cost_growth": 1.5,
-    "income_per_second": 6000000
-  }
-]
+{
+  "candidates": 3,
+  "refresh_seconds": 60,
+  "hire_growth": 1.5,
+  "names": [
+    "Сомчай «Педаль»",
+    "Бабушка Ним",
+    "Тони «Два штрафа»",
+    "Ной «Навигатор»",
+    "Дядя Прасит",
+    "Кхун Лек «Тормоз»",
+    "Пим «Турбо»",
+    "Бун «Без сдачи»",
+    "Чай «Гудок»",
+    "Тётя Малай",
+    "Ананд «Объезд»",
+    "Вит «Поворотник»",
+    "Нок «Караоке»",
+    "Санти «Пробка»",
+    "Арун «Одной рукой»",
+    "Мэй «Музыку погромче»",
+    "Кай «Знаю короткий путь»",
+    "Дед Чан",
+    "Пранг «Чаевые»",
+    "Тук «Тук-тук»",
+    "Джек «Манго»",
+    "Сом «Спокойно»",
+    "Бэнк «Сдача мелочью»",
+    "Лунг «Ночной»",
+    "Фон «Дождевик»",
+    "Ник «Зеркала»",
+    "Тара «Ремень пристегни»",
+    "Пат «Без кондея»",
+    "Оат «Фары»",
+    "Ким «Опоздал на минуту»"
+  ],
+  "stars": [
+    {
+      "stars": 1,
+      "chance": 0.6,
+      "income_mult": 1.0,
+      "salary": 0.2,
+      "hire_cost": 40
+    },
+    {
+      "stars": 2,
+      "chance": 0.3,
+      "income_mult": 1.4,
+      "salary": 0.27,
+      "hire_cost": 150
+    },
+    {
+      "stars": 3,
+      "chance": 0.1,
+      "income_mult": 1.9,
+      "salary": 0.35,
+      "hire_cost": 600
+    }
+  ],
+  "traits": [
+    {
+      "id": "racer",
+      "name": "Гонщик",
+      "description": "Успевает больше заказов. Пассажиры визжат.",
+      "income_bonus": 0.15,
+      "salary_bonus": 0.0
+    },
+    {
+      "id": "talker",
+      "name": "Болтун",
+      "description": "Рассказывает про своих кошек. Чаевые за терпение.",
+      "income_bonus": 0.1,
+      "salary_bonus": 0.0
+    },
+    {
+      "id": "local",
+      "name": "Знает все переулки",
+      "description": "Объезжает пробки через чужие дворы.",
+      "income_bonus": 0.1,
+      "salary_bonus": 0.02
+    },
+    {
+      "id": "honest",
+      "name": "Честный",
+      "description": "Отдаёт сдачу до цента. Просит меньше.",
+      "income_bonus": 0.0,
+      "salary_bonus": -0.05
+    },
+    {
+      "id": "greedy",
+      "name": "Жадина",
+      "description": "Берёт лишних пассажиров и лишнюю зарплату.",
+      "income_bonus": 0.12,
+      "salary_bonus": 0.08
+    },
+    {
+      "id": "sleepy",
+      "name": "Соня",
+      "description": "Дремлет на светофорах. Зато дёшев.",
+      "income_bonus": -0.1,
+      "salary_bonus": -0.06
+    },
+    {
+      "id": "karaoke",
+      "name": "Караоке",
+      "description": "Поёт всю дорогу. Кому-то нравится.",
+      "income_bonus": 0.05,
+      "salary_bonus": 0.0
+    },
+    {
+      "id": "none",
+      "name": "Обычный",
+      "description": "Просто хорошо водит.",
+      "income_bonus": 0.0,
+      "salary_bonus": 0.0
+    }
+  ]
+}
