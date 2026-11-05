@@ -10,11 +10,17 @@ const BACKS := {
 	"flyers": "e8f6e0", "billboard": "dff0ff", "tv": "f0e6ff",
 	"tires": "e3e7ee", "horn": "ffe9ec", "seats": "f3e9ff", "meter": "e3f7ea", "wrap": "ffe6f0",
 	"garage": "e8f6e0",
+	"chip_income": "e3f7ea", "chip_star": "fff4d6", "chip_rep": "fff4d6", "chip_city": "ffe3e3",
+	"money_bag": "e3f7ea", "taxi": "fff4d6", "driver": "dff0ff", "crown": "fff4d6", "island": "dff0ff",
+	"handshake": "e6e0ff", "tap": "e3f7ea", "wallet": "ffe3e3", "chart": "e3f7ea", "team": "dff0ff",
 	"nails": "ffe3e3", "pies": "fff1dc", "rumor": "dff0ff",
 	"center": "fff1dc", "station": "e3e7ee", "airport": "dff0ff", "sleep": "e6e0ff", "business": "e3f7ea",
 }
-## Маленькие иконки без подложки — для чипов в шапке.
+## Маленькие иконки чипов в шапке рисуются без подложки (badge = false).
 const BARE := ["chip_income", "chip_star", "chip_rep", "chip_city"]
+
+## true — иконка на круглой цветной плашке (в списках), false — сама картинка (в чипах).
+var badge: bool = true
 
 var kind: String = "":
 	set(value):
@@ -34,9 +40,33 @@ func _draw() -> void:
 	var u: float = s / 100.0
 	var origin := (size - Vector2(s, s)) / 2.0
 	var c: Vector2 = origin + Vector2(50, 50) * u
-	if not BARE.has(kind):
+	if badge:
 		_round_rect(Rect2(origin + Vector2(2, 2) * u, Vector2(96, 96) * u), 24 * u, Color(str(BACKS.get(kind, "eeeeee"))))
+	if badge and BARE.has(kind):
+		# Значок чипа на плашке — чуть меньше, чтобы не упирался в края.
+		u *= 0.72
 	match kind:
+		"money_bag":
+			_money_bag(c, u)
+		"taxi":
+			_taxi(c, u)
+		"driver":
+			_driver(c, u)
+		"crown":
+			_crown(c, u)
+		"island":
+			_island(c, u)
+		"handshake":
+			_handshake(c, u)
+		"tap":
+			_tap(c, u)
+		"wallet":
+			_wallet(c, u)
+		"chart":
+			_chart(c, u)
+		"team":
+			_driver(c + Vector2(-16, 4) * u, u * 0.8)
+			_driver(c + Vector2(16, 4) * u, u * 0.8)
 		"nails":
 			_nails(c, u)
 		"pies":
@@ -236,6 +266,95 @@ func _garage(c: Vector2, u: float) -> void:
 	for row in 4:
 		draw_line(c + Vector2(-22, 8 + row * 6) * u, c + Vector2(22, 8 + row * 6) * u, Color("9aa5b8"), 2 * u)
 	_round_rect(Rect2(c + Vector2(-12, 20) * u, Vector2(24, 10) * u), 3 * u, TAXI)
+
+
+func _money_bag(c: Vector2, u: float) -> void:
+	draw_circle(c + Vector2(0, 10) * u, 30 * u, Color("2fbf5f"))
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-14, -18) * u, c + Vector2(14, -18) * u, c + Vector2(8, -6) * u, c + Vector2(-8, -6) * u]), Color("2fbf5f"))
+	draw_line(c + Vector2(-12, -10) * u, c + Vector2(12, -10) * u, Color("1f8f45"), 4 * u)
+	var font: Font = get_theme_default_font()
+	draw_string(font, c + Vector2(-12, 24) * u, "$", HORIZONTAL_ALIGNMENT_CENTER, 24 * u, int(36 * u), Color.WHITE)
+
+
+func _taxi(c: Vector2, u: float) -> void:
+	_round_rect(Rect2(c + Vector2(-36, -8) * u, Vector2(72, 26) * u), 8 * u, TAXI)
+	_round_rect(Rect2(c + Vector2(-20, -24) * u, Vector2(40, 18) * u), 6 * u, TAXI.darkened(0.08))
+	_round_rect(Rect2(c + Vector2(-15, -20) * u, Vector2(30, 11) * u), 3 * u, Color("bfe6ff"))
+	for index in 6:
+		draw_rect(Rect2(c + Vector2(-30 + index * 10, 2) * u, Vector2(5, 5) * u), INK)
+	draw_circle(c + Vector2(-20, 20) * u, 8 * u, INK)
+	draw_circle(c + Vector2(20, 20) * u, 8 * u, INK)
+	_round_rect(Rect2(c + Vector2(-8, -32) * u, Vector2(16, 8) * u), 2 * u, Color.WHITE)
+
+
+func _driver(c: Vector2, u: float) -> void:
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-26, 38) * u, c + Vector2(-20, 18) * u, c + Vector2(20, 18) * u, c + Vector2(26, 38) * u]), Color("3fa3f5"))
+	draw_circle(c + Vector2(0, 0) * u, 18 * u, Color("e0b48f"))
+	draw_circle(c + Vector2(-7, -1) * u, 2.5 * u, INK)
+	draw_circle(c + Vector2(7, -1) * u, 2.5 * u, INK)
+	draw_arc(c + Vector2(0, 5) * u, 7 * u, PI * 0.2, PI * 0.8, 8, INK, 2 * u)
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-20, -8) * u, c + Vector2(-18, -22) * u, c + Vector2(18, -22) * u, c + Vector2(20, -8) * u]), INK)
+	for index in 5:
+		draw_rect(Rect2(c + Vector2(-18 + index * 7.2, -12) * u, Vector2(3.6, 3.6) * u), TAXI)
+	draw_rect(Rect2(c + Vector2(-2, -10) * u, Vector2(26, 4) * u), INK)
+
+
+func _crown(c: Vector2, u: float) -> void:
+	draw_colored_polygon(PackedVector2Array([
+		c + Vector2(-32, 20) * u, c + Vector2(-36, -20) * u, c + Vector2(-16, 0) * u, c + Vector2(0, -30) * u,
+		c + Vector2(16, 0) * u, c + Vector2(36, -20) * u, c + Vector2(32, 20) * u,
+	]), Color("ffc93c"))
+	draw_rect(Rect2(c + Vector2(-32, 18) * u, Vector2(64, 10) * u), Color("d9a21b"))
+	for gem in [[Vector2(0, 6), "e8434f"], [Vector2(-18, 10), "3fa3f5"], [Vector2(18, 10), "2fbf5f"]]:
+		draw_circle(c + gem[0] * u, 5 * u, Color(str(gem[1])))
+
+
+func _island(c: Vector2, u: float) -> void:
+	draw_colored_polygon(_half_down(c + Vector2(0, 14) * u, 40 * u, 18 * u), Color("45a7f5"))
+	draw_colored_polygon(_half_up(c + Vector2(0, 16) * u, 30 * u, 18 * u), Color("e9d8a6"))
+	draw_line(c + Vector2(0, 14) * u, c + Vector2(6, -18) * u, Color("8d6e63"), 4 * u)
+	for angle in [-2.7, -2.0, -1.2, -0.4]:
+		var dir := Vector2(cos(angle), sin(angle))
+		draw_line(c + Vector2(6, -18) * u, c + Vector2(6, -18) * u + dir * 22 * u, Color("2f8a46"), 5 * u)
+
+
+func _handshake(c: Vector2, u: float) -> void:
+	_round_rect(Rect2(c + Vector2(-40, -8) * u, Vector2(30, 18) * u), 5 * u, Color("3fa3f5"))
+	_round_rect(Rect2(c + Vector2(10, -8) * u, Vector2(30, 18) * u), 5 * u, Color("2f4a7a"))
+	draw_colored_polygon(_half_down(c + Vector2(0, -2) * u, 22 * u, 20 * u), Color("e0b48f"))
+	for index in 4:
+		draw_line(c + Vector2(-12 + index * 8, 4) * u, c + Vector2(-10 + index * 8, 14) * u, Color("b98552"), 2.5 * u)
+
+
+func _tap(c: Vector2, u: float) -> void:
+	for index in 3:
+		draw_arc(c + Vector2(-4, -14) * u, (10 + index * 8) * u, PI * 1.05, PI * 1.95, 10, Color("2fbf5f"), 3 * u)
+	_round_rect(Rect2(c + Vector2(-10, -16) * u, Vector2(14, 40) * u), 7 * u, Color("e0b48f"))
+	_round_rect(Rect2(c + Vector2(-10, 6) * u, Vector2(34, 30) * u), 10 * u, Color("e0b48f"))
+	draw_line(c + Vector2(-6, 10) * u, c + Vector2(-6, 18) * u, Color("b98552"), 2 * u)
+
+
+func _wallet(c: Vector2, u: float) -> void:
+	_round_rect(Rect2(c + Vector2(-34, -20) * u, Vector2(68, 46) * u), 10 * u, Color("8d6e63"))
+	_round_rect(Rect2(c + Vector2(4, -6) * u, Vector2(30, 18) * u), 6 * u, Color("6d4c41"))
+	draw_circle(c + Vector2(16, 3) * u, 4 * u, Color("ffc93c"))
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-30, -20) * u, c + Vector2(20, -34) * u, c + Vector2(26, -20) * u]), Color("2fbf5f"))
+
+
+func _chart(c: Vector2, u: float) -> void:
+	for index in 4:
+		var h: float = 14.0 + index * 12.0
+		_round_rect(Rect2(c + Vector2(-32 + index * 17, 30 - h) * u, Vector2(12, h) * u), 3 * u, Color("2fbf5f").lightened(0.15 * (3 - index)))
+	draw_line(c + Vector2(-34, 10) * u, c + Vector2(28, -30) * u, Color("1f8f45"), 4 * u)
+	draw_colored_polygon(PackedVector2Array([c + Vector2(30, -32) * u, c + Vector2(16, -30) * u, c + Vector2(26, -20) * u]), Color("1f8f45"))
+
+
+func _half_up(center: Vector2, rx: float, ry: float) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in 17:
+		var angle: float = PI + PI * float(index) / 16.0
+		points.append(center + Vector2(cos(angle) * rx, sin(angle) * ry))
+	return points
 
 
 func _nails(c: Vector2, u: float) -> void:

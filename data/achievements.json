@@ -5,15 +5,71 @@
     "kind": "earned",
     "need": 1000,
     "reward_coins": 100,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Заработайте за всё время $1 000"
   },
   {
     "id": "hundred_thousand",
     "name": "Первые $100K",
     "kind": "earned",
-    "need": 100000,
+    "need": 100000.0,
     "reward_coins": 1000,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Заработайте за всё время $100 000"
+  },
+  {
+    "id": "ten_million",
+    "name": "Десять миллионов",
+    "kind": "earned",
+    "need": 10000000.0,
+    "reward_coins": 50000,
+    "reward_reputation": 0,
+    "description": "Заработайте за всё время $10M"
+  },
+  {
+    "id": "billionaire",
+    "name": "Таксист-миллиардер",
+    "kind": "earned",
+    "need": 1000000000.0,
+    "reward_coins": 2000000,
+    "reward_reputation": 0,
+    "description": "Заработайте за всё время $1B"
+  },
+  {
+    "id": "trillion",
+    "name": "Триллион на счётчике",
+    "kind": "earned",
+    "need": 1000000000000.0,
+    "reward_coins": 1000000000.0,
+    "reward_reputation": 0,
+    "description": "Заработайте за всё время $1T"
+  },
+  {
+    "id": "tap_10",
+    "name": "Бойкий палец",
+    "kind": "tap_level",
+    "need": 10,
+    "reward_coins": 500,
+    "reward_reputation": 0,
+    "description": "Прокачайте линию тапа до 10 уровня"
+  },
+  {
+    "id": "tap_25",
+    "name": "Золотой палец",
+    "kind": "tap_level",
+    "need": 25,
+    "reward_coins": 500000,
+    "reward_reputation": 0,
+    "description": "Прокачайте линию тапа до 25 уровня"
+  },
+  {
+    "id": "tap_40",
+    "name": "Палец-легенда",
+    "kind": "tap_level",
+    "need": 40,
+    "reward_coins": 1000000000.0,
+    "reward_reputation": 0,
+    "description": "Прокачайте линию тапа до 40 уровня"
   },
   {
     "id": "first_car",
@@ -21,7 +77,17 @@
     "kind": "cars",
     "need": 1,
     "reward_coins": 100,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Пересядьте с рикши на седан"
+  },
+  {
+    "id": "comfort_car",
+    "name": "С комфортом",
+    "kind": "cars",
+    "need": 3,
+    "reward_coins": 5000,
+    "reward_reputation": 0,
+    "description": "Доберитесь по линии тапа до «Комфорта»"
   },
   {
     "id": "limo",
@@ -29,7 +95,8 @@
     "kind": "cars",
     "need": 7,
     "reward_coins": 1000000,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Доберитесь по линии тапа до лимузина"
   },
   {
     "id": "first_driver",
@@ -37,7 +104,8 @@
     "kind": "drivers",
     "need": 1,
     "reward_coins": 50,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Наймите первого водителя"
   },
   {
     "id": "ten_drivers",
@@ -45,7 +113,44 @@
     "kind": "drivers",
     "need": 10,
     "reward_coins": 500,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Соберите команду из 10 водителей"
+  },
+  {
+    "id": "twentyfive_drivers",
+    "name": "Своя автобаза",
+    "kind": "drivers",
+    "need": 25,
+    "reward_coins": 200000,
+    "reward_reputation": 0,
+    "description": "Соберите команду из 25 водителей"
+  },
+  {
+    "id": "fifty_drivers",
+    "name": "Армия жёлтых машин",
+    "kind": "drivers",
+    "need": 50,
+    "reward_coins": 500000000.0,
+    "reward_reputation": 0,
+    "description": "Соберите команду из 50 водителей"
+  },
+  {
+    "id": "garage_20",
+    "name": "Большой гараж",
+    "kind": "garage",
+    "need": 20,
+    "reward_coins": 20000,
+    "reward_reputation": 0,
+    "description": "Расширьте гаражи до 20 мест"
+  },
+  {
+    "id": "garage_60",
+    "name": "Гаражный король",
+    "kind": "garage",
+    "need": 60,
+    "reward_coins": 50000000.0,
+    "reward_reputation": 0,
+    "description": "Доведите места в гаражах до 60"
   },
   {
     "id": "first_district",
@@ -53,7 +158,26 @@
     "kind": "districts",
     "need": 1,
     "reward_coins": 200,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Откройте первый район Бангкока"
+  },
+  {
+    "id": "three_districts",
+    "name": "Хозяин кварталов",
+    "kind": "districts",
+    "need": 3,
+    "reward_coins": 5000,
+    "reward_reputation": 0,
+    "description": "Откройте три района"
+  },
+  {
+    "id": "all_districts",
+    "name": "Весь Бангкок",
+    "kind": "districts",
+    "need": 5,
+    "reward_coins": 100000,
+    "reward_reputation": 0,
+    "description": "Откройте все районы"
   },
   {
     "id": "first_region",
@@ -61,7 +185,26 @@
     "kind": "regions",
     "need": 1,
     "reward_coins": 300,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Откройте второй остров"
+  },
+  {
+    "id": "three_regions",
+    "name": "Кругосветка",
+    "kind": "regions",
+    "need": 3,
+    "reward_coins": 10000000.0,
+    "reward_reputation": 0,
+    "description": "Откройте три острова, кроме родного"
+  },
+  {
+    "id": "all_regions",
+    "name": "Все материки",
+    "kind": "regions",
+    "need": 5,
+    "reward_coins": 100000000000.0,
+    "reward_reputation": 0,
+    "description": "Откройте все острова"
   },
   {
     "id": "buyout",
@@ -69,47 +212,35 @@
     "kind": "competitors",
     "need": 1,
     "reward_coins": 1000,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Выкупите первого конкурента"
   },
   {
-    "id": "known_name",
-    "name": "Имя на слуху",
-    "kind": "reputation",
-    "need": 10,
-    "reward_coins": 150,
-    "reward_reputation": 0
-  },
-  {
-    "id": "five_upgrades",
-    "name": "Пять улучшений",
-    "kind": "upgrades",
-    "need": 5,
-    "reward_coins": 250,
-    "reward_reputation": 0
-  },
-  {
-    "id": "franchise_two",
-    "name": "Франшиза",
-    "kind": "franchise",
-    "need": 2,
-    "reward_coins": 500,
-    "reward_reputation": 0
-  },
-  {
-    "id": "five_stars",
-    "name": "Пять звёзд",
-    "kind": "rating",
-    "need": 4.9,
-    "reward_coins": 500,
-    "reward_reputation": 0
-  },
-  {
-    "id": "boss",
-    "name": "Сам себе начальник",
-    "kind": "helpers",
+    "id": "three_buyouts",
+    "name": "Скупщик",
+    "kind": "competitors",
     "need": 3,
-    "reward_coins": 5000,
-    "reward_reputation": 0
+    "reward_coins": 100000,
+    "reward_reputation": 0,
+    "description": "Выкупите трёх конкурентов"
+  },
+  {
+    "id": "nine_buyouts",
+    "name": "Монополист",
+    "kind": "competitors",
+    "need": 9,
+    "reward_coins": 1000000000.0,
+    "reward_reputation": 0,
+    "description": "Выкупите девять конкурентов"
+  },
+  {
+    "id": "all_buyouts",
+    "name": "Все такси — ваши",
+    "kind": "competitors",
+    "need": 18,
+    "reward_coins": 10000000000000.0,
+    "reward_reputation": 0,
+    "description": "Выкупите всех 18 конкурентов мира"
   },
   {
     "id": "king_of_bangkok",
@@ -117,14 +248,124 @@
     "kind": "captured",
     "need": 1,
     "reward_coins": 10000,
-    "reward_reputation": 0
+    "reward_reputation": 0,
+    "description": "Захватите Бангкок"
+  },
+  {
+    "id": "two_cities",
+    "name": "Два города",
+    "kind": "captured",
+    "need": 2,
+    "reward_coins": 5000000.0,
+    "reward_reputation": 0,
+    "description": "Захватите Париж"
+  },
+  {
+    "id": "four_cities",
+    "name": "Полмира",
+    "kind": "captured",
+    "need": 4,
+    "reward_coins": 10000000000.0,
+    "reward_reputation": 0,
+    "description": "Захватите четыре города"
   },
   {
     "id": "whole_world",
     "name": "Такси всего мира",
     "kind": "captured",
     "need": 6,
-    "reward_coins": 1000000000,
-    "reward_reputation": 0
+    "reward_coins": 1000000000000000.0,
+    "reward_reputation": 0,
+    "description": "Захватите все шесть городов"
+  },
+  {
+    "id": "known_name",
+    "name": "Имя на слуху",
+    "kind": "reputation",
+    "need": 10,
+    "reward_coins": 150,
+    "reward_reputation": 0,
+    "description": "Наберите 10 репутации"
+  },
+  {
+    "id": "famous",
+    "name": "Звезда района",
+    "kind": "reputation",
+    "need": 500,
+    "reward_coins": 20000,
+    "reward_reputation": 0,
+    "description": "Наберите 500 репутации"
+  },
+  {
+    "id": "legend",
+    "name": "Легенда города",
+    "kind": "reputation",
+    "need": 2000,
+    "reward_coins": 5000000.0,
+    "reward_reputation": 0,
+    "description": "Наберите 2 000 репутации"
+  },
+  {
+    "id": "five_upgrades",
+    "name": "Пять улучшений",
+    "kind": "upgrades",
+    "need": 5,
+    "reward_coins": 250,
+    "reward_reputation": 0,
+    "description": "Купите 5 уровней тюнинга"
+  },
+  {
+    "id": "thirty_upgrades",
+    "name": "Тюнинг-ателье",
+    "kind": "upgrades",
+    "need": 30,
+    "reward_coins": 50000,
+    "reward_reputation": 0,
+    "description": "Купите 30 уровней тюнинга"
+  },
+  {
+    "id": "boss",
+    "name": "Сам себе начальник",
+    "kind": "helpers",
+    "need": 3,
+    "reward_coins": 5000,
+    "reward_reputation": 0,
+    "description": "Наймите всех трёх помощников"
+  },
+  {
+    "id": "five_stars",
+    "name": "Пять звёзд",
+    "kind": "rating",
+    "need": 4.9,
+    "reward_coins": 500,
+    "reward_reputation": 0,
+    "description": "Поднимите отзывы до ★4.9"
+  },
+  {
+    "id": "franchise_two",
+    "name": "Франшиза",
+    "kind": "franchise",
+    "need": 2,
+    "reward_coins": 500,
+    "reward_reputation": 0,
+    "description": "Продайте компанию на франшизу ×2"
+  },
+  {
+    "id": "franchise_ten",
+    "name": "Сеть франшиз",
+    "kind": "franchise",
+    "need": 10,
+    "reward_coins": 100000000.0,
+    "reward_reputation": 0,
+    "description": "Доведите франшизу до ×10"
+  },
+  {
+    "id": "franchise_fifty",
+    "name": "Империя",
+    "kind": "franchise",
+    "need": 50,
+    "reward_coins": 1000000000000.0,
+    "reward_reputation": 0,
+    "description": "Доведите франшизу до ×50"
   }
 ]

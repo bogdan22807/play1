@@ -1532,11 +1532,14 @@ func get_region_block_reason(region_id: String) -> String:
 	var previous: Dictionary = _previous_island(region_id)
 	if not previous.is_empty() and not is_island_captured(str(previous.get("id", ""))):
 		missing.append("Сначала станьте такси №1 в городе %s" % str(previous.get("city", previous.get("name", ""))))
+	# Пишем «нужно — у вас — ещё»: раньше было «не хватает: 120», и казалось, что 120 у вас уже есть.
 	var need_reputation: int = get_region_reputation(region_id)
 	if reputation < need_reputation:
-		missing.append("Не хватает репутации: %d" % (need_reputation - reputation))
-	if coins + 0.001 < get_region_cost(region_id):
-		missing.append("Не хватает денег")
+		missing.append("Репутация: нужно %s, у вас %s (ещё %s)" % [
+			format_number(float(need_reputation)), format_number(float(reputation)), format_number(float(need_reputation - reputation))])
+	var cost: float = get_region_cost(region_id)
+	if coins + 0.001 < cost:
+		missing.append("Деньги: нужно %s, у вас %s" % [format_money(cost), format_money(coins)])
 	if missing.is_empty():
 		return ""
 	return "\n".join(missing)
@@ -2751,6 +2754,12 @@ func get_achievement_value(kind: String) -> float:
 			return float(get_hired_helper_count())
 		"captured":
 			return float(_captured.size())
+		"tap_level":
+			return float(_tap_level)
+		"garage":
+			return float(get_garage_capacity())
+		"surrendered":
+			return float(_owned_competitors.size() + _surrendered.size())
 		_:
 			return 0.0
 

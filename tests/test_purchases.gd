@@ -51,6 +51,7 @@ func _init() -> void:
 		var done: bool = false
 		var before: float = gs.coins
 		var garage_before: int = gs.get_garage().size()
+		var done_before: Array = gs._done_achievements.keys()
 		match kind:
 			0:
 				id = upgrade_ids[randi() % upgrade_ids.size()]
@@ -99,8 +100,12 @@ func _init() -> void:
 		check(can == done, "можно = купилось: " + label)
 		check(gs.coins >= 0.0, "деньги не в минусе: " + label)
 		if done:
-			# Достижения дают награды до $1M (лимузин) — поэтому допуск.
-			check(gs.coins <= before - price + 1100000.0 + before * 1e-9 and before + 0.001 >= price, "списана цена: %s, стало %s" % [label, gs.coins])
+			# Если покупка выполнила задание — его награда тоже пришла.
+			var bonus: float = 0.0
+			for info: Variant in gs.get_achievements():
+				if gs.is_achievement_done(str(info["id"])) and not done_before.has(str(info["id"])):
+					bonus += float(info["reward_coins"])
+			check(gs.coins <= before - price + bonus + 1.0 + before * 1e-9 and before + 0.001 >= price, "списана цена: %s, стало %s" % [label, gs.coins])
 		else:
 			check(is_equal_approx(gs.coins, before), "без покупки деньги не тронуты: " + label)
 		if attempt % 50 == 0:
