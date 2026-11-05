@@ -1,0 +1,178 @@
+# Сборки для магазинов: Android App Bundle (.aab) для Google Play и iPhone для App Store.
+#
+# Запуск: вручную (Actions → «Сборки для магазинов» → Run workflow), при пуше тега v*
+# или при изменениях в ветках store-*.
+#
+# Секреты (Settings → Secrets and variables → Actions). Пока их нет, всё равно собирается:
+#   Android — подпись временным ключом (только проверить, в Play не загружать);
+#   iOS — сборка без подписи (проверка, что проект собирается), без отправки в App Store.
+#
+#   ANDROID_KEYSTORE_BASE64   — ключ загрузки taxi-upload.keystore в base64
+#   ANDROID_KEYSTORE_PASSWORD — пароль ключа
+#   ANDROID_KEY_ALIAS         — upload
+#   APPLE_TEAM_ID             — Team ID (10 символов) из developer.apple.com → Membership
+#   ASC_KEY_ID                — Key ID ключа App Store Connect API (роль Admin)
+#   ASC_ISSUER_ID             — Issuer ID там же
+#   ASC_KEY_P8_BASE64         — файл AuthKey_XXXX.p8 в base64
+
+name: Сборки для магазинов
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    branches: ["store-*"]
+
+env:
+  GODOT_VERSION: "4.7"
+  GODOT_URL: https://github.com/godotengine/godot-builds/releases/download/4.7-stable
+
+jobs:
+  android:
+    name: Google Play (.aab)
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Godot и шаблоны экспорта
+        run: |
+          wget -q "$GODOT_URL/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          wget -q "$GODOT_URL/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" "$HOME/godot"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+          rm -rf templates *.zip *.tpz
+          mkdir -p "$HOME/.config/godot"
+          cat > "$HOME/.config/godot/editor_settings-${GODOT_VERSION}.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          EOF
+
+      - name: Импорт и шаблон Android-сборки
+        run: |
+          "$HOME/godot" --headless --path . --import || true
+          "$HOME/godot" --headless --path . --install-android-build-template
+
+      - name: Ключ подписи
+        run: |
+          if [ "$HAS_KEY" = "true" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Нет секрета ANDROID_KEYSTORE_BASE64 — подписываю временным ключом, в Play такую сборку не загружать."
+            keytool -genkeypair -keystore "$RUNNER_TEMP/upload.keystore" -storetype PKCS12 -alias upload \
+              -keyalg RSA -keysize 2048 -validity 365 -storepass testtest -keypass testtest -dname "CN=Test"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=testtest" >> "$GITHUB_ENV"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=upload" >> "$GITHUB_ENV"
+          fi
+          echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$RUNNER_TEMP/upload.keystore" >> "$GITHUB_ENV"
+
+      - name: Номер сборки
+        run: sed -i "s/^version\/code=1$/version\/code=${{ github.run_number }}/" export_presets.cfg
+
+      - name: Экспорт .aab
+        run: |
+          mkdir -p build
+          "$HOME/godot" --headless --path . --export-release "Android" build/taxi-clicker.aab
+          test -s build/taxi-clicker.aab
+
+      - name: Проверка манифеста
+        run: |
+          wget -q https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar -O "$RUNNER_TEMP/bundletool.jar"
+          java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle build/taxi-clicker.aab | grep -E "package=|versionCode|versionName|SdkVersion|uses-permission" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.HAS_KEY == 'true' && 'google-play-aab' || 'google-play-aab-TEST-KEY' }}
+          path: build/taxi-clicker.aab
+
+  ios:
+    name: App Store (iPhone)
+    runs-on: macos-15
+    env:
+      HAS_APPLE: ${{ secrets.ASC_KEY_P8_BASE64 != '' && secrets.APPLE_TEAM_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Самый новый Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -v beta | sort -V | tail -1)
+          echo "Xcode: $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Godot и шаблоны экспорта
+        run: |
+          wget -q "$GODOT_URL/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          wget -q "$GODOT_URL/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_macos.universal.zip" -d "$RUNNER_TEMP"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          TPL="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$TPL"
+          mv templates/* "$TPL/"
+          echo "GODOT=$RUNNER_TEMP/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
+
+      - name: Команда, версия
+        run: |
+          TEAM="${{ secrets.APPLE_TEAM_ID }}"
+          if [ -z "$TEAM" ]; then TEAM="XXXXXXXXXX"; fi
+          sed -i '' "s/^application\/app_store_team_id=.*/application\/app_store_team_id=\"$TEAM\"/" export_presets.cfg
+          sed -i '' "s/^application\/version=.*/application\/version=\"${{ github.run_number }}\"/" export_presets.cfg
+          echo "TEAM=$TEAM" >> "$GITHUB_ENV"
+
+      - name: Экспорт проекта Xcode
+        run: |
+          "$GODOT" --headless --path . --import || true
+          mkdir -p build/ios
+          "$GODOT" --headless --path . --export-release "iOS" build/ios/TaxiClicker.ipa
+          ls build/ios
+          PROJ=$(ls -d build/ios/*.xcodeproj | head -1)
+          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+          xcodebuild -list -project "$PROJ"
+          SCHEME=$(xcodebuild -list -json -project "$PROJ" | python3 -c "import json,sys; print(json.load(sys.stdin)['project']['schemes'][0])")
+          echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
+
+      - name: Проверочная сборка без подписи
+        if: env.HAS_APPLE != 'true'
+        run: |
+          echo "::warning::Нет ключей Apple — собираю без подписи, в App Store не отправляю."
+          xcodebuild build -project "$PROJ" -scheme "$SCHEME" -configuration Release \
+            -sdk iphoneos -destination "generic/platform=iOS" CODE_SIGNING_ALLOWED=NO | tail -20
+
+      - name: Архив, подпись и отправка в App Store Connect
+        if: env.HAS_APPLE == 'true'
+        run: |
+          KEY="$RUNNER_TEMP/AuthKey.p8"
+          echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 -d > "$KEY"
+          AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEY" -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}")
+          xcodebuild archive -project "$PROJ" -scheme "$SCHEME" -configuration Release \
+            -destination "generic/platform=iOS" -archivePath build/ios/TaxiClicker.xcarchive \
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" \
+            PROVISIONING_PROFILE_SPECIFIER="" PROVISIONING_PROFILE="" "${AUTH[@]}" | tail -30
+          cat > build/ios/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive -archivePath build/ios/TaxiClicker.xcarchive \
+            -exportOptionsPlist build/ios/ExportOptions.plist -exportPath build/ios/export "${AUTH[@]}" | tail -30
+          echo "Готово: сборка отправлена в App Store Connect, через 10–30 минут появится в TestFlight."
