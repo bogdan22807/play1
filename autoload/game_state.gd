@@ -171,6 +171,14 @@ var _opened_regions: Dictionary = {}
 var reputation: int = 0
 ## Сколько раз нажали на такси за текущий забег.
 var run_taps: int = 0
+## Отзывы пассажиров за забег: водители на линии приносят репутацию сами,
+## и пока игра открыта, и пока игрок отдыхает. Дробная часть копится.
+var run_reviews: float = 0.0
+## Отзывы, накопленные без игрока: придут вместе с монетами за отсутствие.
+var _offline_reviews: float = 0.0
+## Отзывов в час = это число × корень из числа водителей на линии.
+## Корень — чтобы большой автопарк помогал, но не делал тапы ненужными.
+var _reviews_per_hour: float = 25.0
 ## Постоянный множитель. Переживает продажу компании.
 var franchise: float = 1.0
 ## Монеты, полученные за текущий забег. Траты его не уменьшают.
@@ -927,6 +935,7 @@ func _run_tick_part(part: String) -> void:
 	match part:
 		"progress":
 			_note_progress()
+			_tick_reviews(_tick_seconds)
 		"shifts":
 			_tick_shifts(_tick_seconds)
 		"helpers":
@@ -935,6 +944,48 @@ func _run_tick_part(part: String) -> void:
 			_tick_market(_tick_seconds)
 		"wear":
 			_wear_fleet(_tick_seconds)
+
+
+## Сколько водителей сейчас возят пассажиров: с машиной и с доходом (не на отдыхе).
+func get_working_driver_count() -> int:
+	var count: int = 0
+	var cars: Dictionary = get_assignments()
+	for raw: Variant in _team:
+		var person: Dictionary = raw
+		var car: Dictionary = cars.get(int(person.get("uid", 0)), {})
+		if not car.is_empty() and get_driver_net_on(person, car) > 0.0:
+			count += 1
+	return count
+
+
+## Отзывов (= репутации) в час от водителей на линии.
+func get_reviews_per_hour() -> float:
+	var working: int = get_working_driver_count()
+	if working <= 0:
+		return 0.0
+	return _reviews_per_hour * sqrt(float(working))
+
+
+## «40 мин», «3 ч», «2 ч 15 мин» — для подсказок «хватит через…».
+func _short_duration(seconds: float) -> String:
+	var minutes: int = maxi(1, ceili(seconds / 60.0))
+	if minutes < 60:
+		return "%d мин" % minutes
+	var hours: int = minutes / 60
+	var rest: int = minutes % 60
+	return "%d ч" % hours if rest == 0 else "%d ч %d мин" % [hours, rest]
+
+
+func get_offline_reviews() -> int:
+	return int(_offline_reviews)
+
+
+func _tick_reviews(seconds: float) -> void:
+	var per_hour: float = get_reviews_per_hour()
+	if per_hour <= 0.0:
+		return
+	run_reviews += per_hour * seconds / 3600.0
+	_sync_reputation()
 
 
 func _wear_fleet(seconds: float) -> void:
@@ -1537,6 +1588,10 @@ func get_region_block_reason(region_id: String) -> String:
 	if reputation < need_reputation:
 		missing.append("Репутация: нужно %s, у вас %s (ещё %s)" % [
 			format_number(float(need_reputation)), format_number(float(reputation)), format_number(float(need_reputation - reputation))])
+		var per_hour: float = get_reviews_per_hour()
+		if per_hour > 0.0:
+			missing.append("Водители приносят +%d в час: хватит через %s" % [
+				int(per_hour), _short_duration(float(need_reputation - reputation) / per_hour * 3600.0)])
 	var cost: float = get_region_cost(region_id)
 	if coins + 0.001 < cost:
 		missing.append("Деньги: нужно %s, у вас %s" % [format_money(cost), format_money(coins)])
@@ -2210,9 +2265,10 @@ func _reset_market() -> void:
 	_captured.clear()
 
 
-## Репутация = целые двадцатки тапов за забег плюс каждый водитель в команде.
+## Репутация = целые двадцатки тапов за забег, каждый водитель в команде
+## и отзывы пассажиров.
 func _sync_reputation() -> void:
-	var next: int = int(run_taps / TAPS_PER_REPUTATION) + _team.size()
+	var next: int = int(run_taps / TAPS_PER_REPUTATION) + _team.size() + int(run_reviews)
 	if next == reputation:
 		return
 	reputation = next
@@ -2259,12 +2315,14 @@ func reset_progress() -> void:
 	_reset_staff()
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
+	_offline_reviews = 0.0
 	_offline_capped = false
 	_opened_districts.clear()
 	_opened_regions.clear()
 	_reset_market()
 	_story_seen.clear()
 	run_taps = 0
+	run_reviews = 0.0
 	franchise = 1.0
 	run_earned = 0.0
 	lifetime_earned = 0.0
@@ -2334,11 +2392,13 @@ func sell_company() -> bool:
 	_reset_staff()
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
+	_offline_reviews = 0.0
 	_offline_capped = false
 	_opened_districts.clear()
 	_opened_regions.clear()
 	_reset_market()
 	run_taps = 0
+	run_reviews = 0.0
 	_reset_car()
 	_recalc_income()
 	_sync_reputation()
@@ -2373,8 +2433,10 @@ func collect_offline_reward() -> float:
 	if amount <= 0.0:
 		return 0.0
 	_gain_coins(amount)
+	_take_offline_reviews()
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
+	_offline_reviews = 0.0
 	_offline_capped = false
 	_note_progress()
 	coins_changed.emit(coins)
@@ -2420,10 +2482,20 @@ func _refresh_offline_reward(saved_coins: float = -1.0, saved_seconds: float = -
 			return
 		_offline_coins = 0.0
 		_offline_seconds = 0.0
+		_offline_reviews = 0.0
 		_offline_capped = false
 		return
 	_offline_seconds = total_seconds
 	_offline_coins = income * get_offline_rate() * total_seconds
+	_offline_reviews = get_reviews_per_hour() * get_offline_rate() * total_seconds / 3600.0
+
+
+func _take_offline_reviews() -> void:
+	if _offline_reviews <= 0.0:
+		return
+	run_reviews += _offline_reviews
+	_offline_reviews = 0.0
+	_sync_reputation()
 
 
 ## Копейки за пару секунд кладём в кошелёк без окна.
@@ -2431,8 +2503,10 @@ func _fold_offline_dust() -> bool:
 	if _offline_coins <= 0.0 or _offline_coins >= 1.0:
 		return false
 	_gain_coins(_offline_coins)
+	_take_offline_reviews()
 	_offline_coins = 0.0
 	_offline_seconds = 0.0
+	_offline_reviews = 0.0
 	_offline_capped = false
 	return true
 
@@ -2482,6 +2556,7 @@ func save_game() -> void:
 		"regions": _opened_regions.duplicate(),
 		"reputation": reputation,
 		"run_taps": run_taps,
+		"run_reviews": run_reviews,
 		"competitors": _owned_competitors.duplicate(),
 		"rival_cuts": _rival_cuts.duplicate(true),
 		"rival_perm": _rival_perm.duplicate(),
@@ -2532,6 +2607,7 @@ func load_game() -> void:
 	_owned_competitors = _read_count_dict(data.get("competitors", {}))
 	_load_market(data)
 	run_taps = _read_run_taps(data)
+	run_reviews = maxf(0.0, float(data.get("run_reviews", 0.0)))
 	franchise = maxf(1.0, float(data.get("franchise", 1.0)))
 	# Старое сохранение без поля: уже лежащие монеты считаем заработком забега.
 	run_earned = maxf(0.0, float(data.get("run_earned", coins)))
@@ -2908,6 +2984,7 @@ func _read_balance() -> void:
 	_tap_from_income = maxf(0.0, float(data.get("tap_from_income", _tap_from_income)))
 	_world_market_size = maxf(1.0, float(data.get("world_market_size", _world_market_size)))
 	_offline_income_rate = clampf(float(data.get("offline_income_rate", _offline_income_rate)), 0.0, 1.0)
+	_reviews_per_hour = maxf(0.0, float(data.get("reviews_per_hour", _reviews_per_hour)))
 	_tap_level_first_cost = maxf(1.0, float(data.get("tap_level_first_cost", _tap_level_first_cost)))
 	_tap_after_last_mult = maxf(1.01, float(data.get("tap_after_last_mult", _tap_after_last_mult)))
 	_fleet_growth = maxf(1.0, float(data.get("fleet_growth", _fleet_growth)))
