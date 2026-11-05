@@ -123,6 +123,7 @@ class Player:
         self.ad_until = 0.0
         self.coins = 0.0
         self.taps = 0
+        self.reviews = 0.0
         self.last_progress = self.time
 
     def next_expansion(self):
@@ -219,7 +220,7 @@ class Player:
         return 1.0 if total <= 0.0 else self.tap_power() * TAPS_PER_SECOND / total
 
     def reputation(self):
-        return self.taps // TAPS_PER_REPUTATION + self.team
+        return self.taps // TAPS_PER_REPUTATION + self.team + int(self.reviews)
 
     # --- рынок -------------------------------------------------------------
 
@@ -380,6 +381,9 @@ class Player:
         self.coins += gained
         self.lifetime += gained
         self.taps += int(TAPS_PER_SECOND * dt)
+        # Отзывы: водители на линии приносят репутацию сами (25 × √водителей в час).
+        if self.team > 0:
+            self.reviews += float(self.balance.get("reviews_per_hour", 25)) * math.sqrt(self.team) * dt / 3600.0
         self.time += dt
         rival = self.active_rival()
         if self.time >= self.ad_until:

@@ -1190,9 +1190,14 @@ func _refresh_team_tiles() -> void:
 		trend = "растут к %.1f" % target
 	elif target < now - 0.05:
 		trend = "падают к %.1f" % target
-	_tile("rating", "★ %.1f" % now, "Отзывы %s" % trend, COLOR_DANGER if target < now - 0.05 else COLOR_TEXT)
+	# Бонус к доходу от рейтинга теперь в этой же плитке, а соседняя — репутация от водителей.
 	var bonus: int = int(roundf((GameState.get_rating_multiplier() - 1.0) * 100.0))
-	_tile("bonus", "%s%d%%" % ["+" if bonus >= 0 else "", bonus], "К доходу от отзывов", COLOR_INCOME if bonus >= 0 else COLOR_DANGER)
+	_tile("rating", "★ %.1f · %s%d%%" % [now, "+" if bonus >= 0 else "", bonus], "Отзывы %s" % trend, COLOR_DANGER if target < now - 0.05 else COLOR_TEXT)
+	var per_hour: float = GameState.get_reviews_per_hour()
+	if per_hour > 0.0:
+		_tile("word", "+%d/ч" % int(per_hour), "Репутация от водителей", COLOR_INCOME)
+	else:
+		_tile("word", "—", "Водители принесут репутацию", COLOR_MUTED)
 	var tired: int = GameState.get_tired_count()
 	_tile("team", "%d" % GameState.get_team().size(), "Устали: %d" % tired if tired > 0 else "Все бодрые", COLOR_TEXT)
 
@@ -2573,7 +2578,7 @@ func _build_region_rows() -> void:
 	_island_button = _make_row_button(_on_island_button)
 	_island_button.custom_minimum_size = Vector2(0, 110)
 	box.add_child(_island_button)
-	_on_background(_add_label(_world_list, "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого водителя. Открытый остров — свой гараж на 20 машин. Захваченный — +25% дохода навсегда.", 24))
+	_on_background(_add_label(_world_list, "Репутация растёт от заказов (+1 за каждые 20 тапов), за каждого водителя и от отзывов: водители на линии приносят её каждый час, даже пока вас нет. Открытый остров — свой гараж на 20 машин. Захваченный — +25% дохода навсегда.", 24))
 
 
 ## Состояние острова для карты.
@@ -2840,7 +2845,7 @@ func _build_driver_rows() -> void:
 	service_box.add_child(grid)
 	for tile: Array in [["income", "chart", "Команда приносит"], ["salary", "wallet", "Зарплаты"],
 			["helpers", "dispatcher", "Помощникам"], ["rating", "chip_star", "Отзывы"],
-			["bonus", "money_bag", "Бонус к доходу"], ["team", "team", "Водителей"]]:
+			["word", "chip_rep", "Репутация"], ["team", "team", "Водителей"]]:
 		_team_tiles[tile[0]] = _make_stat_tile(grid, str(tile[1]), str(tile[2]))
 	_staff_summary = Label.new()
 	_staff_summary.visible = false
@@ -3544,6 +3549,9 @@ func _show_offline_popup() -> void:
 		return
 	var amount: float = GameState.get_offline_coins()
 	_offline_label.text = "Пока вас не было, заработано %s" % GameState.format_money(amount)
+	var reviews: int = GameState.get_offline_reviews()
+	if reviews > 0:
+		_offline_label.text += "\nи +%s репутации — пассажиры хвалят ваших водителей" % GameState.format_number(float(reviews))
 	_offline_time_label.text = _offline_time_text()
 	_offline_layer.visible = true
 

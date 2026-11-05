@@ -2,6 +2,7 @@
   "tap_from_income": 0.008,
   "world_market_size": 600000000,
   "offline_income_rate": 0.8,
+  "reviews_per_hour": 25,
   "tap_level_first_cost": 40,
   "tap_after_last_mult": 1.6,
   "fleet_growth": 1.15,
