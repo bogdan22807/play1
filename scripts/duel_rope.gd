@@ -53,8 +53,13 @@ func _place() -> void:
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return
-	_time += delta
-	_shown = lerpf(_shown, _target(), clampf(delta * 3.0, 0.0, 1.0))
+	# Перерисовываем, только пока узел едет к новому месту.
+	var target: float = _target()
+	if absf(_shown - target) < 0.0005:
+		return
+	_shown = lerpf(_shown, target, clampf(delta * 3.0, 0.0, 1.0))
+	if absf(_shown - target) < 0.0005:
+		_shown = target
 	queue_redraw()
 
 
@@ -71,7 +76,7 @@ func _draw() -> void:
 	var middle: float = lerpf(rope_left, rope_right, 0.5)
 	_round_rect(Rect2(Vector2(middle, track.position.y), Vector2(track.end.x - middle, track.size.y)), side * 0.2, Color(rival_color, 0.35))
 	# Канат с косыми витками; чуть провисает.
-	var sag: float = sin(_time * 2.0) * 2.0
+	var sag: float = 0.0
 	draw_line(Vector2(rope_left, y + sag), Vector2(rope_right, y + sag), ROPE, side * 0.09)
 	var step: float = side * 0.12
 	var x: float = rope_left

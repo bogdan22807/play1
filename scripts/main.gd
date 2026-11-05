@@ -185,6 +185,8 @@ var _toast_face: Control
 var _tap_line: Button
 var _tap_line_fill: Panel
 var _tap_line_label: Label
+var _tap_line_dirty: bool = true
+var _tap_line_text: String = ""
 ## Карточка «Что дальше» на главном экране: текст цели и вкладка, куда она ведёт (-1 — тут же).
 var _goal_panel: PanelContainer
 var _goal_label: Label
@@ -203,6 +205,7 @@ var _name_error: Label
 
 
 func _ready() -> void:
+	Engine.max_fps = FPS_IDLE
 	_apply_theme()
 	_build_sounds()
 	_build_ui()
@@ -651,9 +654,6 @@ func _build_header() -> VBoxContainer:
 	pill_style.set_corner_radius_all(60)
 	pill_style.border_width_bottom = 5
 	pill_style.border_color = COLOR_PANEL_EDGE
-	pill_style.shadow_color = Color(0.08, 0.16, 0.35, 0.16)
-	pill_style.shadow_size = 8
-	pill_style.shadow_offset = Vector2(0, 4)
 	pill_style.content_margin_left = 14
 	pill_style.content_margin_right = 34
 	pill_style.content_margin_top = 4
@@ -742,12 +742,12 @@ func _refresh_tap_line() -> void:
 	var gain: String = "тап ×%s → ×%s" % [_mult_text(now_mult), _mult_text(next_mult)]
 	if next_car != "":
 		gain += " · %s" % _car_name(next_car)
-	if ready:
-		_tap_line_label.text = "Нажмите: %s" % gain
-		_tap_line_label.add_theme_color_override("font_color", Color.WHITE)
-	else:
-		_tap_line_label.text = "%s / %s · %s" % [GameState.format_money(GameState.coins), GameState.format_money(cost), gain]
-		_tap_line_label.add_theme_color_override("font_color", COLOR_TEXT)
+	var text: String = "Нажмите: %s" % gain if ready else "%s / %s · %s" % [GameState.format_money(GameState.coins), GameState.format_money(cost), gain]
+	# Текст и цвет трогаем, только если что-то поменялось: иначе лишняя перерисовка.
+	if text != _tap_line_text:
+		_tap_line_text = text
+		_tap_line_label.text = text
+		_tap_line_label.add_theme_color_override("font_color", Color.WHITE if ready else COLOR_TEXT)
 
 
 func _mult_text(value: float) -> String:
@@ -841,8 +841,6 @@ func _build_tap_page() -> Control:
 	goal_style.set_corner_radius_all(36)
 	goal_style.set_border_width_all(4)
 	goal_style.border_color = COLOR_ACCENT
-	goal_style.shadow_color = Color(0, 0, 0, 0.18)
-	goal_style.shadow_size = 8
 	goal_style.content_margin_left = 22
 	goal_style.content_margin_right = 22
 	goal_style.content_margin_top = 12
@@ -1528,8 +1526,25 @@ func _refresh_video() -> void:
 	_video_button.disabled = not done
 
 
+## Кадров в секунду: в покое 30 (телефон не греется), при касаниях и прокрутке 60 (плавно).
+const FPS_IDLE := 30
+const FPS_ACTIVE := 60
+var _fast_left: float = 0.0
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton or event is InputEventMouseMotion or event is InputEventScreenDrag:
+		_fast_left = 1.5
+		if Engine.max_fps != FPS_ACTIVE:
+			Engine.max_fps = FPS_ACTIVE
+
+
 func _process(delta: float) -> void:
 	_tick_video(delta)
+	if _fast_left > 0.0:
+		_fast_left -= delta
+		if _fast_left <= 0.0:
+			Engine.max_fps = FPS_IDLE
 
 
 func _tick_video(delta: float) -> void:
@@ -3079,10 +3094,6 @@ func _panel_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = COLOR_PANEL
 	style.set_corner_radius_all(30)
-	# Мягкая тень — карточка чуть «парит» над небом.
-	style.shadow_color = Color(0.08, 0.16, 0.35, 0.14)
-	style.shadow_size = 10
-	style.shadow_offset = Vector2(0, 5)
 	style.border_width_bottom = 8
 	style.border_color = COLOR_PANEL_EDGE
 	style.content_margin_left = 24
@@ -3703,7 +3714,7 @@ func _on_coins_changed(value: float) -> void:
 	if _last_coins >= 0.0 and value < _last_coins - 0.5:
 		_play(_sfx_buy)
 	_last_coins = value
-	_refresh_tap_line()
+	_tap_line_dirty = true
 	var text := GameState.format_money(value)
 	# Пока на экране та же строка, подпись не трогаем — иначе цифры двоятся.
 	if _coins_label.text == text:
@@ -3715,6 +3726,9 @@ func _on_coins_changed(value: float) -> void:
 
 
 func _flush_ui() -> void:
+	if _tap_line_dirty:
+		_tap_line_dirty = false
+		_refresh_tap_line()
 	if not _ui_dirty:
 		return
 	_ui_dirty = false

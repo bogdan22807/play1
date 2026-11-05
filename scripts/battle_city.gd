@@ -59,11 +59,18 @@ func _place() -> void:
 		face.position = Vector2(_slot(index) - side / 2.0, 6)
 
 
+var _redraw_left: float = 0.0
+
+
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return
 	_time += delta
-	queue_redraw()
+	# Пульс и облака — достаточно 10 кадров в секунду.
+	_redraw_left -= delta
+	if _redraw_left <= 0.0:
+		_redraw_left = 0.1
+		queue_redraw()
 
 
 func _draw() -> void:

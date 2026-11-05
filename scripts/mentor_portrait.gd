@@ -23,12 +23,19 @@ func talk(seconds: float = 2.0) -> void:
 	_talk_left = seconds
 
 
+var _redraw_left: float = 0.0
+
+
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return
 	_time += delta
 	_talk_left = maxf(0.0, _talk_left - delta)
-	queue_redraw()
+	# Пока говорит — плавно; молча только «дышит», хватит 10 кадров в секунду.
+	_redraw_left -= delta
+	if _talk_left > 0.0 or _redraw_left <= 0.0:
+		_redraw_left = 0.1
+		queue_redraw()
 
 
 func _draw() -> void:
