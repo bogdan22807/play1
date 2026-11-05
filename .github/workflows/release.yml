@@ -60,10 +60,9 @@ jobs:
           export/android/java_sdk_path = "$JAVA_HOME"
           EOF
 
-      - name: Импорт и шаблон Android-сборки
-        run: |
-          "$HOME/godot" --headless --path . --import || true
-          "$HOME/godot" --headless --path . --install-android-build-template
+      - name: Импорт ресурсов
+        timeout-minutes: 10
+        run: timeout 300 "$HOME/godot" --headless --path . --import || true
 
       - name: Ключ подписи
         run: |
@@ -84,9 +83,11 @@ jobs:
         run: sed -i "s/^version\/code=1$/version\/code=${{ github.run_number }}/" export_presets.cfg
 
       - name: Экспорт .aab
+        timeout-minutes: 30
         run: |
           mkdir -p build
-          "$HOME/godot" --headless --path . --export-release "Android" build/taxi-clicker.aab
+          # Шаблон Android-сборки ставится только вместе с экспортом.
+          "$HOME/godot" --headless --path . --install-android-build-template --export-release "Android" build/taxi-clicker.aab
           test -s build/taxi-clicker.aab
 
       - name: Проверка манифеста
