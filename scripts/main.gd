@@ -1415,7 +1415,7 @@ func _build_region_rows() -> void:
 	_island_button = _make_row_button(_on_island_button)
 	_island_button.custom_minimum_size = Vector2(0, 110)
 	box.add_child(_island_button)
-	_add_label(_world_list, "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого водителя. Каждый захваченный остров: +25% дохода навсегда.", 24, COLOR_MUTED)
+	_add_label(_world_list, "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого водителя. Открытый остров — свой гараж на 20 машин. Захваченный — +25% дохода навсегда.", 24, COLOR_MUTED)
 
 
 ## Состояние острова для карты.
@@ -1500,7 +1500,9 @@ func _refresh_regions() -> void:
 	for raw: Variant in GameState.get_island_competitors(id):
 		rivals.append(str(raw.get("name", "")))
 	var bonus: int = int(roundf(float(info.get("income_bonus", 0)) * 100.0))
-	var bonus_text: String = "  ·  доход +%d%% после открытия" % bonus if bonus > 0 and not GameState.is_region_open(id) else ""
+	var bonus_text: String = ""
+	if not GameState.is_region_open(id):
+		bonus_text = "\nПосле открытия: свой гараж на %d машин, доход +%d%%" % [int(info.get("garage_slots", 0)), bonus]
 	_island_reason.text = ""
 	_island_button.visible = true
 	match str(states.get(id, "locked")):
@@ -2017,6 +2019,8 @@ func _refresh_staff_money() -> void:
 		GameState.get_garage_capacity(),
 		GameState.get_team().size(),
 	]
+	if GameState.get_island_garage_slots() > 0:
+		_garage_label.text += "\nдома %d + на островах %d" % [GameState.get_home_garage_capacity(), GameState.get_island_garage_slots()]
 	_staff_summary.text = _staff_summary_text()
 	var step: Dictionary = GameState.get_next_expansion()
 	if step.is_empty():

@@ -117,9 +117,9 @@ func _init() -> void:
 	# Захват по доле.
 	gs2.reset_progress()
 	check(not gs2.is_home_captured(), "сброс возвращает рынок")
-	gs2._rival_perm = {"wolf": 0.001, "lotus": 0.001, "elephant": 0.001}
-	gs2.coins = 1e8
-	gs2.buy_fleet("business")
+	gs2._rival_perm = {"wolf": 0.0001, "lotus": 0.0001, "elephant": 0.0001}
+	gs2.coins = 1e11
+	gs2.buy_fleet("limo")
 	gs2.hire(0)
 	gs2._recalc_income()
 	gs2._tick_market()

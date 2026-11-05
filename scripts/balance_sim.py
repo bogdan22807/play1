@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Симуляция игрока, который покупает самую выгодную вещь.
 
-Читает те же JSON, что и игра, и повторяет формулы цены, тапа, дохода и репутации.
+Читает те же JSON, что и игра, и повторяет формулы цены, тапа, дохода, рынка и островов.
+Игрок играет без остановки, вовремя моет, чинит и меняет смены, не пользуется рекламой
+и пакостями. Когда за STALL_HOURS часов не захвачено ни одного острова, а франшиза
+вырастет хотя бы в PRESTIGE_GAIN раз, он продаёт компанию.
+
+Запуск: python3 scripts/balance_sim.py [часов]   (по умолчанию 400)
 """
 
 import json
 import math
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,8 +24,8 @@ DRIVER_SALARY = 0.24
 HIRE_BASE = 100.0
 # Игрок вовремя меняет смены и моет машины: рейтинг держится около 4.5 звёзд.
 KEPT_RATING = 4.5
-DT = 1.0
-HORIZON = 12 * 3600
+STALL_HOURS = 6.0
+PRESTIGE_GAIN = 2.0
 
 
 def load(name):
@@ -34,15 +40,26 @@ def scaled_cost(base, growth, owned):
 
 def fmt_time(seconds):
     if seconds is None:
-        return "не куплено"
+        return "—"
     seconds = int(seconds)
-    hours, rest = divmod(seconds, 3600)
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
     minutes, secs = divmod(rest, 60)
+    if days:
+        return "%d д %02d ч" % (days, hours)
     if hours:
         return "%d ч %02d мин" % (hours, minutes)
     if minutes:
         return "%d мин %02d с" % (minutes, secs)
     return "%d с" % secs
+
+
+def step_size(time):
+    if time < 2 * 3600:
+        return 1.0
+    if time < 24 * 3600:
+        return 5.0
+    return 30.0
 
 
 class Player:
@@ -53,12 +70,14 @@ class Player:
         self.regions = load("regions.json")
         self.competitors = load("competitors.json")
         self.market = load("market.json")
-        # Захваченные острова: id -> время захвата.
-        self.captured = {}
+        self.cars = load("cars.json")
         balance = load("balance.json")
+        self.balance = balance
         self.tap_from_income = float(balance.get("tap_from_income", 0.01))
         self.rent_share = float(balance.get("car_rent_share", 0.3))
         self.rating_per_star = float(balance.get("rating", {}).get("mult_per_star", 0.15))
+        self.franchise_reference = float(balance.get("franchise_reference", 1e9))
+        self.franchise_weight = float(balance.get("franchise_weight", 0.5))
         # Игрок вовремя моет и чинит: это доля выручки, которая уходит на сервис.
         wear = balance.get("wear", {})
         self.tap_upkeep = (
@@ -69,46 +88,59 @@ class Player:
             float(wear.get("fleet_wash_seconds", 20)) * float(wear.get("fleet_clean_per_second", 0.0016667))
             + float(wear.get("fleet_repair_seconds", 150)) * float(wear.get("fleet_health_per_second", 0.00033333))
         )
-        self.cars = load("cars.json")
-        # Индекс машины, на которой ездим, и арендована ли она.
+        self.fleet_growth = float(balance.get("fleet_growth", 1.15))
+        self.trade_share = float(balance.get("trade_in_share", 0.5))
+        self.districts = [district for city in self.cities for district in city["districts"]]
+        self.franchise = 1.0
+        self.lifetime = 0.0
+        self.time = 0.0
+        self.log = []
+        # Ключевые моменты: (время, текст). Первые разы — только один раз за всю игру.
+        self.milestones = []
+        self.seen = set()
+        self.runs = 1
+        self.reset_run()
+
+    def reset_run(self):
+        self.captured = {}
         self.car = 0
         self.rented = False
         self.owned_cars = set()
         self.levels = {item["id"]: 0 for item in self.upgrades}
-        self.fleet_growth = float(balance.get("fleet_growth", 1.15))
-        self.trade_share = float(balance.get("trade_in_share", 0.5))
-        self.capacity = int(balance.get("garage_start", 5))
-        self.expansions = list(balance.get("garage_expansions", []))
-        # Гараж — индексы машин, команда — сколько нанято (сидят на лучших машинах).
+        self.home_capacity = int(self.balance.get("garage_start", 5))
+        self.expansions = list(self.balance.get("garage_expansions", []))
         self.garage = []
         self.team = 0
-        self.districts = []
-        for city in self.cities:
-            for district in city["districts"]:
-                self.districts.append(district)
         self.open_districts = set()
         self.open_regions = set(item["id"] for item in self.regions if item.get("home"))
         self.owned_competitors = set()
         self.coins = 0.0
-        self.lifetime = 0.0
         self.taps = 0
-        self.time = 0.0
-        self.franchise = 1.0
-        self.log = []
+        self.last_progress = self.time
+
+    def mark(self, key, text):
+        if key in self.seen:
+            return
+        self.seen.add(key)
+        self.milestones.append((self.time, text))
+
+    # --- доход -------------------------------------------------------------
 
     def multiplier(self):
-        district = 1.0 + sum(
-            item["income_bonus"] for item in self.districts if item["id"] in self.open_districts
-        )
-        region = 1.0 + sum(
-            item["income_bonus"] for item in self.regions if item["id"] in self.open_regions
-        )
-        rival = 1.0 + sum(
-            item["income_bonus"] for item in self.competitors if item["id"] in self.owned_competitors
-        )
+        district = 1.0 + sum(item["income_bonus"] for item in self.districts if item["id"] in self.open_districts)
+        region = 1.0 + sum(item["income_bonus"] for item in self.regions if item["id"] in self.open_regions)
+        rival = 1.0 + sum(item["income_bonus"] for item in self.competitors if item["id"] in self.owned_competitors)
         rival += float(self.market.get("capture_bonus", 0.25)) * len(self.captured)
         rating = 1.0 + (KEPT_RATING - 4.0) * self.rating_per_star
         return district * region * rival * self.franchise * rating
+
+    def capacity(self):
+        islands = sum(
+            int(item.get("garage_slots", 0))
+            for item in self.regions
+            if item["id"] in self.open_regions and not item.get("home")
+        )
+        return self.home_capacity + islands
 
     def car_income(self, index):
         return float(self.cars[index].get("driver_income", 0))
@@ -129,20 +161,28 @@ class Player:
         return scaled_cost(HIRE_BASE, float(self.staff.get("hire_growth", 1.5)), self.team)
 
     def flat_tap(self):
-        power = 1.0
-        for item in self.upgrades:
-            power += item["tap_bonus"] * self.levels[item["id"]]
-        return power
+        return 1.0 + sum(item["tap_bonus"] * self.levels[item["id"]] for item in self.upgrades)
 
     def car_factor(self, index=None, rented=None):
         index = self.car if index is None else index
         rented = self.rented if rented is None else rented
-        mult = float(self.cars[index]["tap_mult"]) if self.cars else 1.0
-        return mult * ((1.0 - self.rent_share) if rented else 1.0)
+        return float(self.cars[index]["tap_mult"]) * ((1.0 - self.rent_share) if rented else 1.0)
 
     def tap_power(self):
         ride = self.flat_tap() * self.car_factor() * self.multiplier() * (1.0 - self.tap_upkeep)
         return ride + self.passive() * self.tap_from_income
+
+    def total_dps(self):
+        return self.tap_power() * TAPS_PER_SECOND + self.passive()
+
+    def tap_share(self):
+        total = self.total_dps()
+        return 1.0 if total <= 0.0 else self.tap_power() * TAPS_PER_SECOND / total
+
+    def reputation(self):
+        return self.taps // TAPS_PER_REPUTATION + self.team
+
+    # --- рынок -------------------------------------------------------------
 
     def player_power(self):
         ride = self.flat_tap() * self.car_factor() * self.multiplier()
@@ -167,25 +207,17 @@ class Player:
             return 0.0
         return (self.player_power() if item is None else self.rival_power(item)) / total
 
-    def reputation(self):
-        return self.taps // TAPS_PER_REPUTATION + self.team
+    def preview_franchise(self):
+        return 1.0 + self.franchise_weight * math.sqrt(self.lifetime / self.franchise_reference)
 
-    def total_dps(self):
-        return self.tap_power() * TAPS_PER_SECOND + self.passive()
-
-    def tap_share(self):
-        total = self.total_dps()
-        if total <= 0.0:
-            return 1.0
-        return self.tap_power() * TAPS_PER_SECOND / total
+    # --- покупки -----------------------------------------------------------
 
     def options(self):
         found = []
         mult = self.multiplier()
         dps = self.total_dps()
         for item in self.upgrades:
-            owned = self.levels[item["id"]]
-            cost = scaled_cost(item["base_cost"], item["cost_growth"], owned)
+            cost = scaled_cost(item["base_cost"], item["cost_growth"], self.levels[item["id"]])
             gain = item["tap_bonus"] * self.car_factor() * mult * TAPS_PER_SECOND
             found.append(("upgrade", item["id"], item["name"], cost, gain / cost))
         ride = self.flat_tap() * mult * TAPS_PER_SECOND
@@ -204,7 +236,8 @@ class Player:
             if gain > 0:
                 found.append(("car", index, item["name"], buy, gain / buy))
         boost = mult * (1.0 + self.tap_from_income * TAPS_PER_SECOND)
-        full = len(self.garage) >= self.capacity
+        capacity = self.capacity()
+        full = len(self.garage) >= capacity
         if len(self.garage) > self.team:
             free = sorted(self.garage, key=self.car_income, reverse=True)[self.team]
             cost = self.hire_cost()
@@ -222,7 +255,6 @@ class Player:
                 cost = self.fleet_cost(index) + self.hire_cost()
                 gain = self.driver_net(index) * boost
                 found.append(("slot", index, self.cars[index]["name"], cost, gain / cost))
-            # Слот за расширением: та же машина с водителем, но плюс цена расширения.
             slot_cost = self.fleet_cost(index) + self.hire_cost()
             if best_slot is None or self.driver_net(index) / slot_cost > best_slot[1] / best_slot[0]:
                 best_slot = (slot_cost, self.driver_net(index) * boost)
@@ -230,42 +262,32 @@ class Player:
             step = self.expansions[0]
             cost = float(step["cost"]) + best_slot[0]
             found.append(("expand", 0, "Расширение гаража", float(step["cost"]), best_slot[1] / cost))
+        district_now = 1.0 + sum(o["income_bonus"] for o in self.districts if o["id"] in self.open_districts)
         for item in self.districts:
             if item["id"] in self.open_districts:
                 continue
-            bonus = item["income_bonus"]
-            current = 1.0 + sum(
-                other["income_bonus"] for other in self.districts if other["id"] in self.open_districts
-            )
-            ratio = (current + bonus) / current
-            gain = dps * (ratio - 1.0)
-            found.append(("district", item["id"], item["name"], float(item["cost"]), gain / item["cost"] if item["cost"] else 0.0))
+            gain = dps * ((district_now + item["income_bonus"]) / district_now - 1.0)
+            found.append(("district", item["id"], item["name"], float(item["cost"]), gain / item["cost"]))
         rep = self.reputation()
-        for item in self.regions:
+        region_now = 1.0 + sum(o["income_bonus"] for o in self.regions if o["id"] in self.open_regions)
+        for index, item in enumerate(self.regions):
             if item["id"] in self.open_regions:
                 continue
-            index = self.regions.index(item)
             if rep < item["reputation"] or (index > 0 and self.regions[index - 1]["id"] not in self.captured):
                 continue
-            current = 1.0 + sum(
-                other["income_bonus"] for other in self.regions if other["id"] in self.open_regions
-            )
-            ratio = (current + item["income_bonus"]) / current
-            gain = dps * (ratio - 1.0)
-            found.append(("region", item["id"], item["name"], float(item["cost"]), gain / item["cost"] if item["cost"] else 0.0))
+            # Новый остров — это и бонус, и гараж, и новая борьба: открываем, как только можем.
+            found.append(("region", item["id"], item["name"], float(item["cost"]), 1e9))
+        rival_now = 1.0 + sum(o["income_bonus"] for o in self.competitors if o["id"] in self.owned_competitors)
         for item in self.front_rivals():
             if item["id"] in self.owned_competitors:
                 continue
-            current = 1.0 + sum(
-                other["income_bonus"] for other in self.competitors if other["id"] in self.owned_competitors
-            )
-            ratio = (current + item["income_bonus"]) / current
-            gain = dps * (ratio - 1.0)
+            gain = dps * ((rival_now + item["income_bonus"]) / rival_now - 1.0)
             cost = math.ceil(float(item["base_cost"]) * (
                 float(self.market.get("buyout_cost_base", 0.4))
                 + float(self.market.get("buyout_cost_per_share", 2.0)) * self.share(item)
             ))
-            found.append(("competitor", item["id"], item["name"], cost, gain / cost if cost else 0.0))
+            # Выкуп двигает к захвату острова — ценим его выше одного только бонуса.
+            found.append(("competitor", item["id"], item["name"], cost, max(gain / cost, dps * 2.0 / cost)))
         return found
 
     def buy(self, kind, entry_id, name, cost):
@@ -277,108 +299,96 @@ class Player:
                 self.garage.append(self.car)
             self.car = entry_id
             self.rented = True
-            self.log.append((self.time, "Аренда", name, cost))
+            self.mark("rent", "Первая аренда машины")
         elif kind == "car":
             if not self.rented and self.car > 0:
                 self.garage.append(self.car)
             self.car = entry_id
             self.rented = False
             self.owned_cars.add(self.cars[entry_id]["id"])
-            self.log.append((self.time, "Машина", name, cost))
-        elif kind == "hire":
+            self.mark("car-" + name, "Своя машина: " + name)
+        elif kind in ("hire", "slot"):
+            if kind == "slot":
+                self.garage.append(entry_id)
             self.team += 1
-            if self.team == 1:
-                self.log.append((self.time, "Водитель", "первый", cost))
-        elif kind == "slot":
-            self.garage.append(entry_id)
-            self.team += 1
-            if self.team == 1:
-                self.log.append((self.time, "Водитель", "первый", cost))
-            self.log.append((self.time, "В парк", name, cost)) if len(self.garage) <= 2 else None
+            self.mark("driver", "Первый водитель")
+            if self.team == 10:
+                self.mark("driver10", "10 водителей")
         elif kind == "trade":
             self.garage.remove(min(self.garage, key=self.car_income))
             self.garage.append(entry_id)
         elif kind == "expand":
             step = self.expansions.pop(0)
-            self.capacity += int(step["add"])
-            self.log.append((self.time, "Гараж", "мест: %d" % self.capacity, cost))
+            self.home_capacity += int(step["add"])
         elif kind == "district":
             self.open_districts.add(entry_id)
-            self.log.append((self.time, "Район", name, cost))
         elif kind == "region":
             self.open_regions.add(entry_id)
-            self.log.append((self.time, "Регион", name, cost))
+            self.last_progress = self.time
+            self.log.append((self.time, "Остров открыт", name, cost))
         elif kind == "competitor":
             self.owned_competitors.add(entry_id)
             self.log.append((self.time, "Выкуп", name, cost))
 
     def buy_best(self):
-        bought = False
-        while True:
+        for _guard in range(500):
             choices = [item for item in self.options() if item[3] <= self.coins + 1e-6]
             if not choices:
-                break
+                return
             kind, entry_id, name, cost, _score = max(choices, key=lambda item: item[4])
             self.buy(kind, entry_id, name, cost)
-            bought = True
-        return bought
+
+    def sell_company(self):
+        new = self.preview_franchise()
+        self.log.append((self.time, "Продажа компании", "франшиза ×%.1f → ×%.1f" % (self.franchise, new), self.lifetime))
+        self.milestones.append((self.time, "Продажа компании №%d: франшиза ×%.1f" % (self.runs, new)))
+        self.franchise = new
+        self.runs += 1
+        self.reset_run()
 
     def step(self):
-        gained = self.total_dps() * DT
+        dt = step_size(self.time)
+        gained = self.total_dps() * dt
         self.coins += gained
         self.lifetime += gained
-        self.taps += int(TAPS_PER_SECOND * DT)
-        self.time += DT
+        self.taps += int(TAPS_PER_SECOND * dt)
+        self.time += dt
         island = self.front()
         if island is not None and (
             self.share() >= float(self.market.get("capture_share", 0.5))
             or all(item["id"] in self.owned_competitors for item in self.front_rivals())
         ):
             self.captured[island] = self.time
+            self.last_progress = self.time
             city = next(item["city"] for item in self.regions if item["id"] == island)
             self.log.append((self.time, "Захват", city, self.share()))
+            self.mark("capture-" + island, "Захват: %s (забег %d)" % (city, self.runs))
         self.buy_best()
+        stalled = self.time - self.last_progress > STALL_HOURS * 3600
+        if stalled and self.preview_franchise() >= self.franchise * PRESTIGE_GAIN:
+            self.sell_company()
 
-    def run(self):
-        shares = {}
-        prestige_at = None
-        marks = {120: None, 1800: None, 3600: None, 7200: None, 3 * 3600: None, 4 * 3600: None, 5 * 3600: None, 6 * 3600: None}
-        while self.time < HORIZON:
+    def run(self, horizon):
+        while self.time < horizon and len(self.captured) < len(self.regions):
             self.step()
-            preview = 1.0 + 0.5 * math.sqrt(self.lifetime / 1000000.0)
-            if prestige_at is None and preview >= self.franchise * 1.1:
-                prestige_at = self.time
-                self.log.append((self.time, "Престиж", "кнопка +10%", self.lifetime))
-            for mark in marks:
-                if marks[mark] is None and self.time >= mark:
-                    marks[mark] = (self.tap_share(), self.total_dps(), self.passive(), self.lifetime, self.reputation())
-        return prestige_at, marks
 
 
 def main():
+    hours = float(sys.argv[1]) if len(sys.argv) > 1 else 400.0
     player = Player()
-    # Стартовые покупки на нулевой секунде не из чего делать.
     player.buy_best()
-    prestige_at, marks = player.run()
-    print("ПОКУПКИ")
-    print("время\tтип\tназвание\tцена")
-    for moment, kind, name, cost in player.log:
-        print("%s\t%s\t%s\t%.0f" % (fmt_time(moment), kind, name, cost))
-    print("\nДОЛЯ ТАПОВ")
-    for mark, info in marks.items():
-        if info is None:
-            continue
-        share, dps, passive, lifetime, rep = info
-        print(
-            "%s\tтапы %.1f%%\tдоход %.2f/с\tпассив %.2f/с\tзаработано %.0f\tрепутация %d"
-            % (fmt_time(mark), share * 100.0, dps, passive, lifetime, rep)
-        )
-    print("престиж +10%:", fmt_time(prestige_at))
-    print("районы", len(player.open_districts), "/", len(player.districts))
-    print("острова захвачены", len(player.captured), "/", len(player.regions))
-    print("конкуренты", len(player.owned_competitors))
-    print("гараж", len(player.garage), "/", player.capacity, " водителей", player.team)
-    print("машины в парке:", ", ".join(sorted(set(player.cars[i]["name"] for i in player.garage))))
+    player.run(hours * 3600)
+    print("КЛЮЧЕВЫЕ МОМЕНТЫ (непрерывная игра)")
+    for moment, text in player.milestones:
+        print("%s\t%s" % (fmt_time(moment), text))
+    print("\nСЕЙЧАС: %s, забег %d, франшиза ×%.1f, островов %d/%d, гараж %d/%d, доход %.3g/с" % (
+        fmt_time(player.time), player.runs, player.franchise, len(player.captured), len(player.regions),
+        len(player.garage), player.capacity(), player.total_dps(),
+    ))
+    if "-v" in sys.argv:
+        print("\nЖУРНАЛ")
+        for moment, kind, name, cost in player.log:
+            print("%s\t%s\t%s\t%.3g" % (fmt_time(moment), kind, name, cost))
 
 
 if __name__ == "__main__":
