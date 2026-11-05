@@ -20,6 +20,7 @@
       "add": 5
     }
   ],
+  "garage_expansion_growth": 100,
   "wear": {
     "fleet_clean_per_second": 0.0016667,
     "fleet_health_per_second": 0.00033333,

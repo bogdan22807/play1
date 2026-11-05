@@ -11,6 +11,7 @@ godot --headless -s res://tests/test_helpers.gd
 godot --headless -s res://tests/test_market.gd
 godot --headless -s res://tests/test_islands.gd
 godot --headless -s res://tests/test_mentor.gd
+godot --headless -s res://tests/test_purchases.gd
 godot --headless res://tests/test_scroll.tscn
 ```
 

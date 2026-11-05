@@ -107,6 +107,8 @@ var _expand_button: Button
 var _refresh_button: Button
 ## id машины -> {"count", "button", "note"} для покупки в парк.
 var _fleet_rows: Dictionary = {}
+## Список машин в гараже по моделям, с кнопкой «Продать».
+var _garage_box: VBoxContainer
 ## Кнопки, которые зависят от денег: [кнопка, Callable проверки].
 var _staff_buttons: Array = []
 ## uid водителя -> [Label, карточка водителя, карточка машины]: строки, которые обновляются от износа.
@@ -2611,6 +2613,11 @@ func _build_driver_rows() -> void:
 	timer.timeout.connect(_refresh_candidate_timer)
 	add_child(timer)
 
+	_driver_list.add_child(_make_section_title("Машины в гараже"))
+	_garage_box = VBoxContainer.new()
+	_garage_box.add_theme_constant_override("separation", 16)
+	_driver_list.add_child(_garage_box)
+
 	_driver_list.add_child(_make_section_title("Купить машину в парк"))
 	var cars: Array = GameState.get_cars()
 	for index in range(1, cars.size()):
@@ -2756,6 +2763,8 @@ func _rebuild_staff() -> void:
 		_team_shift_rows[uid] = [shift_label, shift_bar, shift_button, person]
 		_team_box.add_child(parts[0])
 
+	_rebuild_garage_list()
+
 	var free_cars: Array = GameState.get_free_garage_cars()
 	var candidates: Array = GameState.get_candidates()
 	for index in candidates.size():
@@ -2802,6 +2811,8 @@ func _refresh_staff_money() -> void:
 	]
 	if GameState.get_island_garage_slots() > 0:
 		_garage_label.text += "\nдома %d + на островах %d" % [GameState.get_home_garage_capacity(), GameState.get_island_garage_slots()]
+	if GameState.get_garage().size() > GameState.get_garage_capacity():
+		_garage_label.text += "\nМашин больше, чем мест: лишние можно продать"
 	_staff_summary.text = _staff_summary_text()
 	var step: Dictionary = GameState.get_next_expansion()
 	if step.is_empty():
@@ -2825,7 +2836,7 @@ func _refresh_staff_money() -> void:
 			if GameState.get_car_driver_income(id) > GameState.get_car_driver_income(worst):
 				note.text = "Гараж полон: отдадите «%s» за %s" % [_car_name(worst), GameState.format_money(GameState.get_trade_in_value(worst))]
 			else:
-				note.text = "Гараж полон, а эта машина не лучше худшей в парке"
+				note.text = "Гараж полон: расширьте его или продайте машину в списке выше"
 		else:
 			button.text = "В парк\n%s" % price
 			note.text = ""
@@ -2851,6 +2862,49 @@ func _on_fire(uid: int) -> void:
 
 func _on_buy_fleet(car_id: String) -> void:
 	GameState.buy_fleet(car_id)
+
+
+## Машины гаража сгруппированы по моделям: сколько, сколько без водителя, продать одну.
+func _rebuild_garage_list() -> void:
+	if _garage_box == null:
+		return
+	for child in _garage_box.get_children():
+		_garage_box.remove_child(child)
+		child.queue_free()
+	var models: Array = []
+	for car: Variant in GameState.get_garage():
+		var model: String = str(car.get("model", ""))
+		if not models.has(model):
+			models.append(model)
+	if models.is_empty():
+		_add_label(_garage_box, "Гараж пуст. Купите машину в парк ниже.", 26, COLOR_MUTED)
+		return
+	for model: String in models:
+		var parts: Array = _make_row_panel()
+		var row: HBoxContainer = parts[1]
+		row.add_child(_make_car_icon(model))
+		var text_box := _make_text_box(row)
+		var count: int = GameState.get_fleet_count(model)
+		var free: int = GameState.get_free_count(model)
+		_add_label(text_box, "%s ×%d" % [_car_name(model), count], 34)
+		if free > 0:
+			_add_label(text_box, "Без водителя: %d — продадим сначала её" % free, 24, COLOR_GOLD)
+		elif GameState.get_garage().size() > GameState.get_team().size():
+			_add_label(text_box, "Водитель пересядет на свободную машину", 24, COLOR_MUTED)
+		else:
+			_add_label(text_box, "Свободных машин нет: один водитель останется без машины", 24, COLOR_DANGER)
+		var button := _make_row_button(_on_sell_garage_car.bind(model))
+		button.text = "Продать 1\n+%s" % GameState.format_money(GameState.get_sell_value(model))
+		_style_plain_button(button, COLOR_TRICK)
+		button.add_theme_font_size_override("font_size", 28)
+		row.add_child(button)
+		_garage_box.add_child(parts[0])
+
+
+func _on_sell_garage_car(model: String) -> void:
+	var value: float = GameState.sell_garage_car(model)
+	if value > 0.0:
+		_enqueue_toast("Продано", "«%s» ушла за %s" % [_car_name(model), GameState.format_money(value)])
 
 
 func _on_expand_garage() -> void:
