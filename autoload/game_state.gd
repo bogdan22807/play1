@@ -57,9 +57,6 @@ const COMPANY_NAME_MAX := 24
 const DAILY_COINS := 250.0
 ## Сколько тапов нужно для +1 репутации.
 const TAPS_PER_REPUTATION := 20
-## Франшиза = 1 + 0.5 * корень из заработка всех забегов, делённого на эту сумму.
-const FRANCHISE_REFERENCE := 1000000.0
-const FRANCHISE_SQRT_WEIGHT := 0.5
 ## Продавать можно, когда новая франшиза больше текущей хотя бы на 10%.
 const FRANCHISE_MIN_STEP := 1.1
 ## Если кадр завис дольше секунды, не начисляем доход за всю паузу.
@@ -96,6 +93,9 @@ var _fleet_growth: float = 1.15
 var _trade_in_share: float = 0.5
 var _garage_start: int = 5
 var _garage_expansions: Array = []
+## Франшиза = 1 + weight * корень(заработок всех забегов / reference). Из balance.json.
+var _franchise_reference: float = 1e9
+var _franchise_weight: float = 0.5
 ## Чистота и состояние своей машины, от 0 до 1.
 var _my_clean: float = 1.0
 var _my_health: float = 1.0
@@ -487,13 +487,27 @@ func get_garage() -> Array:
 	return sorted
 
 
+## Мест в гаражах: родной гараж с расширениями плюс свой гараж на каждом открытом острове.
 func get_garage_capacity() -> int:
+	return get_home_garage_capacity() + get_island_garage_slots()
+
+
+func get_home_garage_capacity() -> int:
 	var capacity: int = _garage_start
 	for index in mini(_garage_level, _garage_expansions.size()):
 		var step: Variant = _garage_expansions[index]
 		if typeof(step) == TYPE_DICTIONARY:
 			capacity += int(step.get("add", 0))
 	return capacity
+
+
+## Места в гаражах на открытых островах (кроме родного).
+func get_island_garage_slots() -> int:
+	var slots: int = 0
+	for raw: Variant in _region_defs:
+		if typeof(raw) == TYPE_DICTIONARY and not bool(raw.get("home", false)) and is_region_open(str(raw.get("id", ""))):
+			slots += int(raw.get("garage_slots", 0))
+	return slots
 
 
 func is_garage_full() -> bool:
@@ -1388,6 +1402,7 @@ func open_region(region_id: String) -> bool:
 	tap_power_changed.emit(get_tap_power())
 	regions_changed.emit()
 	competitors_changed.emit()
+	garage_changed.emit()
 	_note_progress()
 	save_game()
 	return true
@@ -1883,7 +1898,7 @@ func get_run_earned() -> float:
 ## Какой множитель зафиксируется, если продать компанию сейчас.
 func get_preview_franchise() -> float:
 	var earned: float = maxf(0.0, lifetime_earned)
-	return 1.0 + FRANCHISE_SQRT_WEIGHT * sqrt(earned / FRANCHISE_REFERENCE)
+	return 1.0 + _franchise_weight * sqrt(earned / maxf(1.0, _franchise_reference))
 
 
 func can_sell_company() -> bool:
@@ -2458,6 +2473,8 @@ func _read_balance() -> void:
 	_fleet_growth = maxf(1.0, float(data.get("fleet_growth", _fleet_growth)))
 	_trade_in_share = clampf(float(data.get("trade_in_share", _trade_in_share)), 0.0, 1.0)
 	_garage_start = maxi(1, int(data.get("garage_start", _garage_start)))
+	_franchise_reference = maxf(1.0, float(data.get("franchise_reference", _franchise_reference)))
+	_franchise_weight = maxf(0.0, float(data.get("franchise_weight", _franchise_weight)))
 	var wear: Variant = data.get("wear", {})
 	_wear = wear if typeof(wear) == TYPE_DICTIONARY else {}
 	var shifts: Variant = data.get("shifts", {})

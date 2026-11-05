@@ -8,74 +8,80 @@
     "cost": 0,
     "reputation": 0,
     "income_bonus": 0,
-    "rival_scale": 1,
+    "rival_scale": 4,
     "x": 0.76,
     "y": 0.34,
-    "color": "e57373"
+    "color": "e57373",
+    "garage_slots": 0
   },
   {
     "id": "europe",
     "name": "Европа",
     "city": "Париж",
     "description": "Узкие улочки, туристы с картами и багет на заднем сиденье.",
-    "rival_scale": 30,
+    "rival_scale": 120,
     "x": 0.47,
     "y": 0.17,
     "color": "64b5f6",
     "cost": 2800000,
     "reputation": 750,
-    "income_bonus": 0.2
+    "income_bonus": 0.2,
+    "garage_slots": 20
   },
   {
     "id": "africa",
     "name": "Африка",
     "city": "Найроби",
     "description": "Дальние маршруты, сафари по пятницам и жирафы на перекрёстках.",
-    "rival_scale": 600,
+    "rival_scale": 2400,
     "x": 0.5,
     "y": 0.55,
     "color": "ffb74d",
     "cost": 90000000,
     "reputation": 1900,
-    "income_bonus": 0.4
+    "income_bonus": 0.4,
+    "garage_slots": 20
   },
   {
     "id": "south_america",
     "name": "Южная Америка",
     "city": "Рио",
     "description": "Жаркие вечера, карнавал и полные машины танцующих пассажиров.",
-    "rival_scale": 8000,
+    "rival_scale": 32000,
     "x": 0.27,
     "y": 0.78,
     "color": "81c784",
     "cost": 500000000,
     "reputation": 2500,
-    "income_bonus": 0.45
+    "income_bonus": 0.45,
+    "garage_slots": 20
   },
   {
     "id": "north_america",
     "name": "Северная Америка",
     "city": "Нью-Йорк",
     "description": "Длинные шоссе, крупные чаевые и пробки размером с небольшую страну.",
-    "rival_scale": 100000,
+    "rival_scale": 400000,
     "x": 0.2,
     "y": 0.32,
     "color": "ba68c8",
     "cost": 2800000000,
     "reputation": 3200,
-    "income_bonus": 0.5
+    "income_bonus": 0.5,
+    "garage_slots": 20
   },
   {
     "id": "oceania",
     "name": "Океания",
     "city": "Сидней",
     "description": "Редкие заказы, зато очень дорогие. Иногда пассажир — кенгуру.",
-    "rival_scale": 1200000,
+    "rival_scale": 4800000,
     "x": 0.8,
     "y": 0.8,
     "color": "4dd0e1",
     "cost": 16000000000,
     "reputation": 3900,
-    "income_bonus": 0.7
+    "income_bonus": 0.7,
+    "garage_slots": 20
   }
 ]

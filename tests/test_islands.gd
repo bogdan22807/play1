@@ -49,7 +49,9 @@ func _init() -> void:
 	check(not gs.can_open_region("africa"), "Африка — только после Европы")
 	check(gs.get_region_block_reason("africa").contains("Париж"), "причина: сначала Париж")
 
+	var garage_before: int = gs.get_garage_capacity()
 	check(gs.open_region("europe"), "открыли Европу")
+	check(gs.get_garage_capacity() == garage_before + 20 and gs.get_island_garage_slots() == 20, "в Европе свой гараж на 20 машин")
 	check(gs.get_front_island() == "europe" and gs.get_front_city() == "Париж", "фронт — Париж")
 	var europe_ids: Array = []
 	for raw: Variant in gs.get_competitors():
@@ -64,6 +66,7 @@ func _init() -> void:
 		check(gs.open_region(id), "открыли %s" % id)
 		_capture_front(gs)
 	check(gs.get_captured_count() == 6, "весь мир наш")
+	check(gs.get_island_garage_slots() == 100, "гаражи на пяти островах: 100 мест")
 	check(str(events[events.size() - 1][1]).contains("весь мир"), "финальное поздравление")
 	check(gs.is_achievement_done("whole_world"), "достижение «Такси всего мира»")
 
