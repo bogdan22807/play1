@@ -18,8 +18,8 @@ signal wear_changed
 signal shifts_changed
 ## Наняли, включили или выключили помощника.
 signal helpers_changed
-## Стали такси №1 в родном городе.
-signal home_captured(text: String)
+## Стали такси №1 на острове.
+signal island_captured(island_id: String, text: String)
 ## Изменился пассивный доход в секунду.
 signal income_changed(income: float)
 ## Пора показать окно «Пока вас не было».
@@ -122,8 +122,8 @@ var _trick_ready: Dictionary = {}
 var _buyout_ready: Dictionary = {}
 ## Текущая реклама: {"id", "until"}. Пусто — рекламы нет.
 var _ad: Dictionary = {}
-## Стали такси №1 в родном городе. Открывает дорогу в другие регионы.
-var _home_captured: bool = false
+## id острова -> 1, если стали там такси №1. Захват открывает дорогу на следующий остров.
+var _captured: Dictionary = {}
 var _city_defs: Array = []
 ## id района -> 1, если район уже открыт.
 var _opened_districts: Dictionary = {}
@@ -1239,8 +1239,10 @@ func get_income_per_second() -> float:
 	return _income_per_second
 
 
-## Доля рынка родного города, 0..1: ваша сила против силы конкурентов.
+## Доля рынка острова, где идёт борьба, 0..1. Без борьбы — весь рынок ваш.
 func get_market_share() -> float:
+	if get_front_island() == "":
+		return 1.0
 	var total: float = get_market_total()
 	return 0.0 if total <= 0.0 else get_player_power() / total
 
@@ -1304,12 +1306,25 @@ func _district_multiplier() -> float:
 	return 1.0 + bonus
 
 
+## Острова-регионы по порядку маршрута. Первый — родной (Азия), открыт всегда.
 func get_regions() -> Array:
 	return _region_defs
 
 
+func _is_home_island(region_id: String) -> bool:
+	return bool(_find_def(_region_defs, region_id).get("home", false))
+
+
 func is_region_open(region_id: String) -> bool:
-	return int(_opened_regions.get(region_id, 0)) > 0
+	return _is_home_island(region_id) or int(_opened_regions.get(region_id, 0)) > 0
+
+
+func is_island_captured(region_id: String) -> bool:
+	return int(_captured.get(region_id, 0)) > 0
+
+
+func get_captured_count() -> int:
+	return _captured.size()
 
 
 func get_region_cost(region_id: String) -> float:
@@ -1322,13 +1337,24 @@ func get_region_reputation(region_id: String) -> int:
 	return maxi(0, int(info.get("reputation", 0)))
 
 
+## Остров перед этим по маршруту. Пустой словарь у первого.
+func _previous_island(region_id: String) -> Dictionary:
+	var previous: Dictionary = {}
+	for raw: Variant in _region_defs:
+		if str(raw.get("id", "")) == region_id:
+			return previous
+		previous = raw
+	return {}
+
+
 ## Пустая строка, если регион можно открыть. Иначе текст, чего не хватает.
 func get_region_block_reason(region_id: String) -> String:
 	if is_region_open(region_id):
 		return ""
 	var missing: PackedStringArray = PackedStringArray()
-	if not _home_captured:
-		missing.append("Сначала станьте такси №1 в городе %s" % get_home_city())
+	var previous: Dictionary = _previous_island(region_id)
+	if not previous.is_empty() and not is_island_captured(str(previous.get("id", ""))):
+		missing.append("Сначала станьте такси №1 в городе %s" % str(previous.get("city", previous.get("name", ""))))
 	var need_reputation: int = get_region_reputation(region_id)
 	if reputation < need_reputation:
 		missing.append("Не хватает репутации: %d" % (need_reputation - reputation))
@@ -1342,7 +1368,8 @@ func get_region_block_reason(region_id: String) -> String:
 func can_open_region(region_id: String) -> bool:
 	if is_region_open(region_id) or _find_def(_region_defs, region_id).is_empty():
 		return false
-	if not _home_captured:
+	var previous: Dictionary = _previous_island(region_id)
+	if not previous.is_empty() and not is_island_captured(str(previous.get("id", ""))):
 		return false
 	if reputation < get_region_reputation(region_id):
 		return false
@@ -1360,6 +1387,7 @@ func open_region(region_id: String) -> bool:
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	regions_changed.emit()
+	competitors_changed.emit()
 	_note_progress()
 	save_game()
 	return true
@@ -1379,16 +1407,45 @@ func _region_multiplier() -> float:
 
 # --- Рынок: конкуренты, реклама, пакости, выкуп -----------------------------
 
+## Остров, где сейчас идёт борьба: первый открытый, но не захваченный. Пусто — все открытые ваши.
+func get_front_island() -> String:
+	for raw: Variant in _region_defs:
+		var region_id: String = str(raw.get("id", ""))
+		if is_region_open(region_id) and not is_island_captured(region_id):
+			return region_id
+	return ""
+
+
+func get_island_info(region_id: String) -> Dictionary:
+	return _find_def(_region_defs, region_id)
+
+
+## Город, за который сейчас борьба. Пусто, если борьбы нет.
+func get_front_city() -> String:
+	return str(get_island_info(get_front_island()).get("city", ""))
+
+
+## Конкуренты острова, где идёт борьба.
 func get_competitors() -> Array:
-	return _competitor_defs
+	return get_island_competitors(get_front_island())
 
 
-func get_home_city() -> String:
-	return str(_market.get("home_city", "Родной город"))
+func get_island_competitors(region_id: String) -> Array:
+	var result: Array = []
+	if region_id == "":
+		return result
+	for raw: Variant in _competitor_defs:
+		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("island", "")) == region_id:
+			result.append(raw)
+	return result
 
 
+## Захвачен ли родной остров (Азия).
 func is_home_captured() -> bool:
-	return _home_captured
+	for raw: Variant in _region_defs:
+		if bool(raw.get("home", false)):
+			return is_island_captured(str(raw.get("id", "")))
+	return false
 
 
 func is_competitor_owned(competitor_id: String) -> bool:
@@ -1442,7 +1499,7 @@ func get_competitor_power(competitor_id: String) -> float:
 
 func get_market_total() -> float:
 	var total: float = get_player_power()
-	for raw: Variant in _competitor_defs:
+	for raw: Variant in get_competitors():
 		total += get_competitor_power(str(raw.get("id", "")))
 	return total
 
@@ -1658,8 +1715,7 @@ func _competitor_multiplier() -> float:
 		var competitor_id: String = str(info.get("id", ""))
 		if is_competitor_owned(competitor_id):
 			bonus += float(info.get("income_bonus", 0))
-	if _home_captured:
-		bonus += _market_value("capture_bonus", 0.25)
+	bonus += _market_value("capture_bonus", 0.25) * float(_captured.size())
 	return 1.0 + bonus
 
 
@@ -1685,26 +1741,44 @@ func _tick_market() -> void:
 	_check_capture()
 
 
-## Захват: доля больше половины или все конкуренты выкуплены.
+## Захват острова: доля больше половины или все его конкуренты выкуплены.
 func _check_capture() -> void:
-	if _home_captured or _competitor_defs.is_empty():
+	var island: String = get_front_island()
+	var rivals: Array = get_competitors()
+	if island == "" or rivals.is_empty():
 		return
 	var all_owned: bool = true
-	for raw: Variant in _competitor_defs:
+	for raw: Variant in rivals:
 		if not is_competitor_owned(str(raw.get("id", ""))):
 			all_owned = false
 	if not all_owned and get_market_share() < _market_value("capture_share", 0.5):
 		return
-	_home_captured = true
+	_captured[island] = 1
+	_ad = {}
 	_recalc_income()
-	var text: String = "«%s» — такси №1 в городе %s! Доход +%d%% навсегда, а мир ждёт: можно открывать новые регионы." % [
+	var city: String = str(get_island_info(island).get("city", ""))
+	var text: String = "«%s» — такси №1 в городе %s! Доход +%d%% навсегда." % [
 		company_name if company_name != "" else "Ваша компания",
-		get_home_city(),
+		city,
 		int(roundf(_market_value("capture_bonus", 0.25) * 100.0)),
 	]
-	home_captured.emit(text)
+	var next_island: Dictionary = _next_closed_island()
+	if next_island.is_empty():
+		text += " Это был последний остров — весь мир ездит на вашем такси!"
+	else:
+		text += " Следующий остров на карте: %s, город %s." % [str(next_island.get("name", "")), str(next_island.get("city", ""))]
+	island_captured.emit(island, text)
+	competitors_changed.emit()
+	regions_changed.emit()
 	_note_progress()
 	save_game()
+
+
+func _next_closed_island() -> Dictionary:
+	for raw: Variant in _region_defs:
+		if not is_region_open(str(raw.get("id", ""))):
+			return raw
+	return {}
 
 
 func _reset_market() -> void:
@@ -1714,7 +1788,7 @@ func _reset_market() -> void:
 	_trick_ready.clear()
 	_buyout_ready.clear()
 	_ad = {}
-	_home_captured = false
+	_captured.clear()
 
 
 ## Репутация = целые двадцатки тапов за забег плюс каждый водитель в команде.
@@ -1991,7 +2065,7 @@ func save_game() -> void:
 		"trick_ready": _trick_ready.duplicate(),
 		"buyout_ready": _buyout_ready.duplicate(),
 		"ad": _ad.duplicate(),
-		"home_captured": _home_captured,
+		"captured": _captured.keys(),
 		"franchise": franchise,
 		"run_earned": run_earned,
 		"lifetime_earned": lifetime_earned,
@@ -2079,7 +2153,12 @@ func _load_market(data: Dictionary) -> void:
 	_ad = {}
 	if typeof(ad) == TYPE_DICTIONARY and ad.has("id"):
 		_ad = {"id": str(ad.get("id", "")), "until": int(ad.get("until", 0))}
-	_home_captured = bool(data.get("home_captured", false))
+	_captured = _read_id_set(data.get("captured", []))
+	# До этапа 7 захват был один — родной город.
+	if bool(data.get("home_captured", false)):
+		for raw: Variant in _region_defs:
+			if bool(raw.get("home", false)):
+				_captured[str(raw.get("id", ""))] = 1
 
 
 func _read_unix_dict(raw: Variant) -> Dictionary:
@@ -2231,7 +2310,7 @@ func get_achievement_value(kind: String) -> float:
 		"helpers":
 			return float(get_hired_helper_count())
 		"captured":
-			return 1.0 if _home_captured else 0.0
+			return float(_captured.size())
 		_:
 			return 0.0
 

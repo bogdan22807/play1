@@ -89,6 +89,17 @@ var _market_bar_parts: Dictionary = {}
 var _market_legend: Label
 ## id рекламы -> {"status", "button"}.
 var _ad_rows: Dictionary = {}
+## Для какого острова собрана вкладка «Рынок». Фронт сменился — пересобираем.
+var _market_built_for: String = "-"
+const IslandMap := preload("res://scripts/island_map.gd")
+var _island_map: Control
+var _selected_island: String = ""
+var _world_progress: Label
+var _island_title: Label
+var _island_description: Label
+var _island_status: Label
+var _island_reason: Label
+var _island_button: Button
 var _notice_layer: Control
 var _notice_title: Label
 var _notice_body: Label
@@ -130,7 +141,7 @@ func _ready() -> void:
 	GameState.regions_changed.connect(_on_regions_changed)
 	GameState.reputation_changed.connect(_on_reputation_changed)
 	GameState.competitors_changed.connect(_on_competitors_changed)
-	GameState.home_captured.connect(_on_home_captured)
+	GameState.island_captured.connect(_on_island_captured)
 	GameState.franchise_changed.connect(_on_franchise_changed)
 	GameState.achievement_unlocked.connect(_on_achievement_unlocked)
 	GameState.achievements_changed.connect(_refresh_achievements)
@@ -649,7 +660,7 @@ func _build_tab_bar() -> HBoxContainer:
 		_make_tab("Тап"),
 		_make_tab("Машина"),
 		_make_tab("Водители"),
-		_make_tab("Город"),
+		_make_tab("Карта"),
 		_make_tab("Рынок"),
 	]
 	for index in _tab_buttons.size():
@@ -765,20 +776,43 @@ func _make_wheel() -> Panel:
 	return wheel
 
 
-const MARKET_COLORS := {
-	"player": Color("ffc107"),
-	"wolf": Color("8d99ae"),
-	"lotus": Color("f06292"),
-	"elephant": Color("a1887f"),
-}
+## Цвета на полоске долей: игрок жёлтый, конкуренты острова — по порядку.
+const RIVAL_COLORS := [Color("8d99ae"), Color("f06292"), Color("a1887f"), Color("4db6ac")]
 
 
 func _market_color(id: String) -> Color:
-	return MARKET_COLORS.get(id, Color("7e8aa2"))
+	if id == "player":
+		return COLOR_TAXI
+	var rivals: Array = GameState.get_competitors()
+	for index in rivals.size():
+		if str(rivals[index].get("id", "")) == id:
+			return RIVAL_COLORS[index % RIVAL_COLORS.size()]
+	return RIVAL_COLORS[0]
 
 
 func _build_market_rows() -> void:
-	_market_list.add_child(_make_section_title("Рынок: %s" % GameState.get_home_city()))
+	_market_built_for = GameState.get_front_island()
+	_competitor_rows.clear()
+	_market_bar_parts.clear()
+	_ad_rows.clear()
+	_market_status = null
+	if _market_built_for == "":
+		_market_list.add_child(_make_section_title("Рынок"))
+		var calm := PanelContainer.new()
+		calm.add_theme_stylebox_override("panel", _panel_style())
+		_market_list.add_child(calm)
+		var calm_box := VBoxContainer.new()
+		calm_box.add_theme_constant_override("separation", 12)
+		calm.add_child(calm_box)
+		_add_label(calm_box, "Все открытые острова — ваши. Конкурентов нет, можно выдохнуть.", 30, COLOR_GOLD)
+		_add_label(calm_box, "Откройте следующий остров на карте — там новые соперники и новый город.", 26, COLOR_MUTED)
+		var to_map := _make_row_button(_go_to_map)
+		to_map.text = "Открыть карту"
+		to_map.custom_minimum_size = Vector2(0, 100)
+		calm_box.add_child(to_map)
+		_market_list.add_child(_make_sell_panel())
+		return
+	_market_list.add_child(_make_section_title("Рынок: %s" % GameState.get_front_city()))
 
 	var share_panel := PanelContainer.new()
 	share_panel.add_theme_stylebox_override("panel", _panel_style())
@@ -915,8 +949,26 @@ func _on_offer_buyout(competitor_id: String) -> void:
 	_show_notice(title, str(result.get("text", "")))
 
 
-func _on_home_captured(text: String) -> void:
-	_show_notice("%s ваш!" % GameState.get_home_city(), text)
+func _on_island_captured(island_id: String, text: String) -> void:
+	_show_notice("%s ваш!" % str(GameState.get_island_info(island_id).get("city", "Город")), text)
+	_selected_island = ""
+	_refresh_regions()
+
+
+func _go_to_map() -> void:
+	_show_page(PAGE_CITY)
+	_show_city_section(0)
+
+
+## Сменился остров борьбы — собираем вкладку «Рынок» заново.
+func _rebuild_market_if_needed() -> void:
+	if _market_list == null or _market_built_for == GameState.get_front_island():
+		return
+	for child in _market_list.get_children():
+		_market_list.remove_child(child)
+		child.queue_free()
+	_build_market_rows()
+	_refresh_sell()
 
 
 func _mmss(seconds: int) -> String:
@@ -924,13 +976,11 @@ func _mmss(seconds: int) -> String:
 
 
 func _refresh_competitors() -> void:
+	_rebuild_market_if_needed()
 	if _market_status == null:
 		return
 	var share: float = GameState.get_market_share()
-	if GameState.is_home_captured():
-		_market_status.text = "Вы — такси №1! Ваша доля %s" % _share_text(share)
-	else:
-		_market_status.text = "Ваша доля %s из 50%% нужных" % _share_text(share)
+	_market_status.text = "Ваша доля %s из 50%% нужных" % _share_text(share)
 	var legend: PackedStringArray = PackedStringArray(["Вы %s" % _share_text(share)])
 	var player_part: ColorRect = _market_bar_parts["player"]
 	player_part.size_flags_stretch_ratio = maxf(share, 0.004)
@@ -1207,7 +1257,7 @@ func _build_city_page() -> Control:
 	var district_page := _build_scroll_page()
 	var world_page := _build_scroll_page()
 	var achievement_page := _build_scroll_page()
-	_city_sections = [district_page, world_page, achievement_page]
+	_city_sections = [world_page, district_page, achievement_page]
 	for section: Control in _city_sections:
 		section.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		stack.add_child(section)
@@ -1222,8 +1272,8 @@ func _build_city_switch() -> HBoxContainer:
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 8)
 	_city_section_buttons = [
-		_make_section_button("Районы"),
 		_make_section_button("Мир"),
+		_make_section_button("Районы"),
 		_make_section_button("Достижения"),
 	]
 	for index in _city_section_buttons.size():
@@ -1343,86 +1393,65 @@ func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer
 
 
 func _build_region_rows() -> void:
-	var title := Label.new()
-	title.text = "МИР"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 42)
-	_world_list.add_child(title)
+	_world_list.add_child(_make_section_title("Карта мира"))
+	_world_progress = _add_label(_world_list, "", 26, COLOR_MUTED)
 
-	var hint := Label.new()
-	hint.text = "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого нанятого водителя."
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", 26)
-	hint.add_theme_color_override("font_color", COLOR_MUTED)
-	_world_list.add_child(hint)
+	_island_map = IslandMap.new()
+	_island_map.custom_minimum_size = Vector2(0, 860)
+	_island_map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_island_map.island_pressed.connect(_on_island_pressed)
+	_world_list.add_child(_island_map)
 
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _panel_style())
+	_world_list.add_child(card)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	card.add_child(box)
+	_island_title = _add_label(box, "", 38)
+	_island_description = _add_label(box, "", 26, COLOR_MUTED)
+	_island_status = _add_label(box, "", 28, COLOR_GOLD)
+	_island_reason = _add_label(box, "", 26, COLOR_DANGER)
+	_island_button = _make_row_button(_on_island_button)
+	_island_button.custom_minimum_size = Vector2(0, 110)
+	box.add_child(_island_button)
+	_add_label(_world_list, "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого водителя. Каждый захваченный остров: +25% дохода навсегда.", 24, COLOR_MUTED)
+
+
+## Состояние острова для карты.
+func _island_state(island_id: String) -> String:
+	if GameState.is_island_captured(island_id):
+		return "captured"
+	if GameState.is_region_open(island_id):
+		return "front" if GameState.get_front_island() == island_id else "available"
+	if GameState.can_open_region(island_id) or GameState.get_region_block_reason(island_id).find("Сначала") < 0:
+		return "available"
+	return "locked"
+
+
+func _on_island_pressed(island_id: String) -> void:
+	_selected_island = island_id
+	_refresh_regions()
+
+
+func _on_island_button() -> void:
+	var id: String = _selected_island
+	if GameState.is_region_open(id):
+		if not GameState.is_island_captured(id):
+			_show_page(PAGE_MARKET)
+		return
+	GameState.open_region(id)
+
+
+func _default_island() -> String:
+	var front: String = GameState.get_front_island()
+	if front != "":
+		return front
 	for raw: Variant in GameState.get_regions():
-		if typeof(raw) != TYPE_DICTIONARY:
-			continue
-		var info: Dictionary = raw
-		var region_id: String = str(info.get("id", ""))
-		if region_id == "":
-			continue
-		_world_list.add_child(_make_region_row(region_id, info))
-
-
-func _make_region_row(region_id: String, info: Dictionary) -> PanelContainer:
-	var panel := PanelContainer.new()
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override("panel", _panel_style())
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 16)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	panel.add_child(row)
-
-	var text_box := VBoxContainer.new()
-	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	text_box.add_theme_constant_override("separation", 4)
-	row.add_child(text_box)
-
-	var title := Label.new()
-	title.text = str(info.get("name", region_id))
-	title.add_theme_font_size_override("font_size", 36)
-	text_box.add_child(title)
-
-	var description := Label.new()
-	description.text = str(info.get("description", ""))
-	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	description.add_theme_font_size_override("font_size", 26)
-	description.add_theme_color_override("font_color", COLOR_MUTED)
-	text_box.add_child(description)
-
-	var bonus: float = float(info.get("income_bonus", 0))
-	var bonus_label := Label.new()
-	bonus_label.text = "Доход +%s%%, нужно репутации: %d" % [
-		GameState.format_number(bonus * 100.0),
-		int(info.get("reputation", 0)),
-	]
-	bonus_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	bonus_label.add_theme_font_size_override("font_size", 26)
-	bonus_label.add_theme_color_override("font_color", COLOR_INCOME)
-	text_box.add_child(bonus_label)
-
-	var reason_label := Label.new()
-	reason_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	reason_label.add_theme_font_size_override("font_size", 26)
-	reason_label.add_theme_color_override("font_color", COLOR_DANGER)
-	text_box.add_child(reason_label)
-
-	var open_button := Button.new()
-	open_button.custom_minimum_size = Vector2(230, 130)
-	open_button.focus_mode = Control.FOCUS_NONE
-	_style_buy_button(open_button)
-	open_button.pressed.connect(_on_open_region.bind(region_id))
-	row.add_child(open_button)
-
-	_region_rows[region_id] = {
-		"button": open_button,
-		"reason": reason_label,
-	}
-	return panel
+		if not GameState.is_region_open(str(raw.get("id", ""))):
+			return str(raw.get("id", ""))
+	var regions: Array = GameState.get_regions()
+	return "" if regions.is_empty() else str(regions[regions.size() - 1].get("id", ""))
 
 
 func _on_open_district(district_id: String) -> void:
@@ -1449,20 +1478,45 @@ func _refresh_districts() -> void:
 
 
 func _refresh_regions() -> void:
-	for region_id: Variant in _region_rows.keys():
-		var row: Dictionary = _region_rows[region_id]
-		var open_button: Button = row["button"]
-		var reason_label: Label = row["reason"]
-		var id := str(region_id)
-		if GameState.is_region_open(id):
-			open_button.text = "Открыт"
-			open_button.disabled = true
-			reason_label.text = ""
-		else:
-			var cost: float = GameState.get_region_cost(id)
-			open_button.text = "Открыть\n%s" % GameState.format_money(cost)
-			open_button.disabled = not GameState.can_open_region(id)
-			reason_label.text = GameState.get_region_block_reason(id)
+	if _island_map == null:
+		return
+	if _selected_island == "":
+		_selected_island = _default_island()
+	var states: Dictionary = {}
+	for raw: Variant in GameState.get_regions():
+		var id: String = str(raw.get("id", ""))
+		states[id] = _island_state(id)
+	_island_map.set_data(GameState.get_regions(), states, _selected_island)
+	_world_progress.text = "Ваши острова: %d из %d. Нажмите на остров, чтобы узнать о нём." % [
+		GameState.get_captured_count(),
+		GameState.get_regions().size(),
+	]
+
+	var info: Dictionary = GameState.get_island_info(_selected_island)
+	var id: String = _selected_island
+	_island_title.text = "%s · %s" % [str(info.get("name", "")), str(info.get("city", ""))]
+	_island_description.text = str(info.get("description", ""))
+	var rivals: PackedStringArray = PackedStringArray()
+	for raw: Variant in GameState.get_island_competitors(id):
+		rivals.append(str(raw.get("name", "")))
+	var bonus: int = int(roundf(float(info.get("income_bonus", 0)) * 100.0))
+	var bonus_text: String = "  ·  доход +%d%% после открытия" % bonus if bonus > 0 and not GameState.is_region_open(id) else ""
+	_island_reason.text = ""
+	_island_button.visible = true
+	match str(states.get(id, "locked")):
+		"captured":
+			_island_status.text = "Ваш остров ★ Все конкуренты позади."
+			_island_button.visible = false
+		"front":
+			_island_status.text = "Идёт борьба за %s. Ваша доля %s. Соперники: %s" % [
+				str(info.get("city", "")), _share_text(GameState.get_market_share()), ", ".join(rivals)]
+			_island_button.text = "К рынку"
+			_island_button.disabled = false
+		_:
+			_island_status.text = "Соперники: %s%s" % [", ".join(rivals), bonus_text]
+			_island_button.text = "Открыть остров\n%s" % GameState.format_money(GameState.get_region_cost(id))
+			_island_button.disabled = not GameState.can_open_region(id)
+			_island_reason.text = GameState.get_region_block_reason(id)
 
 
 func _build_upgrade_rows() -> void:
@@ -2558,7 +2612,10 @@ func _refresh_market_share() -> void:
 		text = "%d%%" % int(percent)
 	else:
 		text = "%.1f%%" % percent
-	_share_label.text = "Доля рынка, %s: %s" % [GameState.get_home_city(), text]
+	if GameState.get_front_island() == "":
+		_share_label.text = "Ваши острова: %d из %d" % [GameState.get_captured_count(), GameState.get_regions().size()]
+	else:
+		_share_label.text = "Доля рынка, %s: %s" % [GameState.get_front_city(), text]
 	_share_fill.anchor_right = share
 
 
