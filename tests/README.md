@@ -10,6 +10,7 @@ godot --headless -s res://tests/test_shifts.gd
 godot --headless -s res://tests/test_helpers.gd
 godot --headless -s res://tests/test_market.gd
 godot --headless -s res://tests/test_islands.gd
+godot --headless -s res://tests/test_mentor.gd
 ```
 
 В конце печатается `RESULT PASS` или `RESULT FAIL`. Тест стирает сохранение.
