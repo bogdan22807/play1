@@ -185,6 +185,10 @@ var _sell_button: Button
 var _sell_layer: Control
 var _sell_body: Label
 var _achievement_labels: Dictionary = {}
+var _quest_total_label: Label
+var _quest_total_bar: ProgressBar
+## Плитки сводки команды: id -> [значение, подпись].
+var _team_tiles: Dictionary = {}
 var _toast_layer: PanelContainer
 var _toast_label: Label
 var _toast_queue: Array = []
@@ -804,6 +808,7 @@ func _make_chip(parent: Container, color: Color, icon_kind: String = "") -> Labe
 		chip.add_child(row)
 		var icon: Control = ItemIcon.new()
 		icon.kind = icon_kind
+		icon.badge = false
 		icon.custom_minimum_size = Vector2(30, 30)
 		row.add_child(icon)
 		holder = row
@@ -1056,6 +1061,7 @@ func _on_wear_changed() -> void:
 		return
 	if _staff_summary != null:
 		_staff_summary.text = _staff_summary_text()
+		_refresh_team_tiles()
 	for uid: Variant in _team_wear_rows.keys():
 		var entry: Array = _team_wear_rows[uid]
 		var label: Label = entry[0]
@@ -1132,6 +1138,73 @@ func _on_shifts_changed() -> void:
 			car_label.text = _team_car_text(entry[1], entry[2])
 
 
+func _make_stat_tile(parent: Container, icon_kind: String, caption: String) -> Array:
+	var tile := PanelContainer.new()
+	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var style := StyleBoxFlat.new()
+	style.bg_color = COLOR_PANEL.darkened(0.03)
+	style.set_corner_radius_all(22)
+	style.set_border_width_all(2)
+	style.border_color = COLOR_PANEL_EDGE
+	style.content_margin_left = 12
+	style.content_margin_right = 12
+	style.content_margin_top = 10
+	style.content_margin_bottom = 10
+	tile.add_theme_stylebox_override("panel", style)
+	parent.add_child(tile)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	tile.add_child(row)
+	var icon: Control = ItemIcon.new()
+	icon.kind = icon_kind
+	icon.custom_minimum_size = Vector2(76, 76)
+	row.add_child(icon)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 0)
+	row.add_child(box)
+	var value := Label.new()
+	value.add_theme_font_size_override("font_size", 32)
+	value.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
+	_col(value, COLOR_TEXT)
+	box.add_child(value)
+	var label := _add_label(box, caption, 22, COLOR_MUTED)
+	return [value, label]
+
+
+## Сводка команды в плитках: что приносит, что съедает, отзывы.
+func _refresh_team_tiles() -> void:
+	if _team_tiles.is_empty():
+		return
+	var income: float = GameState.get_income_per_second()
+	_tile("income", "+%s/с" % GameState.format_money(income), "Команда приносит", COLOR_INCOME)
+	_tile("salary", "−%s/с" % GameState.format_money(GameState.get_salary_per_second()), "Зарплаты водителям", COLOR_DANGER)
+	var fee: float = GameState.get_helper_fee_per_second() if GameState.get_helper_fee_share() > 0.0 else 0.0
+	_tile("helpers", "−%s/с" % GameState.format_money(fee) if fee > 0.0 else "—", "Помощникам" if fee > 0.0 else "Помощников нет", COLOR_DANGER if fee > 0.0 else COLOR_MUTED)
+	var now: float = GameState.get_rating()
+	var target: float = GameState.get_rating_target()
+	var trend: String = "держатся"
+	if target > now + 0.05:
+		trend = "растут к %.1f" % target
+	elif target < now - 0.05:
+		trend = "падают к %.1f" % target
+	_tile("rating", "★ %.1f" % now, "Отзывы %s" % trend, COLOR_DANGER if target < now - 0.05 else COLOR_TEXT)
+	var bonus: int = int(roundf((GameState.get_rating_multiplier() - 1.0) * 100.0))
+	_tile("bonus", "%s%d%%" % ["+" if bonus >= 0 else "", bonus], "К доходу от отзывов", COLOR_INCOME if bonus >= 0 else COLOR_DANGER)
+	var tired: int = GameState.get_tired_count()
+	_tile("team", "%d" % GameState.get_team().size(), "Устали: %d" % tired if tired > 0 else "Все бодрые", COLOR_TEXT)
+
+
+func _tile(id: String, value: String, caption: String, color: Color) -> void:
+	var parts: Array = _team_tiles[id]
+	var value_label: Label = parts[0]
+	var caption_label: Label = parts[1]
+	value_label.text = value
+	caption_label.text = caption
+	_col(value_label, color)
+
+
 func _staff_summary_text() -> String:
 	var text: String = "Команда приносит %s/с  ·  зарплаты %s/с" % [
 		GameState.format_money(GameState.get_income_per_second()),
@@ -1181,6 +1254,7 @@ func _refresh_helpers() -> void:
 			button.disabled = false
 	if _staff_summary != null:
 		_staff_summary.text = _staff_summary_text()
+		_refresh_team_tiles()
 
 
 func _on_helper_pressed(helper_id: String) -> void:
@@ -2617,12 +2691,22 @@ func _build_driver_rows() -> void:
 	var service_box := VBoxContainer.new()
 	service_box.add_theme_constant_override("separation", 10)
 	service.add_child(service_box)
+	# Плитки с картинками: доход команды, зарплаты, помощники, отзывы, бонус, состав.
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	service_box.add_child(grid)
+	for tile: Array in [["income", "chart", "Команда приносит"], ["salary", "wallet", "Зарплаты"],
+			["helpers", "dispatcher", "Помощникам"], ["rating", "chip_star", "Отзывы"],
+			["bonus", "money_bag", "Бонус к доходу"], ["team", "team", "Водителей"]]:
+		_team_tiles[tile[0]] = _make_stat_tile(grid, str(tile[1]), str(tile[2]))
 	_staff_summary = Label.new()
-	_staff_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_staff_summary.add_theme_font_size_override("font_size", 28)
-	_col(_staff_summary, COLOR_INCOME)
+	_staff_summary.visible = false
 	service_box.add_child(_staff_summary)
-	_rating_label = _add_label(service_box, "", 28, COLOR_GOLD)
+	_rating_label = Label.new()
+	_rating_label.visible = false
+	service_box.add_child(_rating_label)
 	_shift_all_button = _make_row_button(_on_shift_all)
 	_shift_all_button.custom_minimum_size = Vector2(0, 90)
 	service_box.add_child(_shift_all_button)
@@ -3009,6 +3093,7 @@ func _refresh_staff_money() -> void:
 			if is_instance_valid(button):
 				button.disabled = not check.call()
 		_staff_summary.text = _staff_summary_text()
+		_refresh_team_tiles()
 		_refresh_candidate_timer()
 		return
 	if _current_page != PAGE_UPGRADES:
@@ -3342,13 +3427,29 @@ func _format_duration(seconds: float) -> String:
 	return "%d сек" % total
 
 
-func _build_achievement_rows() -> void:
-	var title := Label.new()
-	title.text = "ДОСТИЖЕНИЯ"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 42)
-	_achievement_list.add_child(title)
+## Иконка задания по его виду.
+const QUEST_ICONS := {
+	"earned": "money_bag", "tap_level": "tap", "cars": "taxi", "drivers": "driver", "garage": "garage",
+	"districts": "center", "regions": "island", "competitors": "handshake", "captured": "chip_city",
+	"reputation": "chip_rep", "upgrades": "mechanic", "helpers": "dispatcher", "rating": "chip_star",
+	"franchise": "crown",
+}
 
+
+## Задания: по одному текущему в каждой цепочке (деньги, водители, острова…).
+## Выполненные исчезают, у текущих — полоска и «ещё сколько осталось».
+func _build_achievement_rows() -> void:
+	_achievement_list.add_child(_make_section_title("Задания"))
+	var head := PanelContainer.new()
+	head.add_theme_stylebox_override("panel", _panel_style())
+	_achievement_list.add_child(head)
+	var head_box := VBoxContainer.new()
+	head_box.add_theme_constant_override("separation", 8)
+	head.add_child(head_box)
+	_quest_total_label = _add_label(head_box, "", 30, COLOR_TEXT)
+	_quest_total_bar = _make_bar(COLOR_BUY)
+	head_box.add_child(_quest_total_bar)
+	_add_label(head_box, "Выполнил задание — награда сразу в кошелёк, а на его месте появляется следующее, посложнее.", 24, COLOR_MUTED)
 	for raw: Variant in GameState.get_achievements():
 		if typeof(raw) != TYPE_DICTIONARY:
 			continue
@@ -3356,39 +3457,59 @@ func _build_achievement_rows() -> void:
 		var achievement_id: String = str(info.get("id", ""))
 		if achievement_id == "":
 			continue
-		var panel := PanelContainer.new()
-		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		panel.add_theme_stylebox_override("panel", _panel_style())
-		var label := Label.new()
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		label.add_theme_font_size_override("font_size", 28)
-		panel.add_child(label)
-		_achievement_list.add_child(panel)
-		_achievement_labels[achievement_id] = label
+		var parts: Array = _make_row_panel()
+		var row: HBoxContainer = parts[1]
+		row.add_child(_make_item_icon(str(QUEST_ICONS.get(str(info.get("kind", "")), "chip_star"))))
+		var text_box := _make_text_box(row)
+		_add_label(text_box, str(info.get("name", "")), 32)
+		_add_label(text_box, str(info.get("description", "")), 24, COLOR_MUTED)
+		var bar := _make_bar(COLOR_BUY)
+		text_box.add_child(bar)
+		var progress := _add_label(text_box, "", 24, COLOR_GOLD)
+		var reward_box := VBoxContainer.new()
+		reward_box.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_child(reward_box)
+		var reward := _make_center_label("Награда\n+%s" % GameState.format_money(float(info.get("reward_coins", 0))), 24, COLOR_INCOME)
+		reward.custom_minimum_size = Vector2(170, 0)
+		reward_box.add_child(reward)
+		_achievement_list.add_child(parts[0])
+		_achievement_labels[achievement_id] = {"panel": parts[0], "bar": bar, "progress": progress, "info": info}
 
 
 func _refresh_achievements() -> void:
-	for achievement_id: Variant in _achievement_labels.keys():
-		var label: Label = _achievement_labels[achievement_id]
-		var info: Dictionary = {}
-		for raw: Variant in GameState.get_achievements():
-			if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) == str(achievement_id):
-				info = raw
-				break
-		var need: float = float(info.get("need", 1))
-		var value: float = GameState.get_achievement_value(str(info.get("kind", "")))
-		var reward := "+%s" % GameState.format_money(float(info.get("reward_coins", 0)))
-		if GameState.is_achievement_done(str(achievement_id)):
-			label.text = "%s\nПолучено, награда %s" % [str(info.get("name", "")), reward]
-			_col(label, COLOR_INCOME)
-		else:
-			label.text = "%s\n%s / %s, награда %s" % [
-				str(info.get("name", "")),
-				GameState.format_number(minf(value, need)),
-				GameState.format_number(need),
-				reward,
-			]
-			_col(label, COLOR_TEXT)
+	var defs: Array = GameState.get_achievements()
+	var done: int = 0
+	# В каждой цепочке показываем только первое невыполненное задание.
+	var shown_kinds: Dictionary = {}
+	for raw: Variant in defs:
+		var achievement_id: String = str(raw.get("id", ""))
+		var entry: Dictionary = _achievement_labels.get(achievement_id, {})
+		if entry.is_empty():
+			continue
+		var panel: Control = entry["panel"]
+		if GameState.is_achievement_done(achievement_id):
+			done += 1
+			panel.visible = false
+			continue
+		var kind: String = str(raw.get("kind", ""))
+		if shown_kinds.has(kind):
+			panel.visible = false
+			continue
+		shown_kinds[kind] = true
+		panel.visible = true
+		var need: float = float(raw.get("need", 1))
+		var value: float = minf(GameState.get_achievement_value(kind), need)
+		var bar: ProgressBar = entry["bar"]
+		bar.max_value = need
+		bar.value = value
+		var progress: Label = entry["progress"]
+		var shown_value: String = GameState.format_money(value) if kind == "earned" else ("%.1f" % value if kind == "rating" else GameState.format_number(value))
+		var shown_need: String = GameState.format_money(need) if kind == "earned" else ("%.1f" % need if kind == "rating" else GameState.format_number(need))
+		progress.text = "%s из %s" % [shown_value, shown_need]
+	if _quest_total_label != null:
+		_quest_total_label.text = "Выполнено %d из %d" % [done, defs.size()]
+		_quest_total_bar.max_value = maxf(1.0, float(defs.size()))
+		_quest_total_bar.value = done
 
 
 func _on_achievement_unlocked(title: String, body: String) -> void:
