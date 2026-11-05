@@ -164,6 +164,10 @@ var _notice_layer: Control
 var _notice_queue: Array = []
 ## Окно-заглушка рекламного ролика.
 const VIDEO_STUB_SECONDS := 5.0
+## Настоящей рекламной сети пока нет. Пока false — билборд и ТВ запускаются бесплатно
+## по таймеру, без ролика (заглушки с «видео» магазины не пропускают).
+## Подключим AdMob — ставим true, и _show_rewarded покажет настоящий ролик.
+const REWARDED_ADS_ENABLED := false
 var _video_layer: Control
 var _video_label: Label
 var _video_button: Button
@@ -1466,10 +1470,10 @@ func _refresh_ads() -> void:
 			button.text = "Через\n%s" % _wait_text(GameState.get_ad_left())
 		elif video and GameState.get_ad_wait(id) > 0:
 			status.text = _ad_duel_hint(id)
-			button.text = "Ролик через\n%s" % _wait_text(GameState.get_ad_wait(id))
+			button.text = "%s\n%s" % ["Ролик через" if REWARDED_ADS_ENABLED else "Снова через", _wait_text(GameState.get_ad_wait(id))]
 		elif video:
 			status.text = _ad_duel_hint(id)
-			button.text = "▶ Смотреть\nролик"
+			button.text = "▶ Смотреть\nролик" if REWARDED_ADS_ENABLED else "Запустить\nбесплатно"
 		else:
 			status.text = _ad_duel_hint(id)
 			button.text = "Запустить\n%s" % GameState.format_money(GameState.get_ad_price(id))
@@ -1492,7 +1496,9 @@ func _make_ad_row(info: Dictionary) -> PanelContainer:
 	var text_box := _make_text_box(row)
 	_add_label(text_box, str(info.get("name", ad_id)), 34)
 	_add_label(text_box, str(info.get("description", "")), 26, COLOR_MUTED)
-	var pay_text: String = "за просмотр ролика" if str(info.get("pay", "coins")) == "video" else "за монеты"
+	var pay_text: String = "за монеты"
+	if str(info.get("pay", "coins")) == "video":
+		pay_text = "за просмотр ролика" if REWARDED_ADS_ENABLED else "бесплатно, раз в %s" % _period_text(int(info.get("cooldown", 1800)))
 	_add_label(text_box, "+%d%% к доходу на %d мин · %s" % [
 		int(roundf(float(info.get("boost", 0)) * 100.0)),
 		int(float(info.get("duration", 0)) / 60.0),
@@ -1619,6 +1625,9 @@ func _on_buy_ad(ad_id: String) -> void:
 ## Показывает ролик и после просмотра вызывает on_reward.
 ## Пока рекламной сети нет — заглушка: окно с отсчётом. Сюда потом подключим AdMob и т.п.
 func _show_rewarded(on_reward: Callable) -> void:
+	if not REWARDED_ADS_ENABLED:
+		on_reward.call()
+		return
 	_video_reward = on_reward
 	_video_left = VIDEO_STUB_SECONDS
 	_video_layer.visible = true
@@ -1873,6 +1882,15 @@ func _wait_text(seconds: int) -> String:
 	if seconds >= 3600:
 		return "%d ч %02d мин" % [int(seconds / 3600), int(seconds % 3600 / 60)]
 	return _mmss(seconds)
+
+
+## «30 мин», «2 ч», «1 ч 30 мин».
+func _period_text(seconds: int) -> String:
+	var hours: int = int(seconds / 3600)
+	var minutes: int = int(seconds % 3600 / 60)
+	if hours == 0:
+		return "%d мин" % minutes
+	return "%d ч" % hours if minutes == 0 else "%d ч %d мин" % [hours, minutes]
 
 
 func _mmss(seconds: int) -> String:
