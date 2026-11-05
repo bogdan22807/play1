@@ -212,6 +212,8 @@ var _offline_time_label: Label
 var _company_label: Label
 ## id машины -> {"status", "rent", "buy"}.
 var _name_layer: Control
+## Фон всей игры: город темнеет вместе с ним ночью.
+var _background: Control
 var _name_edit: LineEdit
 var _name_error: Label
 
@@ -314,6 +316,7 @@ func _build_ui() -> void:
 	background.bottom_color = COLOR_BG_BOTTOM
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
+	_background = background
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -828,6 +831,7 @@ func _build_tap_page() -> Control:
 	_city = CityView.new()
 	_city.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_city.tapped.connect(_on_city_tapped)
+	_city.tint_target = _background
 	taxi_holder.add_child(_city)
 	var hint := _make_center_label("", 28, Color.WHITE)
 	_tap_hint = hint
