@@ -33,5 +33,21 @@
     "fleet_repair_seconds": 150,
     "player_wash_taps": 20,
     "player_repair_taps": 80
+  },
+  "shifts": {
+    "hour_seconds": 60,
+    "shift_hours": 8,
+    "exhausted_hours": 14,
+    "tired_min_mult": 0.5
+  },
+  "rating": {
+    "start": 4.0,
+    "base": 5.0,
+    "dirty_penalty": 1.5,
+    "worn_penalty": 1.5,
+    "broken_penalty": 3.0,
+    "tired_penalty": 2.5,
+    "mult_per_star": 0.15,
+    "ease_per_second": 0.02
   }
 }

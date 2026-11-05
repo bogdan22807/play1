@@ -66,6 +66,10 @@ var _staff_buttons: Array = []
 var _team_wear_rows: Dictionary = {}
 var _fleet_wear_label: Label
 var _wash_fleet_button: Button
+## uid водителя -> [Label смены, ProgressBar, кнопка «Сменить», карточка водителя].
+var _team_shift_rows: Dictionary = {}
+var _shift_all_button: Button
+var _rating_label: Label
 var _repair_fleet_button: Button
 var _my_clean_bar: ProgressBar
 var _my_health_bar: ProgressBar
@@ -124,6 +128,7 @@ func _ready() -> void:
 	GameState.car_changed.connect(_on_car_changed)
 	GameState.garage_changed.connect(_on_drivers_changed)
 	GameState.wear_changed.connect(_on_wear_changed)
+	GameState.shifts_changed.connect(_on_shifts_changed)
 	GameState.company_changed.connect(_on_company_changed)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -141,6 +146,7 @@ func _ready() -> void:
 	_on_car_changed()
 	_on_company_changed(GameState.company_name)
 	_on_wear_changed()
+	_on_shifts_changed()
 	for item: Variant in GameState.take_fresh_achievements():
 		if typeof(item) == TYPE_DICTIONARY:
 			var info: Dictionary = item
@@ -477,6 +483,66 @@ func _team_car_text(person: Dictionary, car: Dictionary) -> String:
 	if GameState.is_broken(health):
 		return text + "\nМашина сломана и стоит — почините парк!"
 	return text + "\nЧистота %s  ·  состояние %s" % [_percent(float(car.get("clean", 1))), _percent(health)]
+
+
+## Раз в секунду: часы смен, усталость, рейтинг.
+func _on_shifts_changed() -> void:
+	_refresh_meta_line()
+	var shift: float = GameState.get_shift_hours()
+	for uid: Variant in _team_shift_rows.keys():
+		var entry: Array = _team_shift_rows[uid]
+		var label: Label = entry[0]
+		if not is_instance_valid(label):
+			continue
+		var bar: ProgressBar = entry[1]
+		var button: Button = entry[2]
+		var person: Dictionary = entry[3]
+		var hours: float = GameState.get_driver_hours(person)
+		var tired: float = GameState.get_tiredness(person)
+		var state: String = "свежий"
+		var color: Color = COLOR_MUTED
+		if tired >= 1.0:
+			state = "валится с ног, пассажиры жалуются"
+			color = COLOR_DANGER
+		elif tired > 0.0:
+			state = "устал, отзывы хуже"
+			color = COLOR_GOLD
+		elif hours > shift * 0.75:
+			state = "скоро конец смены"
+		label.text = "Смена: %.1f ч из %d  ·  %s" % [hours, int(shift), state]
+		label.add_theme_color_override("font_color", color)
+		bar.value = minf(hours, bar.max_value)
+		var fill: StyleBoxFlat = bar.get_theme_stylebox("fill")
+		fill.bg_color = color if tired > 0.0 else Color("b39ddb")
+		button.disabled = not GameState.can_change_shift(int(uid))
+	if _shift_all_button != null:
+		var tired_count: int = GameState.get_tired_count()
+		_shift_all_button.text = "Сменить уставших: %d" % tired_count if tired_count > 0 else "Все водители в пределах смены"
+		_shift_all_button.disabled = tired_count == 0
+	if _rating_label != null:
+		var now: float = GameState.get_rating()
+		var target: float = GameState.get_rating_target()
+		var trend: String = "держится"
+		if target > now + 0.05:
+			trend = "растут к ★%.1f" % target
+		elif target < now - 0.05:
+			trend = "падают к ★%.1f" % target
+		var bonus: int = int(roundf((GameState.get_rating_multiplier() - 1.0) * 100.0))
+		_rating_label.text = "Отзывы ★%.1f, %s  ·  доход %s%d%%" % [now, trend, "+" if bonus >= 0 else "", bonus]
+		_rating_label.add_theme_color_override("font_color", COLOR_DANGER if target < now - 0.05 else COLOR_GOLD)
+	for uid: Variant in _team_wear_rows.keys():
+		var entry: Array = _team_wear_rows[uid]
+		var car_label: Label = entry[0]
+		if is_instance_valid(car_label):
+			car_label.text = _team_car_text(entry[1], entry[2])
+
+
+func _on_change_shift(uid: int) -> void:
+	GameState.change_shift(uid)
+
+
+func _on_shift_all() -> void:
+	GameState.change_tired_shifts()
 
 
 func _on_wash_me() -> void:
@@ -1449,6 +1515,7 @@ func _build_driver_rows() -> void:
 	var service_box := VBoxContainer.new()
 	service_box.add_theme_constant_override("separation", 10)
 	service.add_child(service_box)
+	_rating_label = _add_label(service_box, "", 28, COLOR_GOLD)
 	_fleet_wear_label = _add_label(service_box, "", 26, COLOR_MUTED)
 	var service_row := HBoxContainer.new()
 	service_row.add_theme_constant_override("separation", 12)
@@ -1461,6 +1528,9 @@ func _build_driver_rows() -> void:
 	_repair_fleet_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_repair_fleet_button.custom_minimum_size = Vector2(0, 100)
 	service_row.add_child(_repair_fleet_button)
+	_shift_all_button = _make_row_button(_on_shift_all)
+	_shift_all_button.custom_minimum_size = Vector2(0, 90)
+	service_box.add_child(_shift_all_button)
 
 	_driver_list.add_child(_make_section_title("Команда"))
 	_team_box = VBoxContainer.new()
@@ -1571,6 +1641,7 @@ func _rebuild_staff() -> void:
 		return
 	_staff_buttons.clear()
 	_team_wear_rows.clear()
+	_team_shift_rows.clear()
 	for child in _team_box.get_children():
 		child.queue_free()
 	for child in _candidate_box.get_children():
@@ -1593,14 +1664,30 @@ func _rebuild_staff() -> void:
 		else:
 			var car_label := _add_label(text_box, "", 26, COLOR_INCOME)
 			_team_wear_rows[uid] = [car_label, person, car]
+		var shift_label := _add_label(text_box, "", 24, COLOR_MUTED)
+		var shift_bar := _make_bar(Color("b39ddb"))
+		shift_bar.max_value = 14.0
+		text_box.add_child(shift_bar)
+		var buttons := VBoxContainer.new()
+		buttons.add_theme_constant_override("separation", 10)
+		row.add_child(buttons)
+		var shift_button := Button.new()
+		shift_button.text = "Сменить"
+		shift_button.custom_minimum_size = Vector2(200, 80)
+		shift_button.focus_mode = Control.FOCUS_NONE
+		_style_buy_button(shift_button)
+		shift_button.add_theme_font_size_override("font_size", 26)
+		shift_button.pressed.connect(_on_change_shift.bind(uid))
+		buttons.add_child(shift_button)
 		var fire_button := Button.new()
 		fire_button.text = "Уволить"
-		fire_button.custom_minimum_size = Vector2(200, 90)
+		fire_button.custom_minimum_size = Vector2(200, 70)
 		fire_button.focus_mode = Control.FOCUS_NONE
 		_style_plain_button(fire_button, COLOR_DANGER)
-		fire_button.add_theme_font_size_override("font_size", 26)
+		fire_button.add_theme_font_size_override("font_size", 24)
 		fire_button.pressed.connect(_on_fire.bind(uid))
-		row.add_child(fire_button)
+		buttons.add_child(fire_button)
+		_team_shift_rows[uid] = [shift_label, shift_bar, shift_button, person]
 		_team_box.add_child(parts[0])
 
 	var free_cars: Array = GameState.get_free_garage_cars()
@@ -1630,6 +1717,7 @@ func _rebuild_staff() -> void:
 		_candidate_box.add_child(parts[0])
 	_refresh_staff_money()
 	_on_wear_changed()
+	_on_shifts_changed()
 
 
 ## Только то, что зависит от денег: доступность кнопок и цены.
@@ -2248,7 +2336,8 @@ func _refresh_market_share() -> void:
 
 
 func _refresh_meta_line() -> void:
-	_reputation_label.text = "Репутация: %d  ·  Франшиза: ×%s" % [
+	_reputation_label.text = "★ %.1f  ·  Репутация: %d  ·  Франшиза: ×%s" % [
+		GameState.get_rating(),
 		GameState.reputation,
 		GameState.format_number(GameState.get_franchise()),
 	]

@@ -16,6 +16,8 @@ TAPS_PER_REPUTATION = 20
 DRIVER_POWER = 1.3
 DRIVER_SALARY = 0.24
 HIRE_BASE = 100.0
+# Игрок вовремя меняет смены и моет машины: рейтинг держится около 4.5 звёзд.
+KEPT_RATING = 4.5
 DT = 1.0
 HORIZON = 7 * 3600
 
@@ -53,6 +55,7 @@ class Player:
         balance = load("balance.json")
         self.tap_from_income = float(balance.get("tap_from_income", 0.01))
         self.rent_share = float(balance.get("car_rent_share", 0.3))
+        self.rating_per_star = float(balance.get("rating", {}).get("mult_per_star", 0.15))
         # Игрок вовремя моет и чинит: это доля выручки, которая уходит на сервис.
         wear = balance.get("wear", {})
         self.tap_upkeep = (
@@ -100,7 +103,8 @@ class Player:
         rival = 1.0 + sum(
             item["income_bonus"] for item in self.competitors if item["id"] in self.owned_competitors
         )
-        return district * region * rival * self.franchise
+        rating = 1.0 + (KEPT_RATING - 4.0) * self.rating_per_star
+        return district * region * rival * self.franchise * rating
 
     def car_income(self, index):
         return float(self.cars[index].get("driver_income", 0))

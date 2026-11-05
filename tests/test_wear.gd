@@ -41,6 +41,8 @@ func _init() -> void:
 	gs.buy_fleet("old_sedan")
 	gs.buy_fleet("old_sedan")
 	gs.hire(0)
+	gs.rating = 4.0
+	gs._recalc_income()
 	var income: float = gs.get_income_per_second()
 	for i in 600:
 		gs._tick_fleet_wear(1.0)
@@ -58,6 +60,10 @@ func _init() -> void:
 		gs._tick_fleet_wear(1.0)
 	check(gs.get_broken_count() == 1 and gs.get_income_per_second() == 0.0, "сломанная машина стоит")
 	check(gs.wash_fleet() and gs.repair_fleet(), "помыли и починили парк")
+	# За 60 часов водитель устал и рейтинг упал — это проверяет test_shifts. Здесь сравниваем только износ.
+	gs.change_tired_shifts()
+	gs.rating = 4.0
+	gs._recalc_income()
 	check(is_equal_approx(gs.get_income_per_second(), income), "доход вернулся")
 	check(gs.get_fleet_wash_cost() == 0.0 and not gs.can_repair_fleet(), "после сервиса платить не за что")
 
