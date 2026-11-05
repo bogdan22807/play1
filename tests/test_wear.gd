@@ -67,18 +67,15 @@ func _init() -> void:
 	check(is_equal_approx(gs.get_income_per_second(), income), "доход вернулся")
 	check(gs.get_fleet_wash_cost() == 0.0 and not gs.can_repair_fleet(), "после сервиса платить не за что")
 
-	# Своя прошлая машина уезжает в гараж со своим износом, новая — чистая.
-	gs.buy_car("old_sedan")
+	# Линия тапа пересаживает в новую машину — она чистая.
+	gs.coins = 1e9
+	gs._tap_level = 2
 	for i in 200:
 		gs.tap()
-	var dirt: float = gs.get_my_clean()
-	gs.buy_car("city_taxi")
-	check(gs.get_my_clean() == 1.0, "новая своя машина чистая")
-	var parked_dirty: bool = false
-	for car: Variant in gs.get_garage():
-		if is_equal_approx(float(car["clean"]), dirt):
-			parked_dirty = true
-	check(parked_dirty, "старая уехала в гараж грязной")
+	check(gs.get_my_clean() < 1.0, "своя машина испачкалась")
+	gs.coins = 1e9
+	gs.buy_tap_level()
+	check(gs.get_car_id() == "old_sedan" and gs.get_my_clean() == 1.0, "новая своя машина чистая")
 
 	# Износ сохраняется.
 	for i in 100:

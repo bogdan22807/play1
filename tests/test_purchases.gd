@@ -1,5 +1,5 @@
 extends SceneTree
-## Все покупки разом: тысячи случайных попыток с разным кошельком.
+## Все покупки разом (линия тапа, улучшения, парк, гараж, найм, помощники, районы, острова): тысячи случайных попыток с разным кошельком.
 ## Если «можно купить» — покупка проходит и списывает ровно показанную цену.
 ## Если нельзя — ничего не меняется. Деньги никогда не уходят в минус.
 
@@ -57,16 +57,11 @@ func _init() -> void:
 				price = gs.get_upgrade_cost(id)
 				can = gs.can_buy_upgrade(id)
 				done = gs.buy_upgrade(id)
-			1:
-				id = car_ids[randi() % car_ids.size()]
-				price = gs.get_car_rent_cost(id)
-				can = gs.can_rent_car(id)
-				done = gs.rent_car(id)
-			2:
-				id = car_ids[randi() % car_ids.size()]
-				price = gs.get_car_buy_cost(id)
-				can = gs.can_buy_car(id)
-				done = gs.buy_car(id)
+			1, 2:
+				id = "tap_level"
+				price = gs.get_tap_level_cost()
+				can = gs.can_buy_tap_level()
+				done = gs.buy_tap_level()
 			3:
 				id = car_ids[randi() % car_ids.size()]
 				price = gs.get_fleet_cost(id)
@@ -104,8 +99,8 @@ func _init() -> void:
 		check(can == done, "можно = купилось: " + label)
 		check(gs.coins >= 0.0, "деньги не в минусе: " + label)
 		if done:
-			# Достижения могут подкинуть награду — поэтому «не больше, чем было минус цена плюс награда».
-			check(gs.coins <= before - price + 5000.0 + 0.01 and before + 0.001 >= price, "списана цена: %s, стало %s" % [label, gs.coins])
+			# Достижения дают награды до $1M (лимузин) — поэтому допуск.
+			check(gs.coins <= before - price + 1100000.0 + before * 1e-9 and before + 0.001 >= price, "списана цена: %s, стало %s" % [label, gs.coins])
 		else:
 			check(is_equal_approx(gs.coins, before), "без покупки деньги не тронуты: " + label)
 		if attempt % 50 == 0:

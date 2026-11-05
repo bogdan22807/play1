@@ -8,14 +8,14 @@ const CarArt := preload("res://scripts/car_art.gd")
 
 # >>> PALETTE
 const GROUND := Color("9bdc75")
-const SIDEWALK := Color("f7eedb")
+const SIDEWALK := Color("f4f1e8")
 const ROAD := Color("5d6582")
 const MARK := Color(1, 1, 1, 0.8)
 const PARK := Color("78d562")
 const POND := Color("4cb8f5")
 const TREE := Color("46b35c")
 const TREE_DARK := Color("2f8a46")
-const ROOFS := [Color("ff8a65"), Color("ffd166"), Color("4fc3f7"), Color("fff1dc"), Color("ffab91"), Color("f6c28b")]
+const ROOFS := [Color("f28b82"), Color("b39ddb"), Color("4fc3f7"), Color("fff6e6"), Color("a5d6a7"), Color("cfd8dc")]
 const PLAYER_RING := Color("ffc93c")
 # <<< PALETTE
 const MAX_FLEET_CARS := 16

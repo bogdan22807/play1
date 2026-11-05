@@ -68,11 +68,6 @@ func _init() -> void:
 	check(gs.sell_garage_car("limo") == 0.0, "нельзя продать то, чего нет")
 	gs.buy_fleet("city_taxi")
 
-	# Своя прошлая машина уезжает в гараж.
-	gs.buy_car("old_sedan")
-	gs.buy_car("city_taxi")
-	check(gs.get_fleet_count("old_sedan") == 1, "свой седан уехал в парк")
-
 	check(gs.fire(int(gs.get_team()[0]["uid"])) and gs.get_team().size() == 1, "уволили")
 	var team_names: Array = []
 	for p: Variant in gs.get_team():

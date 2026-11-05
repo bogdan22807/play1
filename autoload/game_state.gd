@@ -187,15 +187,15 @@ var _tap_from_income: float = 0.01
 var _world_market_size: float = 600000000.0
 ## Какая доля обычного дохода капает, пока игра закрыта. 0.8 = 80%.
 var _offline_income_rate: float = 0.8
-## Какую долю дохода с тапа забирает владелец арендованной машины. 0.3 = 30%.
-var _car_rent_share: float = 0.3
 var _car_defs: Array = []
 ## На какой машине игрок ездит сам. Первая в cars.json — стартовая.
 var _car_id: String = ""
-## true, если текущая машина взята в аренду.
-var _car_rented: bool = false
-## id машины -> 1, если машина куплена. Позже их получат водители (этап 2).
-var _owned_cars: Dictionary = {}
+## Уровень линии тапа (0 — начало). Он же задаёт машину игрока.
+var _tap_level: int = 0
+## Цена первого уровня линии тапа.
+var _tap_level_first_cost: float = 40.0
+## Во сколько раз растёт тап за каждые TAP_STEPS уровней после последней машины.
+var _tap_after_last_mult: float = 1.6
 ## Название компании. Пустое, пока игрок его не ввёл.
 var company_name: String = ""
 
@@ -322,89 +322,98 @@ func get_car_info() -> Dictionary:
 	return _find_def(_car_defs, _car_id)
 
 
-func is_car_rented() -> bool:
-	return _car_rented
-
-
-func is_car_owned(car_id: String) -> bool:
-	return car_id == _start_car_id() or int(_owned_cars.get(car_id, 0)) > 0
-
-
-## Сколько машин куплено. Стартовая не считается.
+## Сколько машин пройдено по линии тапа (стартовая не считается). Для достижений.
 func get_owned_car_count() -> int:
-	return _owned_cars.size()
+	return _car_index_for_level(_tap_level)
 
 
-## Во сколько раз машина умножает доход с тапа.
+## Во сколько раз машина умножает доход с тапа: множитель текущего уровня линии.
 func get_car_tap_mult() -> float:
-	return maxf(1.0, float(get_car_info().get("tap_mult", 1)))
+	return get_level_tap_mult(_tap_level)
 
 
-## Доля тапа, которая уходит за аренду. 0, если машина своя.
+## Аренды больше нет: весь доход с тапа ваш.
 func get_rent_share() -> float:
-	return _car_rent_share if _car_rented else 0.0
+	return 0.0
 
 
-func get_car_rent_cost(car_id: String) -> float:
-	return maxf(0.0, float(_find_def(_car_defs, car_id).get("rent_cost", 0)))
+# --- Линия тапа: копим, покупаем уровень, тап дороже -------------------------
+## Уровни идут по машинам cars.json: между соседними машинами TAP_STEPS шагов.
+## Каждые TAP_STEPS уровней игрок пересаживается в следующую машину.
+## После последней машины уровни продолжаются бесконечно с тем же ростом.
+
+const TAP_STEPS := 3
 
 
-## Цена покупки. Если эту машину сейчас арендуем, залог засчитывается.
-func get_car_buy_cost(car_id: String) -> float:
-	var cost: float = maxf(0.0, float(_find_def(_car_defs, car_id).get("buy_cost", 0)))
-	if _car_rented and car_id == _car_id:
-		cost = maxf(0.0, cost - get_car_rent_cost(car_id))
-	return cost
+func get_tap_level() -> int:
+	return _tap_level
 
 
-## Арендовать можно только машину лучше той, на которой ездим.
-func can_rent_car(car_id: String) -> bool:
-	if _car_index(car_id) <= _car_index(_car_id) or is_car_owned(car_id):
+func _car_index_for_level(level: int) -> int:
+	return mini(int(level / TAP_STEPS), maxi(0, _car_defs.size() - 1))
+
+
+func _car_value(index: int, key: String) -> float:
+	return float(_car_defs[clampi(index, 0, _car_defs.size() - 1)].get(key, 0))
+
+
+## Значение на уровне по «опорам» машин: между машинами — плавный геометрический шаг,
+## после последней — тот же рост, что между двумя последними.
+func _level_curve(level: int, key: String) -> float:
+	var last: int = _car_defs.size() - 1
+	if last <= 0:
+		return 1.0
+	var index: int = int(level / TAP_STEPS)
+	var part: float = float(level % TAP_STEPS) / float(TAP_STEPS)
+	if index >= last:
+		var ratio: float = _car_value(last, key) / maxf(0.000001, _car_value(last - 1, key))
+		# После лимузина тап растёт медленнее: иначе линия обгоняет всю остальную игру.
+		if key == "tap_mult":
+			ratio = _tap_after_last_mult
+		return _car_value(last, key) * pow(ratio, float(level - last * TAP_STEPS) / float(TAP_STEPS))
+	var from: float = _car_value(index, key)
+	var to: float = _car_value(index + 1, key)
+	return from * pow(to / maxf(0.000001, from), part)
+
+
+func get_level_tap_mult(level: int) -> float:
+	return maxf(1.0, _level_curve(level, "tap_mult"))
+
+
+## Сколько стоит следующий уровень линии.
+func get_tap_level_cost() -> float:
+	var next: int = _tap_level + 1
+	if next < TAP_STEPS:
+		# Первые шаги до первой машины: от tap_level_first_cost до её цены.
+		var target: float = _car_value(1, "buy_cost")
+		var part: float = float(next - 1) / float(TAP_STEPS - 1)
+		return ceilf(_tap_level_first_cost * pow(target / _tap_level_first_cost, part))
+	return ceilf(_level_curve(next, "buy_cost"))
+
+
+## Машина, в которую пересядем на следующем уровне. Пусто — машина та же.
+func get_next_level_car() -> String:
+	var now: int = _car_index_for_level(_tap_level)
+	var next: int = _car_index_for_level(_tap_level + 1)
+	return str(_car_defs[next].get("id", "")) if next != now else ""
+
+
+func can_buy_tap_level() -> bool:
+	return coins + 0.001 >= get_tap_level_cost()
+
+
+func buy_tap_level() -> bool:
+	if not can_buy_tap_level():
 		return false
-	var cost: float = get_car_rent_cost(car_id)
-	return cost > 0.0 and coins + 0.001 >= cost
-
-
-## Купить можно машину не хуже текущей, если она ещё не наша.
-func can_buy_car(car_id: String) -> bool:
-	if _car_index(car_id) < _car_index(_car_id) or is_car_owned(car_id):
-		return false
-	return coins + 0.001 >= get_car_buy_cost(car_id)
-
-
-## Платим залог и пересаживаемся. Прошлая аренда просто заканчивается.
-func rent_car(car_id: String) -> bool:
-	if not can_rent_car(car_id):
-		return false
-	coins = maxf(0.0, coins - get_car_rent_cost(car_id))
-	_park_current_car()
-	_car_id = car_id
-	_car_rented = true
+	coins = maxf(0.0, coins - get_tap_level_cost())
+	_tap_level += 1
+	var car_id: String = str(_car_defs[_car_index_for_level(_tap_level)].get("id", _car_id))
+	if car_id != _car_id:
+		_car_id = car_id
+		_my_clean = 1.0
+		_my_health = 1.0
 	_after_car_change()
 	return true
-
-
-## Покупаем и сразу пересаживаемся: машина не хуже текущей.
-func buy_car(car_id: String) -> bool:
-	if not can_buy_car(car_id):
-		return false
-	coins = maxf(0.0, coins - get_car_buy_cost(car_id))
-	_owned_cars[car_id] = 1
-	_park_current_car()
-	_car_id = car_id
-	_car_rented = false
-	_after_car_change()
-	return true
-
-
-## Своя прошлая машина не пропадает: уезжает в гараж к водителям.
-func _park_current_car() -> void:
-	if _car_rented or _car_id == _start_car_id() or not is_car_owned(_car_id):
-		return
-	_garage.append({"model": _car_id, "clean": _my_clean, "health": _my_health})
-	_recalc_income()
-	garage_changed.emit()
-	drivers_changed.emit()
 
 
 func _after_car_change() -> void:
@@ -438,8 +447,7 @@ func _reset_car() -> void:
 	_my_clean = 1.0
 	_my_health = 1.0
 	_car_id = _start_car_id()
-	_car_rented = false
-	_owned_cars.clear()
+	_tap_level = 0
 
 
 # --- Награды дяди Буна ------------------------------------------------------
@@ -2414,8 +2422,7 @@ func save_game() -> void:
 		"achievements": _done_achievements.keys(),
 		"last_daily_day": _last_daily_day,
 		"car": _car_id,
-		"car_rented": _car_rented,
-		"owned_cars": _owned_cars.keys(),
+		"tap_level": _tap_level,
 		"company_name": company_name,
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -2616,21 +2623,14 @@ func _announce_legacy_refund() -> void:
 	save_game()
 
 
-## Машина из сохранения. Незнакомый id (машину убрали из cars.json) — стартовая.
+## Уровень линии тапа из сохранения. До линии сохранялась машина (аренда или покупка):
+## переводим её в уровень этой машины.
 func _load_car(data: Dictionary) -> void:
-	_owned_cars.clear()
-	for car_id: Variant in _read_id_set(data.get("owned_cars", [])).keys():
-		if _car_index(str(car_id)) > 0:
-			_owned_cars[str(car_id)] = 1
-	_car_id = str(data.get("car", _start_car_id()))
-	_car_rented = bool(data.get("car_rented", false))
-	if _car_index(_car_id) < 0:
-		_car_id = _start_car_id()
-		_car_rented = false
-	if _car_id == _start_car_id():
-		_car_rented = false
-	elif not _car_rented and not is_car_owned(_car_id):
-		_car_rented = true
+	if data.has("tap_level"):
+		_tap_level = clampi(int(data.get("tap_level", 0)), 0, 100000)
+	else:
+		_tap_level = maxi(0, _car_index(str(data.get("car", _start_car_id())))) * TAP_STEPS
+	_car_id = str(_car_defs[_car_index_for_level(_tap_level)].get("id", _start_car_id())) if not _car_defs.is_empty() else ""
 
 
 ## Старое сохранение не хранило число тапов. Собираем его из счётчика репутации,
@@ -2823,7 +2823,8 @@ func _read_balance() -> void:
 	_tap_from_income = maxf(0.0, float(data.get("tap_from_income", _tap_from_income)))
 	_world_market_size = maxf(1.0, float(data.get("world_market_size", _world_market_size)))
 	_offline_income_rate = clampf(float(data.get("offline_income_rate", _offline_income_rate)), 0.0, 1.0)
-	_car_rent_share = clampf(float(data.get("car_rent_share", _car_rent_share)), 0.0, 0.9)
+	_tap_level_first_cost = maxf(1.0, float(data.get("tap_level_first_cost", _tap_level_first_cost)))
+	_tap_after_last_mult = maxf(1.01, float(data.get("tap_after_last_mult", _tap_after_last_mult)))
 	_fleet_growth = maxf(1.0, float(data.get("fleet_growth", _fleet_growth)))
 	_trade_in_share = clampf(float(data.get("trade_in_share", _trade_in_share)), 0.0, 1.0)
 	_garage_start = maxi(1, int(data.get("garage_start", _garage_start)))
