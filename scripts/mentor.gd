@@ -228,9 +228,8 @@ func _goal_met(step: Dictionary) -> bool:
 	match str(step.get("goal", "")):
 		"earn":
 			return gs.get_run_earned() - float(gs.mentor.get("base", 0)) >= float(step.get("amount", 0))
-		"rent":
-			var cars: Array = gs.get_cars()
-			return not cars.is_empty() and gs.get_car_id() != str(cars[0].get("id", ""))
+		"rent", "tap_level":
+			return gs.get_tap_level() >= 1
 		"wash":
 			return gs.get_my_clean() >= 0.99
 		"hire":

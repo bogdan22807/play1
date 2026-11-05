@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 TAPS_PER_SECOND = 4.0
+TAP_STEPS = 3
 TAPS_PER_REPUTATION = 20
 # Игрок выбирает лучшего из трёх кандидатов: считаем водителя чуть выше среднего.
 DRIVER_POWER = 1.3
@@ -77,7 +78,7 @@ class Player:
         balance = load("balance.json")
         self.balance = balance
         self.tap_from_income = float(balance.get("tap_from_income", 0.01))
-        self.rent_share = float(balance.get("car_rent_share", 0.3))
+        self.first_level_cost = float(balance.get("tap_level_first_cost", 40))
         self.rating_per_star = float(balance.get("rating", {}).get("mult_per_star", 0.15))
         self.franchise_reference = float(balance.get("franchise_reference", 1e9))
         self.franchise_weight = float(balance.get("franchise_weight", 0.5))
@@ -106,9 +107,7 @@ class Player:
 
     def reset_run(self):
         self.captured = {}
-        self.car = 0
-        self.rented = False
-        self.owned_cars = set()
+        self.tap_level = 0
         self.levels = {item["id"]: 0 for item in self.upgrades}
         self.home_capacity = int(self.balance.get("garage_start", 5))
         self.expansion_level = 0
@@ -181,10 +180,32 @@ class Player:
     def flat_tap(self):
         return 1.0 + sum(item["tap_bonus"] * self.levels[item["id"]] for item in self.upgrades)
 
-    def car_factor(self, index=None, rented=None):
-        index = self.car if index is None else index
-        rented = self.rented if rented is None else rented
-        return float(self.cars[index]["tap_mult"]) * ((1.0 - self.rent_share) if rented else 1.0)
+    # --- линия тапа: как в игре, TAP_STEPS уровней между машинами, дальше без конца
+    def level_curve(self, level, key):
+        last = len(self.cars) - 1
+        index = level // TAP_STEPS
+        if index >= last:
+            ratio = float(self.cars[last][key]) / float(self.cars[last - 1][key])
+            if key == "tap_mult":
+                ratio = float(self.balance.get("tap_after_last_mult", 1.6))
+            return float(self.cars[last][key]) * ratio ** ((level - last * TAP_STEPS) / TAP_STEPS)
+        start = float(self.cars[index][key])
+        end = float(self.cars[index + 1][key])
+        part = (level % TAP_STEPS) / TAP_STEPS
+        return start * (end / max(start, 1e-6)) ** part
+
+    def level_mult(self, level):
+        return max(1.0, self.level_curve(level, "tap_mult"))
+
+    def level_cost(self):
+        target = self.tap_level + 1
+        if target < TAP_STEPS:
+            part = (target - 1) / (TAP_STEPS - 1)
+            return math.ceil(self.first_level_cost * (float(self.cars[1]["buy_cost"]) / self.first_level_cost) ** part)
+        return math.ceil(self.level_curve(target, "buy_cost"))
+
+    def car_factor(self, level=None):
+        return self.level_mult(self.tap_level if level is None else level)
 
     def tap_power(self):
         ride = self.flat_tap() * self.car_factor() * self.multiplier() * (1.0 - self.tap_upkeep)
@@ -249,20 +270,9 @@ class Player:
             gain = item["tap_bonus"] * self.car_factor() * mult * TAPS_PER_SECOND
             found.append(("upgrade", item["id"], item["name"], cost, gain / cost))
         ride = self.flat_tap() * mult * TAPS_PER_SECOND
-        for index in range(1, len(self.cars)):
-            item = self.cars[index]
-            if item["id"] in self.owned_cars or index < self.car:
-                continue
-            if index > self.car:
-                gain = ride * (self.car_factor(index, True) - self.car_factor())
-                if gain > 0:
-                    found.append(("rent", index, item["name"], float(item["rent_cost"]), gain / item["rent_cost"]))
-            buy = float(item["buy_cost"])
-            if self.rented and index == self.car:
-                buy -= float(item["rent_cost"])
-            gain = ride * (self.car_factor(index, False) - self.car_factor())
-            if gain > 0:
-                found.append(("car", index, item["name"], buy, gain / buy))
+        cost = self.level_cost()
+        gain = ride * (self.car_factor(self.tap_level + 1) - self.car_factor())
+        found.append(("level", self.tap_level + 1, "Линия тапа", cost, gain / cost))
         boost = mult * (1.0 + self.tap_from_income * TAPS_PER_SECOND)
         capacity = self.capacity()
         full = len(self.garage) >= capacity
@@ -316,19 +326,13 @@ class Player:
         self.coins -= cost
         if kind == "upgrade":
             self.levels[entry_id] += 1
-        elif kind == "rent":
-            if not self.rented and self.car > 0:
-                self.garage.append(self.car)
-            self.car = entry_id
-            self.rented = True
-            self.mark("rent", "Первая аренда машины")
-        elif kind == "car":
-            if not self.rented and self.car > 0:
-                self.garage.append(self.car)
-            self.car = entry_id
-            self.rented = False
-            self.owned_cars.add(self.cars[entry_id]["id"])
-            self.mark("car-" + name, "Своя машина: " + name)
+        elif kind == "level":
+            self.tap_level = entry_id
+            if entry_id == 1:
+                self.mark("level", "Первый уровень тапа")
+            car = self.cars[min(entry_id // TAP_STEPS, len(self.cars) - 1)]
+            if entry_id % TAP_STEPS == 0:
+                self.mark("car-" + car["id"], "Машина по линии тапа: " + car["name"])
         elif kind in ("hire", "slot"):
             if kind == "slot":
                 self.garage.append(entry_id)

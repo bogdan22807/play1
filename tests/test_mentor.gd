@@ -66,12 +66,12 @@ func _init() -> void:
 	check(mentor.get_phase() == "praise" and _last_said().contains("+$20"), "похвала с наградой")
 	check(gs.coins >= coins_before + 50.0 + 20.0 - 0.01, "награда зачислена")
 	mentor.acknowledge()
-	check(mentor.current_step()["id"] == "rent" and tabs[tabs.size() - 1] == 1, "аренда, подсвечена Машина")
+	check(mentor.current_step()["id"] == "rent", "следующий шаг — линия тапа")
 
 	gs.coins = 100.0
-	gs.rent_car("old_sedan")
+	gs.buy_tap_level()
 	mentor.check()
-	check(mentor.get_phase() == "praise", "аренда засчитана")
+	check(mentor.get_phase() == "praise", "первый уровень тапа засчитан")
 	mentor.acknowledge()
 
 	# Мойка ждёт, пока машина испачкается.
