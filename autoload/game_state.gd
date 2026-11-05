@@ -24,6 +24,8 @@ signal island_captured(island_id: String, text: String)
 signal rival_surrendered(competitor_id: String, text: String)
 ## Соперник ответил ударом.
 signal rival_attacked(competitor_id: String, text: String)
+## Сюжетная сцена босса: "intro" — знакомство, "half" — игрок догнал половину его силы.
+signal rival_story(competitor_id: String, beat: String)
 ## Изменился пассивный доход в секунду.
 signal income_changed(income: float)
 ## Пора показать окно «Пока вас не было».
@@ -131,6 +133,9 @@ var _rival_age: Dictionary = {}
 var _duel_rival: String = ""
 ## Секунд игры до следующего ответного хода соперника.
 var _rival_attack_in: float = 0.0
+## id конкурента -> {"intro": 1, "half": 1}: какие сцены босса игрок уже видел.
+## Не сбрасывается при продаже компании, чтобы знакомства не повторялись.
+var _story_seen: Dictionary = {}
 ## Текущая реклама: {"id", "until"}. Пусто — рекламы нет.
 var _ad: Dictionary = {}
 ## id кампании за ролик -> unix, когда её снова можно запустить.
@@ -1691,6 +1696,11 @@ func get_rival_attack_kind(competitor_id: String) -> String:
 
 
 func _duel_text(key: String, competitor_id: String) -> String:
+	var own_key: String = {"surrender_texts": "surrender", "attack_texts": "attacks"}.get(key, "")
+	if own_key != "" and get_boss(competitor_id).has(own_key):
+		var line: String = boss_line(competitor_id, own_key)
+		if line != "":
+			return line
 	var kind: String = str(_find_def(_competitor_defs, competitor_id).get("personality", ""))
 	var texts: Variant = _duel_value(key, {})
 	var text: String = ""
@@ -1707,6 +1717,55 @@ func _reset_attack_timer(first: bool) -> void:
 		_rival_attack_in = randf_range(float(_duel_value("attack_min", 360)), float(_duel_value("attack_max", 600)))
 
 
+## Босс конкурента: имя, характер, реплики (data/competitors.json, поле "boss").
+func get_boss(competitor_id: String) -> Dictionary:
+	var found: Variant = _find_def(_competitor_defs, competitor_id).get("boss", {})
+	return found if typeof(found) == TYPE_DICTIONARY else {}
+
+
+## Реплика босса с подставленным названием компании игрока.
+func boss_line(competitor_id: String, key: String) -> String:
+	var value: Variant = get_boss(competitor_id).get(key, "")
+	if typeof(value) == TYPE_ARRAY:
+		var lines: Array = value
+		value = lines[randi() % lines.size()] if not lines.is_empty() else ""
+	return _say(str(value))
+
+
+## Ответы игрока на знакомство: [{"say", "answer"}], уже с названием компании.
+func get_boss_replies(competitor_id: String) -> Array:
+	var result: Array = []
+	var raw: Variant = get_boss(competitor_id).get("replies", [])
+	if typeof(raw) == TYPE_ARRAY:
+		for item: Variant in raw:
+			if typeof(item) == TYPE_DICTIONARY:
+				result.append({"say": _say(str(item.get("say", ""))), "answer": _say(str(item.get("answer", "")))})
+	return result
+
+
+func is_story_seen(competitor_id: String, beat: String) -> bool:
+	var seen: Variant = _story_seen.get(competitor_id, {})
+	return typeof(seen) == TYPE_DICTIONARY and seen.has(beat)
+
+
+func _mark_story(competitor_id: String, beat: String) -> void:
+	var seen: Dictionary = _story_seen.get(competitor_id, {})
+	seen[beat] = 1
+	_story_seen[competitor_id] = seen
+	rival_story.emit(competitor_id, beat)
+	save_game()
+
+
+## Сюжетные сцены: знакомство в начале дуэли и реплика на половине пути. Каждая — один раз.
+func _tick_story(rival_id: String) -> void:
+	if get_boss(rival_id).is_empty():
+		return
+	if not is_story_seen(rival_id, "intro"):
+		_mark_story(rival_id, "intro")
+	elif not is_story_seen(rival_id, "half") and get_duel_progress() >= 0.5:
+		_mark_story(rival_id, "half")
+
+
 ## Раз в секунду игры: соперник растёт, иногда отвечает ударом, а догнали — сдаётся.
 func _tick_duel(seconds: float) -> void:
 	var rival_id: String = get_active_rival()
@@ -1718,6 +1777,7 @@ func _tick_duel(seconds: float) -> void:
 	_rival_age[rival_id] = float(_rival_age.get(rival_id, 0.0)) + seconds
 	if _check_surrender():
 		return
+	_tick_story(rival_id)
 	_rival_attack_in -= seconds
 	if _rival_attack_in <= 0.0:
 		_reset_attack_timer(false)
@@ -2065,6 +2125,7 @@ func reset_progress() -> void:
 	_opened_districts.clear()
 	_opened_regions.clear()
 	_reset_market()
+	_story_seen.clear()
 	run_taps = 0
 	franchise = 1.0
 	run_earned = 0.0
@@ -2291,6 +2352,7 @@ func save_game() -> void:
 		"rival_age": _rival_age.duplicate(),
 		"duel_rival": _duel_rival,
 		"rival_attack_in": _rival_attack_in,
+		"story_seen": _story_seen.duplicate(true),
 		"ad": _ad.duplicate(),
 		"ad_ready": _ad_ready.duplicate(),
 		"captured": _captured.keys(),
@@ -2386,6 +2448,15 @@ func _load_market(data: Dictionary) -> void:
 	_rival_age = _read_float_dict(data.get("rival_age", {}))
 	_duel_rival = str(data.get("duel_rival", ""))
 	_rival_attack_in = maxf(0.0, float(data.get("rival_attack_in", 0.0)))
+	_story_seen = {}
+	var story: Variant = data.get("story_seen", {})
+	if typeof(story) == TYPE_DICTIONARY:
+		for key: Variant in story.keys():
+			if typeof(story[key]) == TYPE_DICTIONARY:
+				var beats: Dictionary = {}
+				for beat: Variant in story[key].keys():
+					beats[str(beat)] = 1
+				_story_seen[str(key)] = beats
 	var ad: Variant = data.get("ad", {})
 	_ad = {}
 	if typeof(ad) == TYPE_DICTIONARY and ad.has("id"):
