@@ -28,7 +28,15 @@ var _tap_label: Label
 var _reputation_label: Label
 var _share_label: Label
 var _share_fill: ColorRect
-var _taxi_button: Button
+const CityView := preload("res://scripts/city_view.gd")
+const CarIcon := preload("res://scripts/car_icon.gd")
+var _city: Control
+var _sfx_tap: AudioStreamPlayer
+var _sfx_buy: AudioStreamPlayer
+var _sound_on: bool = true
+var _sound_button: Button
+var _last_coins: float = -1.0
+const SETTINGS_PATH := "user://settings.cfg"
 var _tap_page: Control
 var _upgrades_page: Control
 var _drivers_page: Control
@@ -45,7 +53,6 @@ var _market_list: VBoxContainer
 var _multiplier_label: Label
 var _tab_buttons: Array[Button] = []
 var _float_layer: Control
-var _tap_tween: Tween
 var _settings_layer: Control
 var _settings_menu: VBoxContainer
 var _settings_confirm: VBoxContainer
@@ -117,7 +124,6 @@ var _offline_layer: Control
 var _offline_label: Label
 var _offline_time_label: Label
 var _company_label: Label
-var _taxi_sign_label: Label
 var _car_now_label: Label
 var _car_rent_label: Label
 ## id машины -> {"status", "rent", "buy"}.
@@ -129,6 +135,7 @@ var _name_error: Label
 
 func _ready() -> void:
 	_apply_theme()
+	_build_sounds()
 	_build_ui()
 	if _toast_layer != null:
 		move_child(_toast_layer, get_child_count() - 1)
@@ -151,6 +158,10 @@ func _ready() -> void:
 	GameState.wear_changed.connect(_on_wear_changed)
 	GameState.shifts_changed.connect(_on_shifts_changed)
 	GameState.helpers_changed.connect(_refresh_helpers)
+	GameState.wear_changed.connect(_sync_city)
+	GameState.shifts_changed.connect(_sync_city)
+	GameState.drivers_changed.connect(_sync_city)
+	GameState.competitors_changed.connect(_sync_city)
 	GameState.company_changed.connect(_on_company_changed)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -169,6 +180,8 @@ func _ready() -> void:
 	_on_company_changed(GameState.company_name)
 	_on_wear_changed()
 	_on_shifts_changed()
+	_sync_city()
+	_last_coins = GameState.coins
 	for item: Variant in GameState.take_fresh_achievements():
 		if typeof(item) == TYPE_DICTIONARY:
 			var info: Dictionary = item
@@ -362,15 +375,17 @@ func _build_tap_page() -> Control:
 	column.add_child(taxi_holder)
 	column.add_child(_build_my_car_panel())
 
-	_taxi_button = Button.new()
-	_taxi_button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
-	_taxi_button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_taxi_button.focus_mode = Control.FOCUS_NONE
-	_style_taxi_button(_taxi_button)
-	_taxi_button.pressed.connect(_on_taxi_pressed)
-	_taxi_button.resized.connect(_on_taxi_resized)
-	taxi_holder.add_child(_taxi_button)
-	_build_taxi_face(_taxi_button)
+	_city = CityView.new()
+	_city.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_city.tapped.connect(_on_city_tapped)
+	taxi_holder.add_child(_city)
+	var hint := _make_center_label("Тапайте по городу — каждый тап это заказ", 24, Color(1, 1, 1, 0.75))
+	hint.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	hint.offset_top = 8
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hint.add_theme_constant_override("outline_size", 6)
+	hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	taxi_holder.add_child(hint)
 
 	_float_layer = Control.new()
 	_float_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -680,100 +695,6 @@ func _make_tab(title: String) -> Button:
 	button.clip_text = false
 	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return button
-
-
-func _style_taxi_button(button: Button) -> void:
-	button.add_theme_stylebox_override("normal", _taxi_style(COLOR_TAXI))
-	button.add_theme_stylebox_override("hover", _taxi_style(COLOR_TAXI))
-	button.add_theme_stylebox_override("pressed", _taxi_style(COLOR_TAXI_PRESSED))
-	button.add_theme_stylebox_override("focus", _taxi_style(COLOR_TAXI))
-
-
-func _taxi_style(color: Color) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	style.set_corner_radius_all(64)
-	style.content_margin_left = 32
-	style.content_margin_right = 32
-	style.content_margin_top = 28
-	style.content_margin_bottom = 28
-	return style
-
-
-## Рисуем такси из прямоугольников: картинок в проекте нет.
-func _build_taxi_face(parent: Button) -> void:
-	var column := VBoxContainer.new()
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.add_theme_constant_override("separation", 18)
-	parent.add_child(column)
-
-	var sign_center := CenterContainer.new()
-	sign_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(sign_center)
-
-	var sign := PanelContainer.new()
-	sign.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sign_style := StyleBoxFlat.new()
-	sign_style.bg_color = COLOR_INK
-	sign_style.set_corner_radius_all(10)
-	sign_style.content_margin_left = 28
-	sign_style.content_margin_right = 28
-	sign_style.content_margin_top = 6
-	sign_style.content_margin_bottom = 6
-	sign.add_theme_stylebox_override("panel", sign_style)
-	sign_center.add_child(sign)
-
-	_taxi_sign_label = Label.new()
-	_taxi_sign_label.text = "ТАКСИ"
-	_taxi_sign_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_taxi_sign_label.add_theme_font_size_override("font_size", 42)
-	_taxi_sign_label.add_theme_color_override("font_color", COLOR_TAXI)
-	sign.add_child(_taxi_sign_label)
-
-	var windows := HBoxContainer.new()
-	windows.alignment = BoxContainer.ALIGNMENT_CENTER
-	windows.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	windows.add_theme_constant_override("separation", 28)
-	column.add_child(windows)
-	windows.add_child(_make_window())
-	windows.add_child(_make_window())
-
-	var wheels := HBoxContainer.new()
-	wheels.alignment = BoxContainer.ALIGNMENT_CENTER
-	wheels.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	wheels.add_theme_constant_override("separation", 300)
-	column.add_child(wheels)
-	wheels.add_child(_make_wheel())
-	wheels.add_child(_make_wheel())
-
-	var hint := Label.new()
-	hint.text = "ЖМИ"
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hint.add_theme_font_size_override("font_size", 72)
-	hint.add_theme_color_override("font_color", COLOR_INK)
-	column.add_child(hint)
-
-
-func _make_window() -> ColorRect:
-	var window := ColorRect.new()
-	window.custom_minimum_size = Vector2(180, 110)
-	window.color = COLOR_WINDOW
-	window.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return window
-
-
-func _make_wheel() -> Panel:
-	var wheel := Panel.new()
-	wheel.custom_minimum_size = Vector2(84, 84)
-	wheel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := StyleBoxFlat.new()
-	style.bg_color = COLOR_INK
-	style.set_corner_radius_all(42)
-	wheel.add_theme_stylebox_override("panel", style)
-	return wheel
 
 
 ## Цвета на полоске долей: игрок жёлтый, конкуренты острова — по порядку.
@@ -1583,6 +1504,7 @@ func _make_car_row(car_id: String, info: Dictionary) -> PanelContainer:
 	row.add_theme_constant_override("separation", 16)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(row)
+	row.add_child(_make_car_icon(car_id))
 
 	var text_box := VBoxContainer.new()
 	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1643,10 +1565,8 @@ func _on_buy_car(car_id: String) -> void:
 
 
 func _on_car_changed() -> void:
-	var info: Dictionary = GameState.get_car_info()
-	if _taxi_sign_label != null:
-		_taxi_sign_label.text = str(info.get("sign", "ТАКСИ"))
 	_refresh_cars()
+	_sync_city()
 	_refresh_rate_line()
 
 
@@ -1906,9 +1826,17 @@ func _car_name(car_id: String) -> String:
 	return car_id
 
 
+func _make_car_icon(car_id: String) -> Control:
+	var icon: Control = CarIcon.new()
+	icon.model = car_id
+	icon.custom_minimum_size = Vector2(150, 90)
+	return icon
+
+
 func _make_fleet_row(car_id: String, info: Dictionary) -> PanelContainer:
 	var parts: Array = _make_row_panel()
 	var row: HBoxContainer = parts[1]
+	row.add_child(_make_car_icon(car_id))
 	var text_box := _make_text_box(row)
 	_add_label(text_box, str(info.get("name", car_id)), 36)
 	_add_label(text_box, "Водителю: %s/с без звёзд и бонусов" % GameState.format_money(float(info.get("driver_income", 0))), 26, COLOR_INCOME)
@@ -2393,43 +2321,21 @@ func _on_collect_offline() -> void:
 	_show_daily_popup()
 
 
-func _on_taxi_resized() -> void:
-	_taxi_button.pivot_offset = _taxi_button.size * 0.5
-
-
-func _on_taxi_pressed() -> void:
-	var gained: float = GameState.tap()
-	_play_tap_animation()
-	_spawn_floating_gain(gained)
-
-
-## Кнопка чуть сжимается и пружинит обратно.
-func _play_tap_animation() -> void:
-	_on_taxi_resized()
-	if _tap_tween != null and _tap_tween.is_valid():
-		_tap_tween.kill()
-	_taxi_button.scale = Vector2(0.94, 0.94)
-	_tap_tween = create_tween()
-	_tap_tween.tween_property(_taxi_button, "scale", Vector2.ONE, 0.18) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-
 ## Над такси всплывает «+N» и тает.
-func _spawn_floating_gain(amount: float) -> void:
+func _spawn_floating_gain(amount: float, at_global: Vector2) -> void:
 	var label := Label.new()
 	label.text = "+%s" % GameState.format_money(amount)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.add_theme_font_size_override("font_size", 72)
-	label.add_theme_color_override("font_color", COLOR_INK)
-	label.custom_minimum_size = Vector2(320, 90)
+	label.add_theme_font_size_override("font_size", 56)
+	label.add_theme_color_override("font_color", COLOR_GOLD)
+	label.add_theme_constant_override("outline_size", 10)
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	label.custom_minimum_size = Vector2(320, 80)
 	_float_layer.add_child(label)
 
-	var center: Vector2 = _taxi_button.get_global_rect().get_center()
-	var local: Vector2 = _float_layer.get_global_transform().affine_inverse() * center
-	var jitter: float = randf_range(-70.0, 70.0)
-	# Выше шашечки, в пустом жёлтом поле, чтобы цифры не закрывали машину.
-	label.position = Vector2(local.x - 160.0 + jitter, local.y - 520.0)
+	var local: Vector2 = _float_layer.get_global_transform().affine_inverse() * at_global
+	label.position = Vector2(local.x - 160.0 + randf_range(-30.0, 30.0), local.y - 110.0)
 
 	var float_tween := create_tween()
 	float_tween.set_parallel(true)
@@ -2437,6 +2343,103 @@ func _spawn_floating_gain(amount: float) -> void:
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	float_tween.tween_property(label, "modulate:a", 0.0, 0.7)
 	float_tween.chain().tween_callback(label.queue_free)
+
+
+func _on_city_tapped(at: Vector2) -> void:
+	var gained: float = GameState.tap()
+	_city.bounce()
+	_spawn_floating_gain(gained, _city.get_global_transform() * at)
+	_play(_sfx_tap, randf_range(0.92, 1.12))
+
+
+## Кто ездит по городу: ваша машина, машины водителей, конкуренты по их доле рынка.
+func _sync_city() -> void:
+	if _city == null:
+		return
+	var fleet: Array = []
+	var cars: Dictionary = GameState.get_assignments()
+	for person: Variant in GameState.get_team():
+		var car: Dictionary = cars.get(int(person.get("uid", 0)), {})
+		if car.is_empty():
+			continue
+		fleet.append({
+			"model": str(car.get("model", "old_sedan")),
+			"dirt": 1.0 - float(car.get("clean", 1)),
+			"broken": GameState.is_broken(float(car.get("health", 1))),
+		})
+	var rivals: Array = []
+	for raw: Variant in GameState.get_competitors():
+		var id: String = str(raw.get("id", ""))
+		var share: float = GameState.get_competitor_share(id)
+		if share <= 0.0:
+			continue
+		for index in clampi(int(roundf(share * 8.0)), 1, 5):
+			rivals.append(_market_color(id))
+	_city.set_state(GameState.get_car_id(), 1.0 - GameState.get_my_clean(),
+		GameState.is_broken(GameState.get_my_health()), fleet, rivals)
+
+
+# --- Звук ---------------------------------------------------------------------
+
+## Звуки синтезируем сами: короткий «дзынь» тапа и двойной «чинг» покупки. Файлов не нужно.
+func _build_sounds() -> void:
+	_sfx_tap = AudioStreamPlayer.new()
+	_sfx_tap.stream = _make_tone([[780.0, 1180.0, 0.07]], 0.35)
+	_sfx_tap.max_polyphony = 6
+	add_child(_sfx_tap)
+	_sfx_buy = AudioStreamPlayer.new()
+	_sfx_buy.stream = _make_tone([[988.0, 988.0, 0.08], [1318.0, 1318.0, 0.16]], 0.3)
+	_sfx_buy.max_polyphony = 3
+	add_child(_sfx_buy)
+	var config := ConfigFile.new()
+	if config.load(SETTINGS_PATH) == OK:
+		_sound_on = bool(config.get_value("audio", "sound", true))
+
+
+## notes — [начальная частота, конечная, длительность]; громкость спадает к концу каждой ноты.
+func _make_tone(notes: Array, volume: float) -> AudioStreamWAV:
+	var rate: int = 22050
+	var data := PackedByteArray()
+	for note: Variant in notes:
+		var samples: int = int(rate * float(note[2]))
+		var phase: float = 0.0
+		for index in samples:
+			var progress: float = float(index) / float(samples)
+			var freq: float = lerpf(float(note[0]), float(note[1]), progress)
+			phase += TAU * freq / float(rate)
+			var envelope: float = minf(1.0, progress * 30.0) * pow(1.0 - progress, 2.0)
+			var value: float = (sin(phase) + 0.3 * sin(phase * 2.0)) * envelope * volume
+			var sample: int = clampi(int(value * 32767.0), -32768, 32767)
+			data.append(sample & 0xFF)
+			data.append((sample >> 8) & 0xFF)
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = rate
+	stream.stereo = false
+	stream.data = data
+	return stream
+
+
+func _play(player: AudioStreamPlayer, pitch: float = 1.0) -> void:
+	if player == null or not _sound_on:
+		return
+	player.pitch_scale = pitch
+	player.play()
+
+
+func _toggle_sound() -> void:
+	_sound_on = not _sound_on
+	var config := ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("audio", "sound", _sound_on)
+	config.save(SETTINGS_PATH)
+	_refresh_sound_button()
+	_play(_sfx_buy)
+
+
+func _refresh_sound_button() -> void:
+	if _sound_button != null:
+		_sound_button.text = "Звук: включён" if _sound_on else "Звук: выключен"
 
 
 func _show_page(page: int) -> void:
@@ -2517,7 +2520,7 @@ func _build_settings_popup() -> void:
 	center.add_child(panel)
 
 	var stack := Control.new()
-	stack.custom_minimum_size = Vector2(800, 420)
+	stack.custom_minimum_size = Vector2(800, 560)
 	panel.add_child(stack)
 
 	_settings_menu = VBoxContainer.new()
@@ -2529,6 +2532,9 @@ func _build_settings_popup() -> void:
 	var hint := _make_center_label("Сброс стирает деньги, улучшения и водителей. Это для проверки игры.", 28, COLOR_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_settings_menu.add_child(hint)
+	_sound_button = _make_settings_button("", COLOR_BUY, _toggle_sound)
+	_settings_menu.add_child(_sound_button)
+	_refresh_sound_button()
 	_settings_menu.add_child(_make_settings_button("Сбросить прогресс", COLOR_DANGER, _ask_reset))
 	_settings_menu.add_child(_make_settings_button("Закрыть", COLOR_PANEL, _close_settings))
 
@@ -2573,6 +2579,9 @@ func _on_buy_upgrade(upgrade_id: String) -> void:
 
 
 func _on_coins_changed(value: float) -> void:
+	if _last_coins >= 0.0 and value < _last_coins - 0.5:
+		_play(_sfx_buy)
+	_last_coins = value
 	_refresh_achievements()
 	var text := GameState.format_money(value)
 	# Пока на экране та же строка, подпись не трогаем — иначе цифры двоятся.
