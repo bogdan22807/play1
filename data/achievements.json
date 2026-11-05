@@ -110,5 +110,13 @@
     "need": 3,
     "reward_coins": 5000,
     "reward_reputation": 0
+  },
+  {
+    "id": "king_of_bangkok",
+    "name": "Такси №1 в Бангкоке",
+    "kind": "captured",
+    "need": 1,
+    "reward_coins": 10000,
+    "reward_reputation": 0
   }
 ]
