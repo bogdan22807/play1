@@ -35,7 +35,7 @@ func _init() -> void:
 
 	# Мойщик не даёт машинам стать грязнее половины.
 	for i in 900:
-		gs._tick_fleet_wear(1.0)
+		gs._tick_second(1.0)
 	var dirty: int = 0
 	for car: Variant in gs.get_garage():
 		if float(car["clean"]) < 0.49:

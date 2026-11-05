@@ -97,6 +97,18 @@ var _candidates_unix: int = 0
 var _legacy_refund: float = 0.0
 var _fleet_growth: float = 1.15
 var _trade_in_share: float = 0.5
+## Версия состава парка и команды и кэши, которые от неё зависят.
+var _staff_version: int = 0
+var _garage_cache: Array = []
+var _garage_cache_key: String = ""
+var _assign_cache: Dictionary = {}
+var _assign_cache_key: String = ""
+var _fleet_counts: Dictionary = {}
+var _worst_index: int = -1
+var _fleet_stats_key: String = ""
+## Дела «раз в секунду», которые ещё не сделаны (по одному за кадр), и длина этой секунды.
+var _tick_queue: Array = []
+var _tick_seconds: float = 1.0
 var _garage_start: int = 5
 var _garage_expansions: Array = []
 ## Во сколько раз дороже каждое расширение гаража после списка из balance.json.
@@ -522,10 +534,25 @@ func buy_upgrade(upgrade_id: String) -> bool:
 
 ## Машины в гараже, от лучшей модели к худшей. Карточки те же, что внутри: их можно менять.
 func get_garage() -> Array:
+	var key: String = _staff_key()
+	if _garage_cache_key == key:
+		return _garage_cache
 	var sorted: Array = _garage.duplicate()
 	sorted.sort_custom(func(a: Variant, b: Variant) -> bool:
 		return get_car_driver_income(str(a.get("model", ""))) > get_car_driver_income(str(b.get("model", ""))))
+	_garage_cache = sorted
+	_garage_cache_key = key
 	return sorted
+
+
+## Состав парка и команды. Пока он тот же, сортировки и «кто на какой машине» берём из кэша —
+## их считают много раз в секунду, а пересортировка каждый раз давала рывки.
+func _staff_key() -> String:
+	return "%d/%d/%d" % [_staff_version, _garage.size(), _team.size()]
+
+
+func _staff_touched() -> void:
+	_staff_version += 1
 
 
 ## Мест в гаражах: родной гараж с расширениями плюс свой гараж на каждом открытом острове.
@@ -593,11 +620,23 @@ func get_car_driver_income(car_id: String) -> float:
 
 
 func get_fleet_count(car_id: String) -> int:
-	var count: int = 0
-	for car: Variant in _garage:
-		if str(car.get("model", "")) == car_id:
-			count += 1
-	return count
+	_refresh_fleet_stats()
+	return int(_fleet_counts.get(car_id, 0))
+
+
+## Сколько машин каждой модели и какая худшая — считаем один раз на состав парка.
+func _refresh_fleet_stats() -> void:
+	var key: String = _staff_key()
+	if _fleet_stats_key == key:
+		return
+	_fleet_stats_key = key
+	_fleet_counts.clear()
+	_worst_index = -1
+	for index in _garage.size():
+		var model: String = str(_garage[index].get("model", ""))
+		_fleet_counts[model] = int(_fleet_counts.get(model, 0)) + 1
+		if _worst_index < 0 or get_car_driver_income(model) < get_car_driver_income(str(_garage[_worst_index].get("model", ""))):
+			_worst_index = index
 
 
 ## Модель самой слабой машины гаража — её отдают в обмен, когда места нет.
@@ -607,12 +646,8 @@ func get_worst_garage_car() -> String:
 
 
 func _worst_garage_index() -> int:
-	var worst: int = -1
-	for index in _garage.size():
-		var income: float = get_car_driver_income(str(_garage[index].get("model", "")))
-		if worst < 0 or income < get_car_driver_income(str(_garage[worst].get("model", ""))):
-			worst = index
-	return worst
+	_refresh_fleet_stats()
+	return _worst_index
 
 
 func get_trade_in_value(car_id: String) -> float:
@@ -865,17 +900,44 @@ func _wear_my_car() -> void:
 
 
 ## Машины с водителем пачкаются и ломаются, пока работают. Только пока игра открыта.
+## Раз в секунду: достижения, смены, помощники, рынок, износ парка.
+## Чтобы не было одного «тяжёлого» кадра, эти дела раскладываются по соседним кадрам.
 func _tick_fleet_wear(step: float) -> void:
+	if not _tick_queue.is_empty():
+		_run_tick_part(str(_tick_queue.pop_front()))
+		return
 	_wear_left -= step
 	if _wear_left > 0.0:
 		return
-	var seconds: float = 1.0 - _wear_left
+	_tick_seconds = 1.0 - _wear_left
 	_wear_left = 1.0
-	# Достижения проверяем раз в секунду, а не каждый кадр.
-	_note_progress()
-	_tick_shifts(seconds)
-	_run_helpers(seconds)
-	_tick_market(seconds)
+	_tick_queue = ["progress", "shifts", "helpers", "market", "wear"]
+	_run_tick_part(str(_tick_queue.pop_front()))
+
+
+## Целая игровая секунда разом (для тестов и догонялок).
+func _tick_second(seconds: float = 1.0) -> void:
+	_tick_queue.clear()
+	_tick_seconds = seconds
+	for part: String in ["progress", "shifts", "helpers", "market", "wear"]:
+		_run_tick_part(part)
+
+
+func _run_tick_part(part: String) -> void:
+	match part:
+		"progress":
+			_note_progress()
+		"shifts":
+			_tick_shifts(_tick_seconds)
+		"helpers":
+			_run_helpers(_tick_seconds)
+		"market":
+			_tick_market(_tick_seconds)
+		"wear":
+			_wear_fleet(_tick_seconds)
+
+
+func _wear_fleet(seconds: float) -> void:
 	if _team.is_empty():
 		return
 	var clean_rate: float = _wear_value("fleet_clean_per_second", 0.0016667)
@@ -1252,6 +1314,9 @@ func refresh_candidates() -> bool:
 ## Кто на какой машине: сильнейшим водителям — лучшие машины.
 ## Возвращает uid -> карточку машины из гаража.
 func get_assignments() -> Dictionary:
+	var key: String = _staff_key()
+	if _assign_cache_key == key:
+		return _assign_cache
 	var people: Array = _team.duplicate()
 	people.sort_custom(func(a: Variant, b: Variant) -> bool:
 		return get_driver_power(a) > get_driver_power(b))
@@ -1259,6 +1324,8 @@ func get_assignments() -> Dictionary:
 	var result: Dictionary = {}
 	for index in mini(people.size(), cars.size()):
 		result[int(people[index].get("uid", 0))] = cars[index]
+	_assign_cache = result
+	_assign_cache_key = key
 	return result
 
 
@@ -1287,6 +1354,7 @@ func get_salary_per_second() -> float:
 
 
 func _after_staff_change() -> void:
+	_staff_touched()
 	_recalc_income()
 	_sync_reputation()
 	coins_changed.emit(coins)
@@ -1334,6 +1402,7 @@ func _make_candidate() -> Dictionary:
 func _reset_staff() -> void:
 	rating = _rating_value("start", 4)
 	_helpers.clear()
+	_staff_touched()
 	_garage.clear()
 	_garage_level = 0
 	_team.clear()
@@ -2574,6 +2643,7 @@ func _load_staff(data: Dictionary) -> void:
 			})
 	_garage_level = clampi(int(data.get("garage_level", 0)), 0, 1000)
 	_team = _read_people(data.get("team", []), true)
+	_staff_touched()
 	_candidates = _read_people(data.get("candidates", []), false)
 	_next_uid = maxi(1, int(data.get("next_uid", 1)))
 	for person: Variant in _team:

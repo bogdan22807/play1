@@ -24,7 +24,7 @@ const COLOR_BUY_PRESSED := Color("2aab55")
 const COLOR_DISABLED := Color("e6e2da")
 const COLOR_INCOME := Color("1b8f43")
 const COLOR_DANGER := Color("e8434f")
-const COLOR_TRICK := Color("8b7cf0")
+const COLOR_TRICK := Color("2f4a7a")
 const COLOR_SKY := Color("3fb2ff")
 const COLOR_SHIFT := Color("8c9eff")
 const COLOR_TITLE := Color("ffffff")
@@ -43,6 +43,8 @@ const PAGE_MARKET := 4
 var _coins_label: Label
 var _tap_label: Label
 var _reputation_label: Label
+## Чип репутации в шапке.
+var _rep_label: Label
 var _share_label: Label
 const CityView := preload("res://scripts/city_view.gd")
 const CarIcon := preload("res://scripts/car_icon.gd")
@@ -50,7 +52,6 @@ var _city: Control
 const TouchScroll := preload("res://scripts/touch_scroll.gd")
 ## Какая вкладка открыта и нужно ли обновить её списки (деньги поменялись).
 var _current_page: int = 0
-var _ui_dirty: bool = false
 const Mentor := preload("res://scripts/mentor.gd")
 const MentorPortrait := preload("res://scripts/mentor_portrait.gd")
 var _mentor: Node
@@ -108,6 +109,13 @@ var _refresh_button: Button
 var _fleet_rows: Dictionary = {}
 ## Список машин в гараже по моделям, с кнопкой «Продать».
 var _garage_box: VBoxContainer
+## uid водителя -> его строка в «Команде» (живёт, пока водитель в команде).
+var _team_rows: Dictionary = {}
+var _team_empty: Label
+## Что было в списке кандидатов: если не изменилось — не пересобираем.
+var _candidate_signature: String = ""
+var _garage_signature: String = ""
+var _staff_stale: bool = false
 ## Кнопки, которые зависят от денег: [кнопка, Callable проверки].
 var _staff_buttons: Array = []
 ## uid водителя -> [Label, карточка водителя, карточка машины]: строки, которые обновляются от износа.
@@ -185,7 +193,6 @@ var _toast_face: Control
 var _tap_line: Button
 var _tap_line_fill: Panel
 var _tap_line_label: Label
-var _tap_line_dirty: bool = true
 var _tap_line_text: String = ""
 ## Карточка «Что дальше» на главном экране: текст цели и вкладка, куда она ведёт (-1 — тут же).
 var _goal_panel: PanelContainer
@@ -205,26 +212,22 @@ var _name_error: Label
 
 
 func _ready() -> void:
-	Engine.max_fps = FPS_IDLE
+	# Без ограничения: кадры идут с частотой экрана (60, 90, 120 Гц).
+	Engine.max_fps = 0
 	_apply_theme()
 	_build_sounds()
 	_build_ui()
-	var ui_timer := Timer.new()
-	ui_timer.wait_time = 0.25
-	ui_timer.autostart = true
-	ui_timer.timeout.connect(_flush_ui)
-	add_child(ui_timer)
 	if _toast_layer != null:
 		move_child(_toast_layer, get_child_count() - 1)
 	GameState.coins_changed.connect(_on_coins_changed)
-	GameState.tap_power_changed.connect(_on_tap_power_changed)
+	GameState.tap_power_changed.connect(func(_value: float) -> void: _mark("rate"))
 	GameState.upgrades_changed.connect(_on_upgrades_changed)
-	GameState.drivers_changed.connect(_on_drivers_changed)
-	GameState.income_changed.connect(_on_income_changed)
+	GameState.drivers_changed.connect(func() -> void: _mark("staff"); _mark("city"))
+	GameState.income_changed.connect(func(_value: float) -> void: _mark("rate"))
 	GameState.districts_changed.connect(_on_districts_changed)
 	GameState.regions_changed.connect(_on_regions_changed)
 	GameState.reputation_changed.connect(_on_reputation_changed)
-	GameState.competitors_changed.connect(_on_competitors_changed)
+	GameState.competitors_changed.connect(func() -> void: _mark("competitors"); _mark("city"))
 	GameState.island_captured.connect(_on_island_captured)
 	GameState.rival_surrendered.connect(_on_rival_surrendered)
 	GameState.rival_attacked.connect(_on_rival_attacked)
@@ -234,14 +237,10 @@ func _ready() -> void:
 	GameState.achievements_changed.connect(_refresh_achievements)
 	GameState.offline_reward_ready.connect(_show_offline_popup)
 	GameState.car_changed.connect(_on_car_changed)
-	GameState.garage_changed.connect(_on_drivers_changed)
-	GameState.wear_changed.connect(_on_wear_changed)
-	GameState.shifts_changed.connect(_on_shifts_changed)
+	GameState.garage_changed.connect(func() -> void: _mark("staff"); _mark("city"))
+	GameState.wear_changed.connect(func() -> void: _mark("wear"); _mark("city"))
+	GameState.shifts_changed.connect(func() -> void: _mark("shifts"); _mark("city"))
 	GameState.helpers_changed.connect(_refresh_helpers)
-	GameState.wear_changed.connect(_sync_city)
-	GameState.shifts_changed.connect(_sync_city)
-	GameState.drivers_changed.connect(_sync_city)
-	GameState.competitors_changed.connect(_sync_city)
 	GameState.company_changed.connect(_on_company_changed)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -299,7 +298,7 @@ func _apply_theme() -> void:
 func _display(label: Label, font_size: int, color: Color = COLOR_TEXT) -> Label:
 	label.add_theme_font_override("font", _display_font)
 	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", color)
+	_col(label, color)
 	return label
 
 
@@ -426,7 +425,7 @@ func _build_mentor() -> void:
 	_mentor_text = Label.new()
 	_mentor_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_mentor_text.add_theme_font_size_override("font_size", 28)
-	_mentor_text.add_theme_color_override("font_color", COLOR_TEXT)
+	_col(_mentor_text, COLOR_TEXT)
 	box.add_child(_mentor_text)
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 12)
@@ -478,7 +477,7 @@ func _build_mentor() -> void:
 	_mentor_task_label = Label.new()
 	_mentor_task_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_mentor_task_label.add_theme_font_size_override("font_size", 26)
-	_mentor_task_label.add_theme_color_override("font_color", Color.WHITE)
+	_col(_mentor_task_label, Color.WHITE)
 	_mentor_task_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	task_row.add_child(_mentor_task_label)
 
@@ -683,9 +682,11 @@ func _build_header() -> VBoxContainer:
 	chips.alignment = BoxContainer.ALIGNMENT_CENTER
 	chips.add_theme_constant_override("separation", 10)
 	header.add_child(chips)
-	_tap_label = _make_chip(chips, COLOR_CHIP)
-	_reputation_label = _make_chip(chips, COLOR_CHIP)
-	_share_label = _make_chip(chips, COLOR_CHIP)
+	chips.add_theme_constant_override("separation", 8)
+	_tap_label = _make_chip(chips, COLOR_CHIP, "chip_income")
+	_reputation_label = _make_chip(chips, COLOR_CHIP, "chip_star")
+	_rep_label = _make_chip(chips, COLOR_CHIP, "chip_rep")
+	_share_label = _make_chip(chips, COLOR_CHIP, "chip_city")
 
 	# Линия тапа: копится от денег, наполнилась — тап по ней покупает следующий уровень.
 	_tap_line = Button.new()
@@ -720,7 +721,7 @@ func _build_header() -> VBoxContainer:
 	_tap_line_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_tap_line_label.add_theme_font_size_override("font_size", 27)
 	_tap_line_label.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
-	_tap_line_label.add_theme_color_override("font_color", COLOR_TEXT)
+	_col(_tap_line_label, COLOR_TEXT)
 	_tap_line.add_child(_tap_line_label)
 	return header
 
@@ -747,7 +748,7 @@ func _refresh_tap_line() -> void:
 	if text != _tap_line_text:
 		_tap_line_text = text
 		_tap_line_label.text = text
-		_tap_line_label.add_theme_color_override("font_color", Color.WHITE if ready else COLOR_TEXT)
+		_col(_tap_line_label, Color.WHITE if ready else COLOR_TEXT)
 
 
 func _mult_text(value: float) -> String:
@@ -783,24 +784,35 @@ func _make_coin() -> Control:
 
 
 ## Цветной чип с текстом. Возвращает подпись, чтобы её обновлять.
-func _make_chip(parent: Container, color: Color) -> Label:
+func _make_chip(parent: Container, color: Color, icon_kind: String = "") -> Label:
 	var chip := PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
 	style.set_corner_radius_all(26)
 	style.border_width_bottom = 4
 	style.border_color = color.darkened(0.35)
-	style.content_margin_left = 18
-	style.content_margin_right = 18
+	style.content_margin_left = 10 if icon_kind != "" else 18
+	style.content_margin_right = 16
 	style.content_margin_top = 6
 	style.content_margin_bottom = 6
 	chip.add_theme_stylebox_override("panel", style)
 	parent.add_child(chip)
+	var holder: Container = chip
+	if icon_kind != "":
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		chip.add_child(row)
+		var icon: Control = ItemIcon.new()
+		icon.kind = icon_kind
+		icon.custom_minimum_size = Vector2(30, 30)
+		row.add_child(icon)
+		holder = row
 	var label := Label.new()
-	label.add_theme_font_size_override("font_size", 26)
+	label.add_theme_font_size_override("font_size", 25)
 	label.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
-	label.add_theme_color_override("font_color", _text_on(color))
-	chip.add_child(label)
+	_col(label, _text_on(color))
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	holder.add_child(label)
 	return label
 
 
@@ -1004,41 +1016,45 @@ func _percent(value: float) -> String:
 	return "%d%%" % int(floorf(value * 100.0 + 0.0001))
 
 
+## Обновляем только то, что видно на открытой вкладке: остальное — когда её откроют.
 func _on_wear_changed() -> void:
-	if _my_clean_bar != null:
+	if _my_clean_bar != null and _current_page == PAGE_TAP:
 		var clean: float = GameState.get_my_clean()
 		var health: float = GameState.get_my_health()
 		_my_clean_bar.value = clean
 		_my_health_bar.value = health
 		_my_clean_label.text = "Чистота %s%s" % [_percent(clean), "  ·  пассажиры морщатся" if clean < 0.5 else ""]
-		_my_clean_label.add_theme_color_override("font_color", _wear_color(clean))
+		_col(_my_clean_label, _wear_color(clean))
 		var health_note: String = ""
 		if GameState.is_broken(health):
 			health_note = "  ·  сломана, еле едет!"
 		elif health < 0.5:
 			health_note = "  ·  дребезжит"
 		_my_health_label.text = "Состояние %s%s" % [_percent(health), health_note]
-		_my_health_label.add_theme_color_override("font_color", _wear_color(health))
+		_col(_my_health_label, _wear_color(health))
 		var wash: float = GameState.get_my_wash_cost()
 		_wash_me_button.text = "Помыть %s" % GameState.format_money(wash) if wash > 0.0 else "Чистая"
 		_wash_me_button.disabled = not GameState.can_wash_my_car()
 		var repair: float = GameState.get_my_repair_cost()
 		_repair_me_button.text = "Починить %s" % GameState.format_money(repair) if repair > 0.0 else "Целая"
 		_repair_me_button.disabled = not GameState.can_repair_my_car()
-	if _fleet_wear_label != null:
+	if _fleet_wear_label != null and _current_page == PAGE_UPGRADES:
 		var broken: int = GameState.get_broken_count()
 		_fleet_wear_label.text = "Парк: чистота %s  ·  состояние %s%s" % [
 			_percent(GameState.get_fleet_average("clean")),
 			_percent(GameState.get_fleet_average("health")),
 			"  ·  сломано: %d" % broken if broken > 0 else "",
 		]
-		_fleet_wear_label.add_theme_color_override("font_color", COLOR_DANGER if broken > 0 else COLOR_MUTED)
+		_col(_fleet_wear_label, COLOR_DANGER if broken > 0 else COLOR_MUTED)
 		var wash_fleet: float = GameState.get_fleet_wash_cost()
 		_wash_fleet_button.text = "Помыть парк\n%s" % GameState.format_money(wash_fleet) if wash_fleet > 0.0 else "Парк\nчистый"
 		_wash_fleet_button.disabled = not GameState.can_wash_fleet()
 		var repair_fleet: float = GameState.get_fleet_repair_cost()
 		_repair_fleet_button.text = "Починить парк\n%s" % GameState.format_money(repair_fleet) if repair_fleet > 0.0 else "Парк\nцелый"
 		_repair_fleet_button.disabled = not GameState.can_repair_fleet()
+	if _current_page != PAGE_DRIVERS:
+		return
+	if _staff_summary != null:
 		_staff_summary.text = _staff_summary_text()
 	for uid: Variant in _team_wear_rows.keys():
 		var entry: Array = _team_wear_rows[uid]
@@ -1046,7 +1062,7 @@ func _on_wear_changed() -> void:
 		if is_instance_valid(label):
 			label.text = _team_car_text(entry[1], entry[2])
 			var car: Dictionary = entry[2]
-			label.add_theme_color_override("font_color", COLOR_DANGER if GameState.is_broken(float(car.get("health", 1))) else COLOR_INCOME)
+			_col(label, COLOR_DANGER if GameState.is_broken(float(car.get("health", 1))) else COLOR_INCOME)
 
 
 func _team_car_text(person: Dictionary, car: Dictionary) -> String:
@@ -1064,9 +1080,9 @@ func _team_car_text(person: Dictionary, car: Dictionary) -> String:
 ## Раз в секунду: часы смен, усталость, рейтинг.
 func _on_shifts_changed() -> void:
 	_refresh_meta_line()
-	if _current_page == PAGE_MARKET:
-		_refresh_competitors()
 	_refresh_market_share()
+	if _current_page != PAGE_DRIVERS:
+		return
 	var shift: float = GameState.get_shift_hours()
 	for uid: Variant in _team_shift_rows.keys():
 		var entry: Array = _team_shift_rows[uid]
@@ -1089,7 +1105,7 @@ func _on_shifts_changed() -> void:
 		elif hours > shift * 0.75:
 			state = "скоро конец смены"
 		label.text = "Смена: %.1f ч из %d  ·  %s" % [hours, int(shift), state]
-		label.add_theme_color_override("font_color", color)
+		_col(label, color)
 		bar.value = minf(hours, bar.max_value)
 		var fill: StyleBoxFlat = bar.get_theme_stylebox("fill")
 		fill.bg_color = color if tired > 0.0 else COLOR_SHIFT
@@ -1108,7 +1124,7 @@ func _on_shifts_changed() -> void:
 			trend = "падают к ★%.1f" % target
 		var bonus: int = int(roundf((GameState.get_rating_multiplier() - 1.0) * 100.0))
 		_rating_label.text = "Отзывы ★%.1f, %s  ·  доход %s%d%%" % [now, trend, "+" if bonus >= 0 else "", bonus]
-		_rating_label.add_theme_color_override("font_color", COLOR_DANGER if target < now - 0.05 else COLOR_GOLD)
+		_col(_rating_label, COLOR_DANGER if target < now - 0.05 else COLOR_GOLD)
 	for uid: Variant in _team_wear_rows.keys():
 		var entry: Array = _team_wear_rows[uid]
 		var car_label: Label = entry[0]
@@ -1431,12 +1447,34 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 		var trick_id: String = str(raw.get("id", ""))
 		var button := Button.new()
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0, 130)
+		button.custom_minimum_size = Vector2(0, 200)
 		button.focus_mode = Control.FOCUS_NONE
-		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_style_plain_button(button, COLOR_TRICK)
-		button.add_theme_font_size_override("font_size", 23)
 		button.pressed.connect(_on_trick.bind(competitor_id, trick_id))
+		# Картинка пакости сверху, подпись снизу — кнопку видно издалека.
+		var trick_face := VBoxContainer.new()
+		trick_face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		trick_face.offset_top = 10
+		trick_face.offset_bottom = -14
+		trick_face.offset_left = 6
+		trick_face.offset_right = -6
+		trick_face.alignment = BoxContainer.ALIGNMENT_CENTER
+		trick_face.add_theme_constant_override("separation", 2)
+		trick_face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(trick_face)
+		var picture: Control = ItemIcon.new()
+		picture.kind = trick_id
+		picture.custom_minimum_size = Vector2(0, 82)
+		picture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		trick_face.add_child(picture)
+		var caption := Label.new()
+		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		caption.add_theme_font_size_override("font_size", 21)
+		caption.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
+		caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		trick_face.add_child(caption)
+		button.set_meta("caption", caption)
 		tricks.add_child(button)
 		trick_buttons[trick_id] = button
 
@@ -1526,25 +1564,9 @@ func _refresh_video() -> void:
 	_video_button.disabled = not done
 
 
-## Кадров в секунду: в покое 30 (телефон не греется), при касаниях и прокрутке 60 (плавно).
-const FPS_IDLE := 30
-const FPS_ACTIVE := 60
-var _fast_left: float = 0.0
-
-
-func _input(event: InputEvent) -> void:
-	if event is InputEventMouseButton or event is InputEventMouseMotion or event is InputEventScreenDrag:
-		_fast_left = 1.5
-		if Engine.max_fps != FPS_ACTIVE:
-			Engine.max_fps = FPS_ACTIVE
-
-
 func _process(delta: float) -> void:
 	_tick_video(delta)
-	if _fast_left > 0.0:
-		_fast_left -= delta
-		if _fast_left <= 0.0:
-			Engine.max_fps = FPS_IDLE
+	_run_one_job()
 
 
 func _tick_video(delta: float) -> void:
@@ -1738,7 +1760,7 @@ func _rebuild_market_if_needed() -> void:
 ## Серая кнопка с таймером: текст тёмный и чёткий, а не бледный, чтобы время было видно.
 func _timer_look(button: Button, waiting: bool) -> void:
 	var color: Color = COLOR_TEXT if waiting else Color(_text_on(COLOR_DISABLED), 0.55)
-	button.add_theme_color_override("font_disabled_color", color)
+	_col(button, color, "font_disabled_color")
 
 
 ## «4:32» или «1 ч 05 мин» — для таймеров на кнопках.
@@ -1824,22 +1846,22 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	match state:
 		"owned":
 			status.text = "Компания ваша  ·  доход +%d%%" % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
-			status.add_theme_color_override("font_color", COLOR_INCOME)
+			_col(status, COLOR_INCOME)
 			return
 		"surrendered":
 			status.text = "Сдался и ждёт выкупа. Купите — и доход +%d%%." % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
-			status.add_theme_color_override("font_color", COLOR_GOLD)
+			_col(status, COLOR_GOLD)
 			buy.text = "Выкупить за %s" % GameState.format_money(GameState.get_competitor_cost(id))
 			buy.disabled = not GameState.can_buy_rival(id)
 			return
 		"waiting":
 			status.text = "Ждёт своей очереди · возит на %s/с" % GameState.format_money(GameState.get_competitor_power(id))
-			status.add_theme_color_override("font_color", COLOR_MUTED)
+			_col(status, COLOR_MUTED)
 			status.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 			return
 	var mine: float = GameState.get_player_power()
 	var theirs: float = GameState.get_competitor_power(id)
-	status.add_theme_color_override("font_color", COLOR_TEXT)
+	_col(status, COLOR_TEXT)
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if theirs <= 0.0 or mine >= theirs:
 		status.text = "Вы догнали! Сейчас сдадутся"
@@ -1883,16 +1905,19 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 			if str(raw.get("id", "")) == tid:
 				trick_name = str(raw.get("name", tid))
 		var trick_wait: int = GameState.get_trick_wait(id)
+		var caption: Label = button.get_meta("caption")
 		if trick_wait > 0:
-			button.text = "%s\nснова через %s" % [trick_name, _wait_text(trick_wait)]
+			caption.text = "%s\nснова через %s" % [trick_name, _wait_text(trick_wait)]
 		else:
-			button.text = "%s\n%s · риск %d%%" % [
+			caption.text = "%s\n%s · риск %d%%" % [
 				trick_name,
 				GameState.format_money(GameState.get_trick_price(tid)),
 				int(roundf(GameState.get_catch_chance(id, tid) * 100.0)),
 			]
 		button.disabled = not GameState.can_play_trick(id, tid)
-		_timer_look(button, trick_wait > 0)
+		# Подпись — отдельная метка: цвет ставим сами (на сером — тёмный, чтобы таймер читался).
+		_col(caption, _text_on(COLOR_TRICK) if not button.disabled else (COLOR_TEXT if trick_wait > 0 else COLOR_MUTED))
+		caption.get_parent().modulate = Color(1, 1, 1, 1.0 if not button.disabled or trick_wait > 0 else 0.7)
 
 
 ## Подсказка у кампании: хватит ли её, чтобы обогнать текущего соперника.
@@ -1965,7 +1990,7 @@ func _make_sell_panel() -> PanelContainer:
 	_sell_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_sell_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_sell_info.add_theme_font_size_override("font_size", 26)
-	_sell_info.add_theme_color_override("font_color", COLOR_MUTED)
+	_col(_sell_info, COLOR_MUTED)
 	column.add_child(_sell_info)
 
 	_sell_button = Button.new()
@@ -2244,13 +2269,13 @@ func _build_city_rows() -> void:
 		about.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		about.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		about.add_theme_font_size_override("font_size", 26)
-		about.add_theme_color_override("font_color", COLOR_MUTED)
+		_col(about, COLOR_MUTED)
 		_district_list.add_child(about)
 
 		_multiplier_label = Label.new()
 		_multiplier_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_multiplier_label.add_theme_font_size_override("font_size", 32)
-		_multiplier_label.add_theme_color_override("font_color", COLOR_INCOME)
+		_col(_multiplier_label, COLOR_INCOME)
 		_district_list.add_child(_multiplier_label)
 
 		var districts: Variant = city.get("districts", [])
@@ -2277,6 +2302,7 @@ func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer
 	row.add_theme_constant_override("separation", 16)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(row)
+	row.add_child(_make_item_icon(district_id))
 
 	var text_box := VBoxContainer.new()
 	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2292,14 +2318,14 @@ func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer
 	description.text = str(info.get("description", ""))
 	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	description.add_theme_font_size_override("font_size", 26)
-	description.add_theme_color_override("font_color", COLOR_MUTED)
+	_col(description, COLOR_MUTED)
 	text_box.add_child(description)
 
 	var bonus: float = float(info.get("income_bonus", 0))
 	var bonus_label := Label.new()
 	bonus_label.text = "Доход +%s%%" % GameState.format_number(bonus * 100.0)
 	bonus_label.add_theme_font_size_override("font_size", 26)
-	bonus_label.add_theme_color_override("font_color", COLOR_INCOME)
+	_col(bonus_label, COLOR_INCOME)
 	text_box.add_child(bonus_label)
 
 	var open_button := Button.new()
@@ -2543,7 +2569,7 @@ func _build_name_popup() -> void:
 	focused.border_color = COLOR_ACCENT
 	_name_edit.add_theme_stylebox_override("normal", field)
 	_name_edit.add_theme_stylebox_override("focus", focused)
-	_name_edit.add_theme_color_override("font_color", COLOR_TEXT)
+	_col(_name_edit, COLOR_TEXT)
 	_name_edit.add_theme_color_override("font_placeholder_color", COLOR_MUTED)
 	_name_edit.add_theme_color_override("caret_color", COLOR_TEXT)
 	_name_edit.text_submitted.connect(_on_name_submitted)
@@ -2594,7 +2620,7 @@ func _build_driver_rows() -> void:
 	_staff_summary = Label.new()
 	_staff_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_staff_summary.add_theme_font_size_override("font_size", 28)
-	_staff_summary.add_theme_color_override("font_color", COLOR_INCOME)
+	_col(_staff_summary, COLOR_INCOME)
 	service_box.add_child(_staff_summary)
 	_rating_label = _add_label(service_box, "", 28, COLOR_GOLD)
 	_shift_all_button = _make_row_button(_on_shift_all)
@@ -2777,7 +2803,7 @@ func _make_text_box(row: HBoxContainer) -> VBoxContainer:
 func _make_row_panel() -> Array:
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override("panel", _panel_style())
+	panel.add_theme_stylebox_override("panel", _shared_panel())
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -2785,12 +2811,22 @@ func _make_row_panel() -> Array:
 	return [panel, row]
 
 
+## Цвет шрифта меняем, только если он правда другой: каждая смена темы заставляет
+## Godot пересчитывать оформление, и при частых обновлениях это даёт подёргивания.
+func _col(control: Control, color: Color, item: String = "font_color") -> void:
+	var key: String = "_c_" + item
+	if control.has_meta(key) and control.get_meta(key) == color:
+		return
+	control.set_meta(key, color)
+	control.add_theme_color_override(item, color)
+
+
 func _add_label(box: Container, text: String, font_size: int, color: Color = COLOR_TEXT) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", color)
+	_col(label, color)
 	box.add_child(label)
 	return label
 
@@ -2834,113 +2870,160 @@ func _make_fleet_row(car_id: String, info: Dictionary) -> PanelContainer:
 
 
 ## Команда и кандидаты меняются по составу — пересобираем их целиком.
+## Команда и кандидаты. Строки не пересоздаются целиком: у оставшихся водителей
+## строка живёт дальше, создаются только новые. Создание строки дорогое (тексты,
+## кнопки), и полная пересборка давала заметный рывок при каждой покупке.
 func _rebuild_staff() -> void:
 	if _team_box == null:
 		return
-	_staff_buttons.clear()
-	_team_wear_rows.clear()
-	_team_shift_rows.clear()
-	for child in _team_box.get_children():
-		child.queue_free()
-	for child in _candidate_box.get_children():
-		child.queue_free()
-
+	# Команда и гараж видны на двух вкладках. На других — просто запомним, что пора обновить.
+	if _current_page != PAGE_DRIVERS and _current_page != PAGE_UPGRADES:
+		_staff_stale = true
+		return
+	_staff_stale = false
 	var cars: Dictionary = GameState.get_assignments()
-	if GameState.get_team().is_empty():
-		_add_label(_team_box, "Пока никого. Купите машину в парк и наймите первого водителя.", 26, COLOR_MUTED)
-	for raw: Variant in GameState.get_team():
+	var team: Array = GameState.get_team()
+	var present: Dictionary = {}
+	for raw: Variant in team:
+		present[int(raw.get("uid", 0))] = true
+	for uid: Variant in _team_rows.keys():
+		if not present.has(uid):
+			var gone: Dictionary = _team_rows[uid]
+			(gone["panel"] as Control).queue_free()
+			_team_rows.erase(uid)
+			_team_wear_rows.erase(uid)
+			_team_shift_rows.erase(uid)
+	if _team_empty == null:
+		_team_empty = _add_label(_team_box, "Пока никого. Купите машину в гараж и наймите первого водителя.", 26, COLOR_MUTED)
+	_team_empty.visible = team.is_empty()
+	var order: int = 1
+	for raw: Variant in team:
 		var person: Dictionary = raw
 		var uid: int = int(person.get("uid", 0))
-		var parts: Array = _make_row_panel()
-		var row: HBoxContainer = parts[1]
-		row.add_child(_make_driver_face(person))
-		var text_box := _make_text_box(row)
-		_add_label(text_box, str(person.get("name", "")), 34)
-		_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
+		if not _team_rows.has(uid):
+			_team_rows[uid] = _make_team_row(person, uid)
+		var entry: Dictionary = _team_rows[uid]
+		_team_box.move_child(entry["panel"], order)
+		order += 1
 		var car: Dictionary = cars.get(uid, {})
+		var car_label: Label = entry["car"]
+		var no_car: Label = entry["no_car"]
+		car_label.visible = not car.is_empty()
+		no_car.visible = car.is_empty()
 		if car.is_empty():
-			_add_label(text_box, "Без машины — купите ещё одну в парк", 26, COLOR_DANGER)
+			_team_wear_rows.erase(uid)
 		else:
-			var car_label := _add_label(text_box, "", 26, COLOR_INCOME)
 			_team_wear_rows[uid] = [car_label, person, car]
-		var shift_label := _add_label(text_box, "", 24, COLOR_MUTED)
-		var shift_bar := _make_bar(COLOR_SHIFT)
-		shift_bar.max_value = 14.0
-		text_box.add_child(shift_bar)
-		var buttons := VBoxContainer.new()
-		buttons.add_theme_constant_override("separation", 10)
-		row.add_child(buttons)
-		var shift_button := Button.new()
-		shift_button.text = "Сменить"
-		shift_button.custom_minimum_size = Vector2(200, 80)
-		shift_button.focus_mode = Control.FOCUS_NONE
-		_style_buy_button(shift_button)
-		shift_button.add_theme_font_size_override("font_size", 26)
-		shift_button.pressed.connect(_on_change_shift.bind(uid))
-		buttons.add_child(shift_button)
-		var fire_button := Button.new()
-		fire_button.text = "Уволить"
-		fire_button.custom_minimum_size = Vector2(200, 70)
-		fire_button.focus_mode = Control.FOCUS_NONE
-		_style_plain_button(fire_button, COLOR_DANGER)
-		fire_button.add_theme_font_size_override("font_size", 24)
-		fire_button.pressed.connect(_on_fire.bind(uid))
-		buttons.add_child(fire_button)
-		_team_shift_rows[uid] = [shift_label, shift_bar, shift_button, person]
-		_team_box.add_child(parts[0])
+		_team_shift_rows[uid] = [entry["shift_label"], entry["shift_bar"], entry["shift_button"], person]
 
 	_rebuild_garage_list()
 
+	# Кандидаты меняются редко (найм, «позвать других»): пересобираем, только если что-то изменилось.
 	var free_cars: Array = GameState.get_free_garage_cars()
+	var free_model: String = "" if free_cars.is_empty() else str(free_cars[0].get("model", ""))
 	var candidates: Array = GameState.get_candidates()
-	for index in candidates.size():
-		var person: Dictionary = candidates[index]
-		var parts: Array = _make_row_panel()
-		var row: HBoxContainer = parts[1]
-		row.add_child(_make_driver_face(person))
-		var text_box := _make_text_box(row)
-		_add_label(text_box, str(person.get("name", "")), 34)
-		_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
-		var trait_info: Dictionary = GameState.get_trait_info(str(person.get("trait", "")))
-		_add_label(text_box, str(trait_info.get("description", "")), 26, COLOR_MUTED)
-		if free_cars.is_empty():
-			_add_label(text_box, "Нет свободной машины в гараже", 26, COLOR_DANGER)
-		else:
-			var free_model: String = str(free_cars[0].get("model", ""))
-			_add_label(text_box, "На «%s» ≈ %s/с  ·  зарплата %d%%" % [
-				_car_name(free_model),
-				GameState.format_money(GameState.get_driver_net(person, free_model)),
-				int(roundf(GameState.get_salary_share(person) * 100.0)),
-			], 26, COLOR_INCOME)
-		var hire_button := _make_row_button(_on_hire.bind(index))
-		hire_button.text = "Нанять\n%s" % GameState.format_money(GameState.get_hire_cost(person))
-		row.add_child(hire_button)
-		_staff_buttons.append([hire_button, GameState.can_hire.bind(index)])
-		_candidate_box.add_child(parts[0])
+	var signature: String = "%s|%d|%s" % [free_model, team.size(), ",".join(candidates.map(func(p: Variant) -> String: return str(p.get("name", ""))))]
+	if signature != _candidate_signature:
+		_candidate_signature = signature
+		_staff_buttons.clear()
+		for child in _candidate_box.get_children():
+			child.queue_free()
+		for index in candidates.size():
+			_candidate_box.add_child(_make_candidate_row(candidates[index], index, free_model))
 	_refresh_staff_money()
 	_on_wear_changed()
 	_on_shifts_changed()
+
+
+func _make_team_row(person: Dictionary, uid: int) -> Dictionary:
+	var parts: Array = _make_row_panel()
+	var row: HBoxContainer = parts[1]
+	row.add_child(_make_driver_face(person))
+	var text_box := _make_text_box(row)
+	_add_label(text_box, str(person.get("name", "")), 34)
+	_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
+	var no_car := _add_label(text_box, "Без машины — купите ещё одну в гараж", 26, COLOR_DANGER)
+	var car_label := _add_label(text_box, "", 26, COLOR_INCOME)
+	var shift_label := _add_label(text_box, "", 24, COLOR_MUTED)
+	var shift_bar := _make_bar(COLOR_SHIFT)
+	shift_bar.max_value = 14.0
+	text_box.add_child(shift_bar)
+	var buttons := VBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 10)
+	row.add_child(buttons)
+	var shift_button := Button.new()
+	shift_button.text = "Сменить"
+	shift_button.custom_minimum_size = Vector2(200, 80)
+	shift_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(shift_button)
+	shift_button.add_theme_font_size_override("font_size", 26)
+	shift_button.pressed.connect(_on_change_shift.bind(uid))
+	buttons.add_child(shift_button)
+	var fire_button := Button.new()
+	fire_button.text = "Уволить"
+	fire_button.custom_minimum_size = Vector2(200, 70)
+	fire_button.focus_mode = Control.FOCUS_NONE
+	_style_plain_button(fire_button, COLOR_DANGER)
+	fire_button.add_theme_font_size_override("font_size", 24)
+	fire_button.pressed.connect(_on_fire.bind(uid))
+	buttons.add_child(fire_button)
+	_team_box.add_child(parts[0])
+	return {
+		"panel": parts[0], "car": car_label, "no_car": no_car,
+		"shift_label": shift_label, "shift_bar": shift_bar, "shift_button": shift_button,
+	}
+
+
+func _make_candidate_row(person: Dictionary, index: int, free_model: String) -> PanelContainer:
+	var parts: Array = _make_row_panel()
+	var row: HBoxContainer = parts[1]
+	row.add_child(_make_driver_face(person))
+	var text_box := _make_text_box(row)
+	_add_label(text_box, str(person.get("name", "")), 34)
+	_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
+	var trait_info: Dictionary = GameState.get_trait_info(str(person.get("trait", "")))
+	_add_label(text_box, str(trait_info.get("description", "")), 26, COLOR_MUTED)
+	if free_model == "":
+		_add_label(text_box, "Нет свободной машины в гараже", 26, COLOR_DANGER)
+	else:
+		_add_label(text_box, "На «%s» ≈ %s/с  ·  зарплата %d%%" % [
+			_car_name(free_model),
+			GameState.format_money(GameState.get_driver_net(person, free_model)),
+			int(roundf(GameState.get_salary_share(person) * 100.0)),
+		], 26, COLOR_INCOME)
+	var hire_button := _make_row_button(_on_hire.bind(index))
+	hire_button.text = "Нанять\n%s" % GameState.format_money(GameState.get_hire_cost(person))
+	row.add_child(hire_button)
+	_staff_buttons.append([hire_button, GameState.can_hire.bind(index)])
+	return parts[0]
 
 
 ## Только то, что зависит от денег: доступность кнопок и цены.
 func _refresh_staff_money() -> void:
 	if _garage_label == null:
 		return
-	for pair: Variant in _staff_buttons:
-		var button: Button = pair[0]
-		var check: Callable = pair[1]
-		if is_instance_valid(button):
-			button.disabled = not check.call()
-	_garage_label.text = "Гараж: %d / %d  ·  водителей: %d" % [
+	if _current_page == PAGE_DRIVERS:
+		for pair: Variant in _staff_buttons:
+			var button: Button = pair[0]
+			var check: Callable = pair[1]
+			if is_instance_valid(button):
+				button.disabled = not check.call()
+		_staff_summary.text = _staff_summary_text()
+		_refresh_candidate_timer()
+		return
+	if _current_page != PAGE_UPGRADES:
+		return
+	# Текст собираем целиком и ставим один раз: каждая смена текста — пересчёт раскладки.
+	var garage_text: String = "Гараж: %d / %d  ·  водителей: %d" % [
 		GameState.get_garage().size(),
 		GameState.get_garage_capacity(),
 		GameState.get_team().size(),
 	]
 	if GameState.get_island_garage_slots() > 0:
-		_garage_label.text += "\nдома %d + на островах %d" % [GameState.get_home_garage_capacity(), GameState.get_island_garage_slots()]
+		garage_text += "\nдома %d + на островах %d" % [GameState.get_home_garage_capacity(), GameState.get_island_garage_slots()]
 	if GameState.get_garage().size() > GameState.get_garage_capacity():
-		_garage_label.text += "\nМашин больше, чем мест: лишние можно продать"
-	_staff_summary.text = _staff_summary_text()
+		garage_text += "\nМашин больше, чем мест: лишние можно продать"
+	_garage_label.text = garage_text
 	var step: Dictionary = GameState.get_next_expansion()
 	if step.is_empty():
 		_expand_button.text = "Гараж\nмаксимум"
@@ -2995,6 +3078,14 @@ func _on_buy_fleet(car_id: String) -> void:
 func _rebuild_garage_list() -> void:
 	if _garage_box == null:
 		return
+	# Пересобираем, только если поменялся состав гаража или команды.
+	var counts: PackedStringArray = PackedStringArray()
+	for car: Variant in GameState.get_garage():
+		counts.append(str(car.get("model", "")))
+	var signature: String = "%s|%d" % [",".join(counts), GameState.get_team().size()]
+	if signature == _garage_signature:
+		return
+	_garage_signature = signature
 	for child in _garage_box.get_children():
 		_garage_box.remove_child(child)
 		child.queue_free()
@@ -3067,12 +3158,12 @@ func _make_upgrade_row(upgrade_id: String, info: Dictionary) -> PanelContainer:
 	description.text = str(info.get("description", ""))
 	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	description.add_theme_font_size_override("font_size", 26)
-	description.add_theme_color_override("font_color", COLOR_MUTED)
+	_col(description, COLOR_MUTED)
 	text_box.add_child(description)
 
 	var level_label := Label.new()
 	level_label.add_theme_font_size_override("font_size", 28)
-	level_label.add_theme_color_override("font_color", COLOR_GOLD)
+	_col(level_label, COLOR_GOLD)
 	text_box.add_child(level_label)
 
 	var buy_button := Button.new()
@@ -3090,6 +3181,16 @@ func _make_upgrade_row(upgrade_id: String, info: Dictionary) -> PanelContainer:
 
 
 ## Плашка: светлее фона, с тёмной кромкой снизу — как объёмная карточка.
+var _panel_shared: StyleBoxFlat
+
+
+## Общий стиль карточки для строк списков — один на всех, не создаём заново.
+func _shared_panel() -> StyleBoxFlat:
+	if _panel_shared == null:
+		_panel_shared = _panel_style()
+	return _panel_shared
+
+
 func _panel_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = COLOR_PANEL
@@ -3116,7 +3217,7 @@ func _style_buy_button(button: Button) -> void:
 
 ## Подпись прямо на фоне, не на карточке: цвет и обводка как у заголовков.
 func _on_background(label: Label) -> Label:
-	label.add_theme_color_override("font_color", COLOR_TITLE)
+	_col(label, COLOR_TITLE)
 	label.add_theme_constant_override("outline_size", 6)
 	label.add_theme_color_override("font_outline_color", COLOR_TITLE_OUTLINE)
 	return label
@@ -3135,7 +3236,14 @@ func _set_button_text(button: Button, fill: Color) -> void:
 
 
 ## Объёмная кнопка: кромка снизу темнее. Нажатая — кромка тоньше, кнопка «проседает».
+## Готовые стили кнопок: одинаковые кнопки делят один стиль, а не создают свой.
+var _button_styles: Dictionary = {}
+
+
 func _button_style(color: Color, flat: bool = false) -> StyleBoxFlat:
+	var key: String = "%s/%s" % [color.to_html(), flat]
+	if _button_styles.has(key):
+		return _button_styles[key]
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
 	style.set_corner_radius_all(26)
@@ -3145,6 +3253,7 @@ func _button_style(color: Color, flat: bool = false) -> StyleBoxFlat:
 	style.content_margin_right = 14
 	style.content_margin_top = 12 if not flat else 16
 	style.content_margin_bottom = 12
+	_button_styles[key] = style
 	return style
 
 
@@ -3190,7 +3299,7 @@ func _build_offline_popup() -> void:
 	_offline_time_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_offline_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_offline_time_label.add_theme_font_size_override("font_size", 30)
-	_offline_time_label.add_theme_color_override("font_color", COLOR_MUTED)
+	_col(_offline_time_label, COLOR_MUTED)
 	box.add_child(_offline_time_label)
 
 	var collect_button := Button.new()
@@ -3271,7 +3380,7 @@ func _refresh_achievements() -> void:
 		var reward := "+%s" % GameState.format_money(float(info.get("reward_coins", 0)))
 		if GameState.is_achievement_done(str(achievement_id)):
 			label.text = "%s\nПолучено, награда %s" % [str(info.get("name", "")), reward]
-			label.add_theme_color_override("font_color", COLOR_INCOME)
+			_col(label, COLOR_INCOME)
 		else:
 			label.text = "%s\n%s / %s, награда %s" % [
 				str(info.get("name", "")),
@@ -3279,7 +3388,7 @@ func _refresh_achievements() -> void:
 				GameState.format_number(need),
 				reward,
 			]
-			label.add_theme_color_override("font_color", COLOR_TEXT)
+			_col(label, COLOR_TEXT)
 
 
 func _on_achievement_unlocked(title: String, body: String) -> void:
@@ -3418,7 +3527,7 @@ func _spawn_floating_gain(amount: float, at_global: Vector2) -> void:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_size_override("font_size", 56)
-	label.add_theme_color_override("font_color", COLOR_GOLD)
+	_col(label, COLOR_GOLD)
 	label.add_theme_constant_override("outline_size", 10)
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	label.custom_minimum_size = Vector2(320, 80)
@@ -3565,8 +3674,12 @@ func _show_page(page: int) -> void:
 	_current_page = page
 	if _mentor != null:
 		_mentor.notify_page(page)
+	if _staff_stale and (page == PAGE_DRIVERS or page == PAGE_UPGRADES):
+		_rebuild_staff()
 	if _coins_label != null:
 		_refresh_page(page)
+		_on_wear_changed()
+		_on_shifts_changed()
 	_tap_page.visible = page == PAGE_TAP
 	_upgrades_page.visible = page == PAGE_UPGRADES
 	_drivers_page.visible = page == PAGE_DRIVERS
@@ -3588,7 +3701,7 @@ func _show_page(page: int) -> void:
 		var label: Label = parts[1]
 		var tint: Color = _text_on(COLOR_ACCENT) if active else COLOR_MUTED
 		icon.color = tint
-		label.add_theme_color_override("font_color", tint)
+		_col(label, tint)
 
 
 func _style_plain_button(button: Button, color: Color) -> void:
@@ -3691,7 +3804,7 @@ func _make_center_label(text: String, font_size: int, color: Color) -> Label:
 	label.text = text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", color)
+	_col(label, color)
 	return label
 
 
@@ -3714,7 +3827,7 @@ func _on_coins_changed(value: float) -> void:
 	if _last_coins >= 0.0 and value < _last_coins - 0.5:
 		_play(_sfx_buy)
 	_last_coins = value
-	_tap_line_dirty = true
+	_mark("tapline")
 	var text := GameState.format_money(value)
 	# Пока на экране та же строка, подпись не трогаем — иначе цифры двоятся.
 	if _coins_label.text == text:
@@ -3722,17 +3835,66 @@ func _on_coins_changed(value: float) -> void:
 	_coins_label.text = text
 	# Доход капает каждый кадр. Перестраивать все меню так часто — тормоза на телефоне,
 	# поэтому открытую вкладку обновляем 4 раза в секунду, остальные — когда их откроют.
-	_ui_dirty = true
+	_mark("page")
 
 
-func _flush_ui() -> void:
-	if _tap_line_dirty:
-		_tap_line_dirty = false
-		_refresh_tap_line()
-	if not _ui_dirty:
+# --- Плавность: тяжёлые обновления экрана по одному за кадр -------------------
+## Сигналы игры только помечают, что пора обновить. Каждый кадр выполняется не больше
+## одного обновления, и каждое — не чаще своего интервала. Так нет «тяжёлых» кадров,
+## из-за которых картинка подёргивается.
+
+const JOB_GAP := {
+	"tapline": 0.25, "page": 0.25, "wear": 0.2, "shifts": 0.5, "city": 0.3,
+	"staff": 0.0, "competitors": 0.25, "rate": 0.25,
+}
+var _dirty: Dictionary = {}
+var _job_last: Dictionary = {}
+var _job_order: Array = ["staff", "tapline", "rate", "wear", "page", "competitors", "shifts", "city"]
+var _job_cursor: int = 0
+
+
+func _mark(job: String) -> void:
+	_dirty[job] = true
+
+
+func _run_one_job() -> void:
+	if _dirty.is_empty():
 		return
-	_ui_dirty = false
-	_refresh_page(_current_page)
+	var now: float = float(Time.get_ticks_msec()) / 1000.0
+	for step in _job_order.size():
+		var job: String = _job_order[(_job_cursor + step) % _job_order.size()]
+		if not _dirty.has(job):
+			continue
+		if now - float(_job_last.get(job, -100.0)) < float(JOB_GAP.get(job, 0.25)):
+			continue
+		_job_cursor = (_job_cursor + step + 1) % _job_order.size()
+		_dirty.erase(job)
+		_job_last[job] = now
+		_do_job(job)
+		return
+
+
+func _do_job(job: String) -> void:
+	match job:
+		"tapline":
+			_refresh_tap_line()
+		"page":
+			_refresh_page(_current_page)
+		"wear":
+			_on_wear_changed()
+		"shifts":
+			_on_shifts_changed()
+		"city":
+			_sync_city()
+		"staff":
+			_rebuild_staff()
+		"competitors":
+			if _current_page == PAGE_MARKET:
+				_refresh_competitors()
+			elif _current_page == PAGE_CITY:
+				_refresh_districts()
+		"rate":
+			_refresh_rate_line()
 
 
 func _refresh_page(page: int) -> void:
@@ -3766,7 +3928,7 @@ func _on_income_changed(_value: float) -> void:
 
 
 func _refresh_rate_line() -> void:
-	_tap_label.text = "+%s/с" % GameState.format_money(GameState.get_income_per_second())
+	_tap_label.text = "%s/с" % GameState.format_money(GameState.get_income_per_second())
 	if _tap_hint != null:
 		_tap_hint.text = "Тап по городу — заказ на %s" % GameState.format_money(GameState.get_tap_power())
 	_refresh_market_share()
@@ -3782,9 +3944,11 @@ func _refresh_market_share() -> void:
 
 
 func _refresh_meta_line() -> void:
-	_reputation_label.text = "★ %.1f" % GameState.get_rating()
+	_reputation_label.text = "%.1f" % GameState.get_rating()
+	_rep_label.text = GameState.format_number(float(GameState.reputation))
 	_refresh_tab_badges()
-	_refresh_more()
+	if _current_page == PAGE_CITY:
+		_refresh_more()
 
 
 func _on_upgrades_changed() -> void:

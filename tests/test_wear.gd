@@ -45,7 +45,7 @@ func _init() -> void:
 	gs._recalc_income()
 	var income: float = gs.get_income_per_second()
 	for i in 600:
-		gs._tick_fleet_wear(1.0)
+		gs._tick_second(1.0)
 	var garage: Array = gs.get_garage()
 	var worked: int = 0
 	var idle: int = 0
@@ -57,7 +57,7 @@ func _init() -> void:
 	check(worked == 1 and idle == 1, "износилась только машина с водителем")
 	check(gs.get_income_per_second() < income, "грязный парк приносит меньше")
 	for i in 3000:
-		gs._tick_fleet_wear(1.0)
+		gs._tick_second(1.0)
 	check(gs.get_broken_count() == 1 and gs.get_income_per_second() == 0.0, "сломанная машина стоит")
 	check(gs.wash_fleet() and gs.repair_fleet(), "помыли и починили парк")
 	# За 60 часов водитель устал и рейтинг упал — это проверяет test_shifts. Здесь сравниваем только износ.
@@ -79,7 +79,7 @@ func _init() -> void:
 
 	# Износ сохраняется.
 	for i in 100:
-		gs._tick_fleet_wear(1.0)
+		gs._tick_second(1.0)
 	var avg: float = gs.get_fleet_average("clean")
 	gs.save_game()
 	var gs2 := _make_state()

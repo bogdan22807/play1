@@ -27,7 +27,7 @@ PALETTES = {
             "PANEL": "fffaf0", "PANEL_EDGE": "e6dcc8", "ACCENT": "ffc93c", "INK": "2a2a48",
             "GOLD": "2b6cb0", "MONEY": "1f9d55", "PILL": "2a2a48", "CHIP": "fffaf0", "DOCK": "fffaf0",
             "BUY": "2fbf5f", "DISABLED": "e6e2da", "INCOME": "1b8f43", "DANGER": "e8434f",
-            "TRICK": "8b7cf0", "SKY": "3fb2ff", "SHIFT": "8c9eff", "TITLE": "ffffff", "TITLE_OUTLINE": "1c4f8f",
+            "TRICK": "2f4a7a", "SKY": "3fb2ff", "SHIFT": "8c9eff", "TITLE": "ffffff", "TITLE_OUTLINE": "1c4f8f",
         },
         "city": {"GROUND": "9bdc75", "SIDEWALK": "f4f1e8", "ROAD": "5d6582", "PARK": "78d562", "POND": "4cb8f5",
                  "TREE": "46b35c", "TREE_DARK": "2f8a46", "ROOFS": ["f28b82", "b39ddb", "4fc3f7", "fff6e6", "a5d6a7", "cfd8dc"],

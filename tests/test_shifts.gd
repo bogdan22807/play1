@@ -34,7 +34,7 @@ func _init() -> void:
 	var fresh_target: float = gs.get_rating_target()
 	check(fresh_target > 4.5, "свежий парк тянет рейтинг вверх: %s" % fresh_target)
 	for i in 60:
-		gs._tick_fleet_wear(1.0)
+		gs._tick_second(1.0)
 	check(gs.get_rating() > 4.0, "рейтинг вырос за минуту: %s" % gs.get_rating())
 	check(gs.get_rating_multiplier() > 1.0, "высокий рейтинг даёт бонус к доходу")
 	check(gs.get_driver_hours(person) > 0.9 and gs.get_driver_hours(person) < 1.1, "минута = игровой час")
