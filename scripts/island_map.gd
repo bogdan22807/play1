@@ -5,11 +5,11 @@ extends Control
 signal island_pressed(island_id: String)
 
 # >>> PALETTE
-const OCEAN := Color("3aa2ff")
-const OCEAN_DEEP := Color("2f88e0")
+const OCEAN := Color("45a7f5")
+const OCEAN_DEEP := Color("368fe0")
 const WAVE := Color(1, 1, 1, 0.2)
 const SAND := Color("e9d8a6")
-const LOCKED := Color("c3d3e6")
+const LOCKED := Color("d4dbe4")
 # <<< PALETTE
 const ROUTE := Color(1, 1, 1, 0.35)
 const TAXI := Color("ffc107")

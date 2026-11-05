@@ -3,27 +3,27 @@ extends Control
 ## Экран не хранит экономику: он просит GameState и рисует то, что пришло в сигналах.
 
 # >>> PALETTE
-## Палитра «sky». Меняется целиком: все цвета экрана берутся отсюда.
-const COLOR_BG_TOP := Color("62c6ff")
-const COLOR_BG_BOTTOM := Color("2b8ae6")
-const COLOR_BG := Color("2b8ae6")
-const COLOR_TEXT := Color("1c2b4d")
-const COLOR_MUTED := Color("5c6d90")
-const COLOR_INK := Color("1c2b4d")
-const COLOR_PANEL := Color("ffffff")
-const COLOR_PANEL_EDGE := Color("b8d6f2")
+## Палитра «warm». Меняется целиком: все цвета экрана берутся отсюда.
+const COLOR_BG_TOP := Color("6ccaf7")
+const COLOR_BG_BOTTOM := Color("3a8fdc")
+const COLOR_BG := Color("3a8fdc")
+const COLOR_TEXT := Color("2a2a48")
+const COLOR_MUTED := Color("52607c")
+const COLOR_INK := Color("2a2a48")
+const COLOR_PANEL := Color("fffaf0")
+const COLOR_PANEL_EDGE := Color("efd6b0")
 const COLOR_ACCENT := Color("ffc93c")
-const COLOR_GOLD := Color("c77d00")
+const COLOR_GOLD := Color("b06400")
 const COLOR_MONEY := Color("ffd23f")
-const COLOR_PILL := Color("1c2b4d")
-const COLOR_CHIP := Color("ffffff")
-const COLOR_DOCK := Color("ffffff")
+const COLOR_PILL := Color("2a2a48")
+const COLOR_CHIP := Color("fffaf0")
+const COLOR_DOCK := Color("fffaf0")
 const COLOR_BUY := Color("2fbf5f")
 const COLOR_BUY_HOVER := Color("47c672")
 const COLOR_BUY_PRESSED := Color("2aab55")
-const COLOR_DISABLED := Color("d5e2f0")
-const COLOR_INCOME := Color("1e9e4a")
-const COLOR_DANGER := Color("ff4d5e")
+const COLOR_DISABLED := Color("e9e1d3")
+const COLOR_INCOME := Color("1b8f43")
+const COLOR_DANGER := Color("e8434f")
 const COLOR_TRICK := Color("ff8a3d")
 const COLOR_SKY := Color("3fb2ff")
 const COLOR_SHIFT := Color("8c9eff")
@@ -140,6 +140,8 @@ var _ad_rows: Dictionary = {}
 ## Для какого острова собрана вкладка «Рынок». Фронт сменился — пересобираем.
 var _market_built_for: String = "-"
 const IslandMap := preload("res://scripts/island_map.gd")
+const BossPortrait := preload("res://scripts/boss_portrait.gd")
+const DuelRope := preload("res://scripts/duel_rope.gd")
 var _island_map: Control
 var _selected_island: String = ""
 var _world_progress: Label
@@ -160,8 +162,7 @@ var _video_reward: Callable = Callable()
 ## Сцены с боссами конкурентов.
 const ATTACK_TOAST_SECONDS := 8.0
 var _story_layer: Control
-var _story_badge: PanelContainer
-var _story_initial: Label
+var _story_face: Control
 var _story_name: Label
 var _story_title: Label
 var _story_you: Label
@@ -178,6 +179,12 @@ var _achievement_labels: Dictionary = {}
 var _toast_layer: PanelContainer
 var _toast_label: Label
 var _toast_queue: Array = []
+var _toast_face: Control
+## Карточка «Что дальше» на главном экране: текст цели и вкладка, куда она ведёт (-1 — тут же).
+var _goal_panel: PanelContainer
+var _goal_label: Label
+var _goal_arrow: Label
+var _goal_page: int = -1
 var _toast_timer: Timer
 var _daily_layer: Control
 var _offline_layer: Control
@@ -753,14 +760,59 @@ func _build_tap_page() -> Control:
 	_city.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_city.tapped.connect(_on_city_tapped)
 	taxi_holder.add_child(_city)
-	var hint := _make_center_label("", 26, Color.WHITE)
+	var hint := _make_center_label("", 28, Color.WHITE)
 	_tap_hint = hint
 	hint.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	hint.offset_top = 8
+	hint.offset_top = 6
 	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hint.add_theme_constant_override("outline_size", 6)
-	hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	hint.add_theme_constant_override("outline_size", 10)
+	hint.add_theme_color_override("font_outline_color", Color("1c2b4d"))
 	taxi_holder.add_child(hint)
+
+	# «Что дальше»: одна понятная цель под подсказкой, тап ведёт на нужную вкладку.
+	_goal_panel = PanelContainer.new()
+	_goal_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	_goal_panel.offset_top = 56
+	_goal_panel.offset_left = 24
+	_goal_panel.offset_right = -24
+	_goal_panel.offset_bottom = 56
+	_goal_panel.grow_vertical = Control.GROW_DIRECTION_END
+	var goal_style := StyleBoxFlat.new()
+	goal_style.bg_color = Color(COLOR_PANEL, 0.96)
+	goal_style.set_corner_radius_all(36)
+	goal_style.set_border_width_all(4)
+	goal_style.border_color = COLOR_ACCENT
+	goal_style.shadow_color = Color(0, 0, 0, 0.18)
+	goal_style.shadow_size = 8
+	goal_style.content_margin_left = 22
+	goal_style.content_margin_right = 22
+	goal_style.content_margin_top = 12
+	goal_style.content_margin_bottom = 12
+	_goal_panel.add_theme_stylebox_override("panel", goal_style)
+	_goal_panel.gui_input.connect(_on_goal_input)
+	taxi_holder.add_child(_goal_panel)
+	var goal_row := HBoxContainer.new()
+	goal_row.add_theme_constant_override("separation", 14)
+	goal_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goal_panel.add_child(goal_row)
+	var goal_box := VBoxContainer.new()
+	goal_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	goal_box.add_theme_constant_override("separation", 0)
+	goal_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	goal_row.add_child(goal_box)
+	var goal_title := _add_label(goal_box, "Что дальше", 24, COLOR_GOLD)
+	goal_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goal_label = _add_label(goal_box, "", 30, COLOR_TEXT)
+	_goal_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goal_arrow = _add_label(goal_row, "›", 56, COLOR_GOLD)
+	_goal_arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_goal_arrow.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_goal_arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var goal_timer := Timer.new()
+	goal_timer.wait_time = 1.0
+	goal_timer.autostart = true
+	goal_timer.timeout.connect(_refresh_goal)
+	page.add_child(goal_timer)
 
 	_float_layer = Control.new()
 	_float_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -794,6 +846,67 @@ func _build_my_car_panel() -> PanelContainer:
 	_repair_me_button = _make_service_button(_on_repair_me)
 	buttons.add_child(_repair_me_button)
 	return panel
+
+
+## Следующая цель: [текст, вкладка]. Сначала то, что горит (поломки, усталость),
+## потом то, что уже можно купить, и в конце — текущая дуэль.
+func _next_goal() -> Array:
+	if GameState.is_broken(GameState.get_my_health()):
+		return ["Ваша машина сломана — почините её кнопкой внизу", -1]
+	if GameState.get_broken_count() > 0:
+		return ["В парке сломалась машина — почините в «Команде»", PAGE_DRIVERS]
+	if GameState.get_tired_count() > 0:
+		return ["Водители устали — смените смену в «Команде»", PAGE_DRIVERS]
+	for raw: Variant in GameState.get_competitors():
+		var rival_id: String = str(raw.get("id", ""))
+		if GameState.is_rival_surrendered(rival_id):
+			var boss_name: String = str(GameState.get_boss(rival_id).get("name", _rival_name(rival_id)))
+			if GameState.can_buy_rival(rival_id):
+				return ["%s сдаётся — выкупите на «Рынке»!" % boss_name, PAGE_MARKET]
+			return ["Копите на выкуп: %s ждёт %s" % [boss_name, GameState.format_money(GameState.get_competitor_cost(rival_id))], PAGE_MARKET]
+	if GameState.has_free_car():
+		for index in GameState.get_candidates().size():
+			if GameState.can_hire(index):
+				return ["Есть свободная машина — наймите водителя", PAGE_DRIVERS]
+	var cars: Array = GameState.get_cars()
+	for index in range(cars.size() - 1, 0, -1):
+		var car_id: String = str(cars[index].get("id", ""))
+		if GameState.can_buy_car(car_id) and car_id != GameState.get_car_id():
+			return ["Хватает на «%s» — пересаживайтесь!" % _car_name(car_id), PAGE_UPGRADES]
+	for raw: Variant in GameState.get_regions():
+		var region_id: String = str(raw.get("id", ""))
+		if GameState.can_open_region(region_id):
+			return ["Можно открыть новый остров: %s" % str(raw.get("name", "")), PAGE_CITY]
+	var rival: String = GameState.get_active_rival()
+	if rival != "":
+		var boss: String = str(GameState.get_boss(rival).get("name", _rival_name(rival)))
+		var progress: float = GameState.get_duel_progress()
+		if progress < 0.5:
+			return ["Догоните %s: нужно сильнее в %s" % [boss, _ratio_text(1.0 / maxf(progress, 0.0001))], PAGE_MARKET]
+		return ["Догоните %s: вы на %d%% его силы" % [boss, int(progress * 100.0)], PAGE_MARKET]
+	if GameState.get_front_island() == "":
+		return ["Все острова ваши — откройте новый на «Карте»", PAGE_CITY]
+	return ["Тапайте по городу и копите на машины получше", -1]
+
+
+func _refresh_goal() -> void:
+	if _goal_panel == null:
+		return
+	# Пока идёт обучение, цель задаёт дядя Бун.
+	_goal_panel.visible = _mentor_task_text == "" and GameState.has_company_name()
+	if not _goal_panel.visible:
+		return
+	var goal: Array = _next_goal()
+	_goal_label.text = str(goal[0])
+	_goal_page = int(goal[1])
+	_goal_arrow.visible = _goal_page >= 0
+
+
+func _on_goal_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		_goal_panel.accept_event()
+		if _goal_page >= 0:
+			_show_page(_goal_page)
 
 
 func _make_bar(fill_color: Color) -> ProgressBar:
@@ -965,11 +1078,11 @@ func _make_helper_row(info: Dictionary) -> PanelContainer:
 	var row: HBoxContainer = parts[1]
 	var text_box := _make_text_box(row)
 	_add_label(text_box, str(info.get("name", helper_id)), 34)
-	_add_label(text_box, str(info.get("description", "")), 24, COLOR_MUTED)
+	_collapse(text_box, _add_label(text_box, str(info.get("description", "")), 26, COLOR_MUTED))
 	var terms: String = "Берёт %d%% дохода водителей" % int(roundf(float(info.get("fee_share", 0)) * 100.0))
 	if float(info.get("offline_bonus", 0)) > 0.0:
 		terms += "  ·  пока вас нет, парк работает на 100%"
-	_add_label(text_box, terms, 24, COLOR_INCOME)
+	_add_label(text_box, terms, 26, COLOR_INCOME)
 	var status := _add_label(text_box, "", 26, COLOR_GOLD)
 	var button := _make_row_button(_on_helper_pressed.bind(helper_id))
 	row.add_child(button)
@@ -1116,7 +1229,7 @@ func _make_tab(kind: String, title: String) -> Button:
 	var label := Label.new()
 	label.text = title
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_font_size_override("font_size", 24)
 	label.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(label)
@@ -1189,10 +1302,10 @@ func _build_market_rows() -> void:
 		var chip_label := Label.new()
 		chip_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		chip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		chip_label.add_theme_font_size_override("font_size", 22)
+		chip_label.add_theme_font_size_override("font_size", 25)
 		chip.add_child(chip_label)
 		_ladder_steps[id] = chip_label
-	_add_label(ladder_box, "Соперники идут по очереди. Догоните текущего по силе — он сдастся и предложит выкуп. Выкупите всех — город ваш.", 24, COLOR_MUTED)
+	_add_label(ladder_box, "Соперники идут по очереди. Догоните текущего по силе — он сдастся и предложит выкуп. Выкупите всех — город ваш.", 26, COLOR_MUTED)
 
 	for raw: Variant in GameState.get_competitors():
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
@@ -1212,7 +1325,7 @@ func _make_ad_row(info: Dictionary) -> PanelContainer:
 	var row: HBoxContainer = parts[1]
 	var text_box := _make_text_box(row)
 	_add_label(text_box, str(info.get("name", ad_id)), 34)
-	_add_label(text_box, str(info.get("description", "")), 24, COLOR_MUTED)
+	_collapse(text_box, _add_label(text_box, str(info.get("description", "")), 26, COLOR_MUTED))
 	var pay_text: String = "за просмотр ролика" if str(info.get("pay", "coins")) == "video" else "за монеты"
 	_add_label(text_box, "+%d%% к доходу на %d мин · %s" % [
 		int(roundf(float(info.get("boost", 0)) * 100.0)),
@@ -1237,29 +1350,50 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	column.add_theme_constant_override("separation", 8)
 	panel.add_child(column)
 
-	var title := _add_label(column, str(info.get("name", competitor_id)), 36)
-	var mood := _add_label(column, str(info.get("personality_name", "")), 26, COLOR_GOLD)
-	var description := _add_label(column, str(info.get("description", "")), 24, COLOR_MUTED)
-	var status := _add_label(column, "", 30, COLOR_TEXT)
+	# Шапка: портрет босса, компания, босс и характер.
+	var boss: Dictionary = GameState.get_boss(competitor_id)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 18)
+	column.add_child(head)
+	var face: Control = BossPortrait.new()
+	face.set_look(boss.get("look", {}))
+	face.custom_minimum_size = Vector2(110, 110)
+	head.add_child(face)
+	var names := VBoxContainer.new()
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	names.alignment = BoxContainer.ALIGNMENT_CENTER
+	names.add_theme_constant_override("separation", 2)
+	head.add_child(names)
+	var title := _add_label(names, str(info.get("name", competitor_id)), 34)
+	var mood := _add_label(names, "%s · %s" % [str(boss.get("name", "")), str(info.get("personality_name", "")).to_lower()], 28, COLOR_GOLD)
+	var status := _add_label(column, "", 32, COLOR_TEXT)
 
-	# Канат: жёлтое — ваша сила, цвет соперника — сколько ещё не хватает.
-	var bar := HBoxContainer.new()
-	bar.custom_minimum_size = Vector2(0, 40)
-	bar.add_theme_constant_override("separation", 0)
+	# Канат: вы слева, босс справа, узел ползёт к финишному флажку.
+	var bar: Control = DuelRope.new()
+	bar.set_rival(boss.get("look", {}), _market_color(competitor_id))
 	column.add_child(bar)
-	var mine := ColorRect.new()
-	mine.color = COLOR_TAXI
-	mine.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mine.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_child(mine)
-	var theirs := ColorRect.new()
-	theirs.color = _market_color(competitor_id)
-	theirs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	theirs.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_child(theirs)
-	var powers := _add_label(column, "", 26, COLOR_TEXT)
-	var hint := _add_label(column, "", 24, COLOR_MUTED)
-	var effects := _add_label(column, "", 24, COLOR_INCOME)
+	var powers := _add_label(column, "", 28, COLOR_TEXT)
+	powers.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var effects := _add_label(column, "", 26, COLOR_INCOME)
+	# Подробности — по кнопке, чтобы карточка не давила текстом.
+	var more_button := Button.new()
+	more_button.text = "Подробнее ▾"
+	more_button.flat = true
+	more_button.focus_mode = Control.FOCUS_NONE
+	more_button.add_theme_font_size_override("font_size", 26)
+	more_button.add_theme_color_override("font_color", COLOR_SKY.darkened(0.25))
+	more_button.add_theme_color_override("font_hover_color", COLOR_SKY.darkened(0.4))
+	more_button.add_theme_color_override("font_pressed_color", COLOR_SKY.darkened(0.4))
+	column.add_child(more_button)
+	var more := VBoxContainer.new()
+	more.add_theme_constant_override("separation", 8)
+	more.visible = false
+	column.add_child(more)
+	var description := _add_label(more, "%s\n%s" % [str(info.get("description", "")), str(boss.get("style", ""))], 26, COLOR_MUTED)
+	var hint := _add_label(more, "", 26, COLOR_MUTED)
+	more_button.pressed.connect(func() -> void:
+		more.visible = not more.visible
+		more_button.text = "Скрыть ▴" if more.visible else "Подробнее ▾")
 
 	var tricks := HBoxContainer.new()
 	tricks.add_theme_constant_override("separation", 8)
@@ -1273,7 +1407,7 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 		button.focus_mode = Control.FOCUS_NONE
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_style_plain_button(button, COLOR_TRICK)
-		button.add_theme_font_size_override("font_size", 20)
+		button.add_theme_font_size_override("font_size", 23)
 		button.pressed.connect(_on_trick.bind(competitor_id, trick_id))
 		tricks.add_child(button)
 		trick_buttons[trick_id] = button
@@ -1290,8 +1424,8 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 		"description": description,
 		"status": status,
 		"bar": bar,
-		"mine": mine,
-		"theirs": theirs,
+		"more_button": more_button,
+		"more": more,
 		"powers": powers,
 		"hint": hint,
 		"effects": effects,
@@ -1419,7 +1553,7 @@ func _on_rival_surrendered(competitor_id: String, text: String) -> void:
 func _on_rival_attacked(competitor_id: String, text: String) -> void:
 	var boss: Dictionary = GameState.get_boss(competitor_id)
 	var who: String = str(boss.get("name", _rival_name(competitor_id)))
-	_enqueue_toast("%s делает ход" % who, text, ATTACK_TOAST_SECONDS)
+	_enqueue_toast("%s делает ход" % who, text, ATTACK_TOAST_SECONDS, boss.get("look", {}))
 	_mentor.on_event("rival_attack")
 
 
@@ -1443,19 +1577,9 @@ func _show_story(scene: Dictionary) -> void:
 		return
 	var competitor_id: String = str(scene.get("id", ""))
 	var boss: Dictionary = GameState.get_boss(competitor_id)
-	var color: Color = _market_color(competitor_id)
-	var badge_style := StyleBoxFlat.new()
-	badge_style.bg_color = color
-	badge_style.set_corner_radius_all(60)
-	badge_style.border_width_left = 6
-	badge_style.border_width_right = 6
-	badge_style.border_width_top = 6
-	badge_style.border_width_bottom = 6
-	badge_style.border_color = Color.WHITE
-	_story_badge.add_theme_stylebox_override("panel", badge_style)
 	var boss_name: String = str(boss.get("name", _rival_name(competitor_id)))
-	_story_initial.text = boss_name.substr(0, 1)
-	_story_initial.add_theme_color_override("font_color", _text_on(color))
+	_story_face.set_look(boss.get("look", {}))
+	_story_face.talk(2.5)
 	_story_name.text = boss_name
 	_story_title.text = str(boss.get("title", _rival_name(competitor_id)))
 	_story_you.visible = false
@@ -1482,6 +1606,7 @@ func _on_story_reply(said: String, answer: String) -> void:
 	_story_you.text = "Вы: «%s»" % said
 	_story_you.visible = true
 	_story_text.text = answer
+	_story_face.talk(2.0)
 	for child in _story_buttons.get_children():
 		_story_buttons.remove_child(child)
 		child.queue_free()
@@ -1525,13 +1650,9 @@ func _build_story_popup() -> void:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 20)
 	box.add_child(head)
-	_story_badge = PanelContainer.new()
-	_story_badge.custom_minimum_size = Vector2(120, 120)
-	head.add_child(_story_badge)
-	_story_initial = _make_center_label("", 56, COLOR_INK)
-	_display(_story_initial, 56, COLOR_INK)
-	_story_initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_story_badge.add_child(_story_initial)
+	_story_face = BossPortrait.new()
+	_story_face.custom_minimum_size = Vector2(160, 160)
+	head.add_child(_story_face)
 	var names := VBoxContainer.new()
 	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	names.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -1634,7 +1755,7 @@ func _refresh_competitors() -> void:
 func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	var row: Dictionary = _competitor_rows[id]
 	var status: Label = row["status"]
-	var bar: HBoxContainer = row["bar"]
+	var bar: Control = row["bar"]
 	var powers: Label = row["powers"]
 	var hint: Label = row["hint"]
 	var effects: Label = row["effects"]
@@ -1643,9 +1764,14 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	var state: String = GameState.get_rival_state(id)
 	var full: bool = state == "active"
 	# Подробности — только у текущего соперника, остальные карточки короткие.
-	for key: String in ["mood", "description", "powers", "hint", "effects"]:
+	for key: String in ["powers", "effects"]:
 		var label: Label = row[key]
 		label.visible = full
+	var more_button: Button = row["more_button"]
+	more_button.visible = full
+	if not full:
+		var more: Control = row["more"]
+		more.visible = false
 	bar.visible = full
 	tricks_box.visible = full
 	buy.visible = state == "surrendered"
@@ -1662,24 +1788,22 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 			buy.disabled = not GameState.can_buy_rival(id)
 			return
 		"waiting":
-			status.text = "Следующий соперник. Сейчас возит на %s/с — и тоже растёт, когда до него дойдёт очередь." % GameState.format_money(GameState.get_competitor_power(id))
+			status.text = "Ждёт своей очереди · возит на %s/с" % GameState.format_money(GameState.get_competitor_power(id))
 			status.add_theme_color_override("font_color", COLOR_MUTED)
+			status.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 			return
 	var mine: float = GameState.get_player_power()
 	var theirs: float = GameState.get_competitor_power(id)
-	var progress: float = GameState.get_duel_progress()
 	status.add_theme_color_override("font_color", COLOR_TEXT)
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if theirs <= 0.0 or mine >= theirs:
-		status.text = "Вы догнали! Сейчас сдадутся."
+		status.text = "Вы догнали! Сейчас сдадутся"
 	elif theirs / maxf(mine, 0.001) >= 1.5:
-		status.text = "Дуэль: нужно стать сильнее в %s" % _ratio_text(theirs / maxf(mine, 0.001))
+		status.text = "Нужно стать сильнее в %s" % _ratio_text(theirs / maxf(mine, 0.001))
 	else:
-		status.text = "Дуэль: осталось +%d%% силы" % maxi(1, int(ceilf((theirs / maxf(mine, 0.001) - 1.0) * 100.0)))
-	var mine_part: ColorRect = row["mine"]
-	var theirs_part: ColorRect = row["theirs"]
-	mine_part.size_flags_stretch_ratio = maxf(progress, 0.01)
-	theirs_part.size_flags_stretch_ratio = maxf(1.0 - progress, 0.0)
-	theirs_part.visible = progress < 1.0
+		status.text = "Осталось +%d%% силы!" % maxi(1, int(ceilf((theirs / maxf(mine, 0.001) - 1.0) * 100.0)))
+	bar.set("ratio", mine / maxf(theirs, 0.001))
+	bar.set("player_model", GameState.get_car_id())
 	powers.text = "Вы %s/с  —  %s %s/с" % [GameState.format_money(mine), short_name, GameState.format_money(theirs)]
 	var tips: PackedStringArray = PackedStringArray()
 	tips.append("Сила — это доход в секунду плюс заказы с тапов.")
@@ -1707,7 +1831,7 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	var wait: int = GameState.get_trick_wait(id)
 	if wait > 0:
 		notes.append("новая пакость через %s" % _mmss(wait))
-	effects.text = "  ·  ".join(notes)
+	effects.text = "• " + "\n• ".join(notes) if not notes.is_empty() else ""
 	var tricks: Dictionary = row["tricks"]
 	for trick_id: Variant in tricks.keys():
 		var button: Button = tricks[trick_id]
@@ -2038,7 +2162,7 @@ func _build_more_rows() -> void:
 	_more_list.add_child(_mentor_tips_button)
 	_more_list.add_child(_make_settings_button("Пройти обучение заново", COLOR_PANEL, _restart_tutorial))
 	_more_list.add_child(_make_settings_button("Сбросить прогресс", COLOR_DANGER, _ask_reset))
-	_on_background(_add_label(_more_list, "Сброс стирает весь прогресс и название компании. Это для проверки игры.", 24))
+	_on_background(_add_label(_more_list, "Сброс стирает весь прогресс и название компании. Это для проверки игры.", 26))
 
 
 func _refresh_more() -> void:
@@ -2123,6 +2247,7 @@ func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer
 	description.add_theme_font_size_override("font_size", 26)
 	description.add_theme_color_override("font_color", COLOR_MUTED)
 	text_box.add_child(description)
+	_collapse(text_box, description)
 
 	var bonus: float = float(info.get("income_bonus", 0))
 	var bonus_label := Label.new()
@@ -2165,7 +2290,7 @@ func _build_region_rows() -> void:
 	_island_button = _make_row_button(_on_island_button)
 	_island_button.custom_minimum_size = Vector2(0, 110)
 	box.add_child(_island_button)
-	_on_background(_add_label(_world_list, "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого водителя. Открытый остров — свой гараж на 20 машин. Захваченный — +25% дохода навсегда.", 24))
+	_on_background(_add_label(_world_list, "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого водителя. Открытый остров — свой гараж на 20 машин. Захваченный — +25% дохода навсегда.", 26))
 
 
 ## Состояние острова для карты.
@@ -2361,6 +2486,7 @@ func _make_car_row(car_id: String, info: Dictionary) -> PanelContainer:
 	description.add_theme_font_size_override("font_size", 26)
 	description.add_theme_color_override("font_color", COLOR_MUTED)
 	text_box.add_child(description)
+	_collapse(text_box, description)
 
 	var mult_label := Label.new()
 	mult_label.text = "Доход с тапа ×%s" % GameState.format_number(float(info.get("tap_mult", 1)))
@@ -2660,6 +2786,27 @@ func _make_row_panel() -> Array:
 	return [panel, row]
 
 
+## Прячет длинное описание под кнопку «Подробнее»: карточка короче, текст не давит.
+func _collapse(box: Container, label: Label) -> void:
+	if label.text.strip_edges() == "":
+		return
+	label.visible = false
+	var toggle := Button.new()
+	toggle.text = "Подробнее ▾"
+	toggle.flat = true
+	toggle.focus_mode = Control.FOCUS_NONE
+	toggle.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	toggle.add_theme_font_size_override("font_size", 25)
+	for state: String in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		toggle.add_theme_color_override(state, COLOR_SKY.darkened(0.3))
+	toggle.add_theme_constant_override("h_separation", 0)
+	box.add_child(toggle)
+	box.move_child(toggle, label.get_index())
+	toggle.pressed.connect(func() -> void:
+		label.visible = not label.visible
+		toggle.text = "Скрыть ▴" if label.visible else "Подробнее ▾")
+
+
 func _add_label(box: Container, text: String, font_size: int, color: Color = COLOR_TEXT) -> Label:
 	var label := Label.new()
 	label.text = text
@@ -2701,7 +2848,7 @@ func _make_fleet_row(car_id: String, info: Dictionary) -> PanelContainer:
 	_add_label(text_box, str(info.get("name", car_id)), 36)
 	_add_label(text_box, "Водителю: %s/с без звёзд и бонусов" % GameState.format_money(float(info.get("driver_income", 0))), 26, COLOR_INCOME)
 	var count_label := _add_label(text_box, "", 28, COLOR_GOLD)
-	var note := _add_label(text_box, "", 24, COLOR_MUTED)
+	var note := _add_label(text_box, "", 26, COLOR_MUTED)
 	var button := _make_row_button(_on_buy_fleet.bind(car_id))
 	row.add_child(button)
 	_fleet_rows[car_id] = {"count": count_label, "button": button, "note": note}
@@ -2737,7 +2884,7 @@ func _rebuild_staff() -> void:
 		else:
 			var car_label := _add_label(text_box, "", 26, COLOR_INCOME)
 			_team_wear_rows[uid] = [car_label, person, car]
-		var shift_label := _add_label(text_box, "", 24, COLOR_MUTED)
+		var shift_label := _add_label(text_box, "", 26, COLOR_MUTED)
 		var shift_bar := _make_bar(COLOR_SHIFT)
 		shift_bar.max_value = 14.0
 		text_box.add_child(shift_bar)
@@ -2775,7 +2922,7 @@ func _rebuild_staff() -> void:
 		_add_label(text_box, str(person.get("name", "")), 34)
 		_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
 		var trait_info: Dictionary = GameState.get_trait_info(str(person.get("trait", "")))
-		_add_label(text_box, str(trait_info.get("description", "")), 24, COLOR_MUTED)
+		_collapse(text_box, _add_label(text_box, str(trait_info.get("description", "")), 26, COLOR_MUTED))
 		if free_cars.is_empty():
 			_add_label(text_box, "Нет свободной машины в гараже", 26, COLOR_DANGER)
 		else:
@@ -2888,11 +3035,11 @@ func _rebuild_garage_list() -> void:
 		var free: int = GameState.get_free_count(model)
 		_add_label(text_box, "%s ×%d" % [_car_name(model), count], 34)
 		if free > 0:
-			_add_label(text_box, "Без водителя: %d — продадим сначала её" % free, 24, COLOR_GOLD)
+			_add_label(text_box, "Без водителя: %d — продадим сначала её" % free, 26, COLOR_GOLD)
 		elif GameState.get_garage().size() > GameState.get_team().size():
-			_add_label(text_box, "Водитель пересядет на свободную машину", 24, COLOR_MUTED)
+			_add_label(text_box, "Водитель пересядет на свободную машину", 26, COLOR_MUTED)
 		else:
-			_add_label(text_box, "Свободных машин нет: один водитель останется без машины", 24, COLOR_DANGER)
+			_add_label(text_box, "Свободных машин нет: один водитель останется без машины", 26, COLOR_DANGER)
 		var button := _make_row_button(_on_sell_garage_car.bind(model))
 		button.text = "Продать 1\n+%s" % GameState.format_money(GameState.get_sell_value(model))
 		_style_plain_button(button, COLOR_TRICK)
@@ -2941,6 +3088,7 @@ func _make_upgrade_row(upgrade_id: String, info: Dictionary) -> PanelContainer:
 	description.add_theme_font_size_override("font_size", 26)
 	description.add_theme_color_override("font_color", COLOR_MUTED)
 	text_box.add_child(description)
+	_collapse(text_box, description)
 
 	var level_label := Label.new()
 	level_label.add_theme_font_size_override("font_size", 28)
@@ -2966,6 +3114,10 @@ func _panel_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = COLOR_PANEL
 	style.set_corner_radius_all(30)
+	# Мягкая тень — карточка чуть «парит» над небом.
+	style.shadow_color = Color(0.08, 0.16, 0.35, 0.14)
+	style.shadow_size = 10
+	style.shadow_offset = Vector2(0, 5)
 	style.border_width_bottom = 8
 	style.border_color = COLOR_PANEL_EDGE
 	style.content_margin_left = 24
@@ -3159,8 +3311,8 @@ func _on_achievement_unlocked(title: String, body: String) -> void:
 	_refresh_achievements()
 
 
-func _enqueue_toast(title: String, body: String, seconds: float = 2.2) -> void:
-	_toast_queue.append(["%s\n%s" % [title, body], seconds])
+func _enqueue_toast(title: String, body: String, seconds: float = 2.2, look: Dictionary = {}) -> void:
+	_toast_queue.append(["%s\n%s" % [title, body], seconds, look])
 	if _toast_layer != null and not _toast_layer.visible:
 		_show_next_toast()
 
@@ -3171,6 +3323,11 @@ func _show_next_toast() -> void:
 		return
 	var next: Array = _toast_queue.pop_front()
 	_toast_label.text = str(next[0])
+	var look: Dictionary = next[2] if next.size() > 2 else {}
+	_toast_face.visible = not look.is_empty()
+	if not look.is_empty():
+		_toast_face.set_look(look)
+		_toast_face.talk(2.0)
 	_toast_layer.visible = true
 	# Долгие сообщения можно закрыть тапом, короткие пропускают тапы насквозь.
 	var seconds: float = float(next[1])
@@ -3198,10 +3355,20 @@ func _build_toast() -> void:
 	_toast_layer.add_theme_stylebox_override("panel", style)
 	add_child(_toast_layer)
 
+	var toast_row := HBoxContainer.new()
+	toast_row.add_theme_constant_override("separation", 16)
+	toast_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toast_layer.add_child(toast_row)
+	_toast_face = BossPortrait.new()
+	_toast_face.custom_minimum_size = Vector2(110, 110)
+	_toast_face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_toast_face.visible = false
+	toast_row.add_child(_toast_face)
 	_toast_label = _make_center_label("", 30, COLOR_INK)
 	_display(_toast_label, 32, COLOR_INK)
 	_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_toast_layer.add_child(_toast_label)
+	_toast_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	toast_row.add_child(_toast_label)
 
 	_toast_layer.gui_input.connect(func(event: InputEvent) -> void:
 		if event is InputEventMouseButton and not event.pressed:

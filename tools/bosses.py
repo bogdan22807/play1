@@ -382,12 +382,65 @@ BOSSES = {
 }
 
 
+# Внешность для портрета (scripts/boss_portrait.gd).
+LOOKS = {
+    "wolf": {"bg": "8a94a6", "skin": "c98a5a", "hair": "slick", "hair_color": "1e1e1e", "beard": "stubble",
+             "glasses": "sun", "mouth": "smirk", "cloth": "2b2b2b", "collar": "leather", "eyes": "angry"},
+    "lotus": {"bg": "f2c14e", "skin": "f1c9a0", "hair": "bun", "hair_color": "1b1b1b", "female": True,
+              "lips": "c2185b", "mouth": "smirk", "eyes": "lashes", "cloth": "b5133d", "extra": ["pearls", "flower", "earrings"]},
+    "elephant": {"bg": "9fc5a8", "skin": "b47a4c", "hair": "bald_sides", "hair_color": "f2f2f2", "beard": "walrus",
+                 "glasses": "round", "mouth": "smile", "cloth": "6d8f6f", "collar": "shirt", "eyes": "happy"},
+    "eurobolt": {"bg": "7fb3ff", "skin": "f6d3b8", "hair": "short", "hair_color": "e8c35a", "glasses": "square",
+                 "mouth": "flat", "cloth": "26408b", "collar": "tie", "accent": "e53935"},
+    "baguette": {"bg": "c4a8e8", "skin": "f3cfb0", "hair": "short", "hair_color": "3b2a20", "beard": "thin",
+                 "hat": "beret", "hat_color": "222222", "mouth": "smirk", "eyes": "sleepy", "cloth": "1f4e8c",
+                 "collar": "scarf", "accent": "d32f2f"},
+    "granny_merc": {"bg": "f6b8c8", "skin": "f3cfb4", "hair": "bun", "hair_color": "eeeeee", "female": True,
+                    "glasses": "round", "mouth": "smile", "eyes": "happy", "cloth": "8e6bbf", "collar": "shawl",
+                    "accent": "e57399", "lips": "b5585a"},
+    "cheetah": {"bg": "ffb74d", "skin": "7a4a2a", "hair": "curly", "hair_color": "1a1a1a", "female": True,
+                "glasses": "goggles", "mouth": "grin", "eyes": "lashes", "cloth": "f57c00", "collar": "bandana",
+                "accent": "212121", "lips": "6d2b2b", "extra": ["hoops"]},
+    "jackal": {"bg": "d7b98e", "skin": "a8774e", "hair": "short", "hair_color": "2a2a2a", "beard": "thin",
+               "hat": "fez", "hat_color": "c62828", "mouth": "grin", "gold_tooth": True, "cloth": "5d4037", "collar": "shirt"},
+    "safari": {"bg": "a5d6a7", "skin": "5d3a22", "hair": "short", "hair_color": "1a1a1a", "beard": "full",
+               "beard_color": "9e9e9e", "hat": "safari", "hat_color": "d8c08a", "mouth": "smile", "eyes": "happy",
+               "cloth": "8d7b4a", "collar": "shirt"},
+    "samba": {"bg": "4dd0e1", "skin": "c68e63", "hair": "curly_long", "hair_color": "2b1a10", "female": True,
+              "mouth": "grin", "eyes": "lashes", "lips": "d81b60", "cloth": "ffca28", "collar": "",
+              "extra": ["flower", "hoops"], "flower": "ff3d00"},
+    "don_peso": {"bg": "90a4ae", "skin": "e0b48f", "hair": "slick", "hair_color": "141414", "beard": "thin",
+                 "hat": "fedora", "hat_color": "263238", "accent": "b71c1c", "mouth": "flat", "eyes": "sleepy",
+                 "cloth": "212121", "collar": "bowtie"},
+    "capybara": {"bg": "c5e1a5", "skin": "b98552", "hair": "short", "hair_color": "4e342e", "hat": "straw",
+                 "hat_color": "e6c56b", "mouth": "smile", "eyes": "sleepy", "cloth": "66bb6a", "collar": "shirt",
+                 "accent": "e53935"},
+    "burger": {"bg": "ef9a9a", "skin": "f4bfa0", "hair": "pompadour", "hair_color": "f2c94c", "mouth": "shout",
+               "cheeks": True, "cloth": "d32f2f", "collar": "bowtie", "accent": "ffd54a", "extra": ["sweat"]},
+    "cowboy": {"bg": "e0c097", "skin": "d9a06b", "hair": "short", "hair_color": "6d4c41", "beard": "mustache",
+               "hat": "cowboy", "hat_color": "f5f0e6", "mouth": "smirk", "cloth": "5d4037", "collar": "bandana",
+               "accent": "c62828"},
+    "uncle_sam": {"bg": "90caf9", "skin": "f3cdb0", "hair": "short", "hair_color": "f5f5f5", "beard": "goatee",
+                  "hat": "tophat", "hat_color": "1e3a8a", "accent": "e53935", "mouth": "smile", "eyes": "happy",
+                  "cloth": "1e3a8a", "collar": "tie", "extra": ["star"]},
+    "kangaroo": {"bg": "ffcc80", "skin": "e2a774", "hair": "short", "hair_color": "e8c35a", "beard": "stubble",
+                 "hat": "bush", "hat_color": "8d6e63", "glasses": "sun", "mouth": "grin", "cloth": "43a047", "collar": "shirt"},
+    "emu": {"bg": "b0bec5", "skin": "f2d0b5", "hair": "bob", "hair_color": "5d4037", "female": True,
+            "glasses": "square", "mouth": "flat", "eyes": "lashes", "lips": "ad1457", "cloth": "37474f",
+            "collar": "blazer", "extra": ["earrings"]},
+    "koala": {"bg": "c5cae9", "skin": "f3d6c2", "hair": "curly", "hair_color": "9e9e9e", "female": True,
+              "hat": "nightcap", "hat_color": "5c6bc0", "mouth": "smile", "eyes": "sleepy", "lips": "c2185b",
+              "cloth": "9fa8da", "collar": "", "extra": ["zzz"]},
+}
+
+
 def main():
     data = json.loads(PATH.read_text(encoding="utf-8"), object_pairs_hook=OrderedDict)
     for item in data:
         found = BOSSES.get(item["id"])
         if found is None:
             raise SystemExit("нет босса для %s" % item["id"])
+        found["look"] = LOOKS[item["id"]]
         item["boss"] = found
         # Итог выкупа — голосом босса.
         item["success_text"] = found["epilogue"]

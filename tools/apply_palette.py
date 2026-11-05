@@ -1,5 +1,5 @@
 """Подставляет палитру в main.gd, city_view.gd, island_map.gd между метками PALETTE.
-Запуск из папки проекта: python3 tools/apply_palette.py <sky|teal|sunset>
+Запуск из папки проекта: python3 tools/apply_palette.py <warm|sky|teal|sunset>
 """
 import re
 import sys
@@ -18,6 +18,21 @@ PALETTES = {
                  "TREE": "43b65c", "TREE_DARK": "2e8a44", "ROOFS": ["ff8a65", "ffd166", "4fc3f7", "e8edf2", "90caf9", "ffab91"],
                  "RING": "ffc93c"},
         "map": {"OCEAN": "3aa2ff", "OCEAN_DEEP": "2f88e0", "LOCKED": "c3d3e6"},
+    },
+    # Тёплое небо (текущая): то же голубое небо, но кремовые карточки, тёплые рамки,
+    # контрастнее серые подписи — «ламповее» и читаемее.
+    "warm": {
+        "main": {
+            "BG_TOP": "6ccaf7", "BG_BOTTOM": "3a8fdc", "TEXT": "2a2a48", "MUTED": "52607c",
+            "PANEL": "fffaf0", "PANEL_EDGE": "efd6b0", "ACCENT": "ffc93c", "INK": "2a2a48",
+            "GOLD": "b06400", "MONEY": "ffd23f", "PILL": "2a2a48", "CHIP": "fffaf0", "DOCK": "fffaf0",
+            "BUY": "2fbf5f", "DISABLED": "e9e1d3", "INCOME": "1b8f43", "DANGER": "e8434f",
+            "TRICK": "ff8a3d", "SKY": "3fb2ff", "SHIFT": "8c9eff", "TITLE": "ffffff", "TITLE_OUTLINE": "1c4f8f",
+        },
+        "city": {"GROUND": "9bdc75", "SIDEWALK": "f7eedb", "ROAD": "5d6582", "PARK": "78d562", "POND": "4cb8f5",
+                 "TREE": "46b35c", "TREE_DARK": "2f8a46", "ROOFS": ["ff8a65", "ffd166", "4fc3f7", "fff1dc", "ffab91", "f6c28b"],
+                 "RING": "ffc93c"},
+        "map": {"OCEAN": "45a7f5", "OCEAN_DEEP": "368fe0", "LOCKED": "d4dbe4"},
     },
     # Бирюзовый фон + коралловый акцент + солнечно-жёлтая покупка.
     "teal": {

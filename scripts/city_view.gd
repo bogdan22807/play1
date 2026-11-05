@@ -7,15 +7,15 @@ signal tapped(at: Vector2)
 const CarArt := preload("res://scripts/car_art.gd")
 
 # >>> PALETTE
-const GROUND := Color("8fdc6e")
-const SIDEWALK := Color("f3efe2")
-const ROAD := Color("5a6684")
+const GROUND := Color("9bdc75")
+const SIDEWALK := Color("f7eedb")
+const ROAD := Color("5d6582")
 const MARK := Color(1, 1, 1, 0.8)
-const PARK := Color("6fd75a")
-const POND := Color("3fb2ff")
-const TREE := Color("43b65c")
-const TREE_DARK := Color("2e8a44")
-const ROOFS := [Color("ff8a65"), Color("ffd166"), Color("4fc3f7"), Color("e8edf2"), Color("90caf9"), Color("ffab91")]
+const PARK := Color("78d562")
+const POND := Color("4cb8f5")
+const TREE := Color("46b35c")
+const TREE_DARK := Color("2f8a46")
+const ROOFS := [Color("ff8a65"), Color("ffd166"), Color("4fc3f7"), Color("fff1dc"), Color("ffab91"), Color("f6c28b")]
 const PLAYER_RING := Color("ffc93c")
 # <<< PALETTE
 const MAX_FLEET_CARS := 16
