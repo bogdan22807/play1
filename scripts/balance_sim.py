@@ -111,7 +111,7 @@ class Player:
         self.owned_cars = set()
         self.levels = {item["id"]: 0 for item in self.upgrades}
         self.home_capacity = int(self.balance.get("garage_start", 5))
-        self.expansions = list(self.balance.get("garage_expansions", []))
+        self.expansion_level = 0
         self.garage = []
         self.team = 0
         self.open_districts = set()
@@ -125,6 +125,16 @@ class Player:
         self.coins = 0.0
         self.taps = 0
         self.last_progress = self.time
+
+    def next_expansion(self):
+        """Как в игре: список из balance.json, дальше без лимита, каждое в growth раз дороже."""
+        listed = self.balance.get("garage_expansions", [])
+        if self.expansion_level < len(listed):
+            return listed[self.expansion_level]
+        last = listed[-1]
+        growth = float(self.balance.get("garage_expansion_growth", 10))
+        extra = self.expansion_level - len(listed) + 1
+        return {"cost": math.floor(float(last["cost"]) * growth ** extra), "add": int(last["add"])}
 
     def mark(self, key, text):
         if key in self.seen:
@@ -276,8 +286,8 @@ class Player:
             slot_cost = self.fleet_cost(index) + self.hire_cost()
             if best_slot is None or self.driver_net(index) / slot_cost > best_slot[1] / best_slot[0]:
                 best_slot = (slot_cost, self.driver_net(index) * boost)
-        if full and self.expansions and best_slot:
-            step = self.expansions[0]
+        if full and best_slot:
+            step = self.next_expansion()
             cost = float(step["cost"]) + best_slot[0]
             found.append(("expand", 0, "Расширение гаража", float(step["cost"]), best_slot[1] / cost))
         district_now = 1.0 + sum(o["income_bonus"] for o in self.districts if o["id"] in self.open_districts)
@@ -330,7 +340,8 @@ class Player:
             self.garage.remove(min(self.garage, key=self.car_income))
             self.garage.append(entry_id)
         elif kind == "expand":
-            step = self.expansions.pop(0)
+            step = self.next_expansion()
+            self.expansion_level += 1
             self.home_capacity += int(step["add"])
         elif kind == "district":
             self.open_districts.add(entry_id)

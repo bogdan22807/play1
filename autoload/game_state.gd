@@ -99,6 +99,8 @@ var _fleet_growth: float = 1.15
 var _trade_in_share: float = 0.5
 var _garage_start: int = 5
 var _garage_expansions: Array = []
+## Во сколько раз дороже каждое расширение гаража после списка из balance.json.
+var _garage_expansion_growth: float = 100.0
 ## Франшиза = 1 + weight * корень(заработок всех забегов / reference). Из balance.json.
 var _franchise_reference: float = 1e9
 var _franchise_weight: float = 0.5
@@ -526,10 +528,8 @@ func get_garage_capacity() -> int:
 
 func get_home_garage_capacity() -> int:
 	var capacity: int = _garage_start
-	for index in mini(_garage_level, _garage_expansions.size()):
-		var step: Variant = _garage_expansions[index]
-		if typeof(step) == TYPE_DICTIONARY:
-			capacity += int(step.get("add", 0))
+	for index in _garage_level:
+		capacity += int(_expansion_at(index).get("add", 0))
 	return capacity
 
 
@@ -546,12 +546,24 @@ func is_garage_full() -> bool:
 	return _garage.size() >= get_garage_capacity()
 
 
-## Следующее расширение гаража. Пустой словарь — расширять больше некуда.
+## Следующее расширение гаража. Лимита нет: после расширений из balance.json
+## каждое следующее даёт столько же мест и стоит в garage_expansion_growth раз дороже.
 func get_next_expansion() -> Dictionary:
-	if _garage_level >= _garage_expansions.size():
-		return {}
-	var step: Variant = _garage_expansions[_garage_level]
-	return step if typeof(step) == TYPE_DICTIONARY else {}
+	return _expansion_at(_garage_level)
+
+
+func _expansion_at(index: int) -> Dictionary:
+	if _garage_expansions.is_empty():
+		return {"cost": 4000.0 * pow(_garage_expansion_growth, index), "add": 5}
+	if index < _garage_expansions.size():
+		var step: Variant = _garage_expansions[index]
+		return step if typeof(step) == TYPE_DICTIONARY else {}
+	var last: Dictionary = _garage_expansions[_garage_expansions.size() - 1]
+	var extra: int = index - _garage_expansions.size() + 1
+	return {
+		"cost": floorf(float(last.get("cost", 0)) * pow(_garage_expansion_growth, extra)),
+		"add": int(last.get("add", 5)),
+	}
 
 
 func can_expand_garage() -> bool:
@@ -630,6 +642,46 @@ func buy_fleet(car_id: String) -> bool:
 	_garage.append(_new_car(car_id))
 	_after_staff_change()
 	return true
+
+
+## За сколько можно продать машину из гаража: половина базовой цены (как при обмене).
+func get_sell_value(car_id: String) -> float:
+	return get_trade_in_value(car_id)
+
+
+## Продать одну машину этой модели. Сначала уходит свободная (без водителя),
+## среди них — самая потрёпанная. Возвращает вырученные деньги, 0 — продать нечего.
+func sell_garage_car(car_id: String) -> float:
+	var busy: Array = get_assignments().values()
+	var best: int = -1
+	var best_free: bool = false
+	for index in _garage.size():
+		var car: Dictionary = _garage[index]
+		if str(car.get("model", "")) != car_id:
+			continue
+		var free: bool = not busy.any(func(other: Variant) -> bool: return is_same(other, car))
+		var better: bool = best < 0 or (free and not best_free)
+		if not better and free == best_free:
+			better = float(car.get("health", 1)) < float(_garage[best].get("health", 1))
+		if better:
+			best = index
+			best_free = free
+	if best < 0:
+		return 0.0
+	var value: float = get_sell_value(car_id)
+	_garage.remove_at(best)
+	_gain_coins(value)
+	_after_staff_change()
+	return value
+
+
+## Сколько машин этой модели сейчас без водителя.
+func get_free_count(car_id: String) -> int:
+	var count: int = 0
+	for car: Variant in get_free_garage_cars():
+		if str(car.get("model", "")) == car_id:
+			count += 1
+	return count
 
 
 # --- Износ: мойка и ремонт ----------------------------------------------------
@@ -2512,7 +2564,7 @@ func _load_staff(data: Dictionary) -> void:
 				"clean": clampf(float(item.get("clean", 1)), 0.0, 1.0),
 				"health": clampf(float(item.get("health", 1)), 0.0, 1.0),
 			})
-	_garage_level = clampi(int(data.get("garage_level", 0)), 0, _garage_expansions.size())
+	_garage_level = clampi(int(data.get("garage_level", 0)), 0, 1000)
 	_team = _read_people(data.get("team", []), true)
 	_candidates = _read_people(data.get("candidates", []), false)
 	_next_uid = maxi(1, int(data.get("next_uid", 1)))
@@ -2786,6 +2838,7 @@ func _read_balance() -> void:
 	rating = _rating_value("start", 4)
 	var expansions: Variant = data.get("garage_expansions", [])
 	_garage_expansions = expansions if typeof(expansions) == TYPE_ARRAY else []
+	_garage_expansion_growth = maxf(1.0, float(data.get("garage_expansion_growth", _garage_expansion_growth)))
 
 
 ## Сумма в долларах: $999, $1.5K, $-20.

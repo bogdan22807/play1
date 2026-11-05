@@ -58,6 +58,16 @@ func _init() -> void:
 	check(gs.get_fleet_count("old_sedan") == before - 1 and gs.get_garage().size() == 5, "седан ушёл в обмен")
 	check(gs.expand_garage() and gs.get_garage_capacity() == 10, "расширили гараж")
 
+	# Продажа машины из гаража: сначала та, что без водителя.
+	var garage_before: int = gs.get_garage().size()
+	var coins_before: float = gs.coins
+	var team_before: int = gs.get_team().size()
+	var sold: float = gs.sell_garage_car("city_taxi")
+	check(sold > 0.0 and gs.coins >= coins_before + sold - 0.01, "продали такси, деньги пришли")
+	check(gs.get_garage().size() == garage_before - 1 and gs.get_team().size() == team_before, "машина ушла, водители на месте")
+	check(gs.sell_garage_car("limo") == 0.0, "нельзя продать то, чего нет")
+	gs.buy_fleet("city_taxi")
+
 	# Своя прошлая машина уезжает в гараж.
 	gs.buy_car("old_sedan")
 	gs.buy_car("city_taxi")
@@ -73,6 +83,13 @@ func _init() -> void:
 	await process_frame
 	check(gs2.get_team().size() == 1 and gs2.get_team()[0]["name"] == team_names[0], "команда сохранилась")
 	check(gs2.get_garage().size() == gs.get_garage().size() and gs2.get_garage_capacity() == 10, "гараж сохранился")
+
+	# Расширять гараж можно без лимита: после списка — дороже, но всегда есть следующее.
+	gs2.coins = 1e30
+	for step in 10:
+		check(gs2.expand_garage(), "расширение №%d" % (step + 2))
+	check(gs2.get_garage_capacity() == 60, "гараж на 60 мест: %d" % gs2.get_garage_capacity())
+	check(not gs2.get_next_expansion().is_empty() and float(gs2.get_next_expansion()["cost"]) > 1e20, "следующее есть и стоит дорого")
 	check(is_equal_approx(gs2.get_income_per_second(), gs.get_income_per_second()), "доход после загрузки тот же")
 
 	# Старое сохранение: 3 стажёра и 1 водитель -> деньги назад.
