@@ -1717,6 +1717,19 @@ func _rebuild_market_if_needed() -> void:
 	_refresh_sell()
 
 
+## Серая кнопка с таймером: текст тёмный и чёткий, а не бледный, чтобы время было видно.
+func _timer_look(button: Button, waiting: bool) -> void:
+	var color: Color = COLOR_TEXT if waiting else Color(_text_on(COLOR_DISABLED), 0.55)
+	button.add_theme_color_override("font_disabled_color", color)
+
+
+## «4:32» или «1 ч 05 мин» — для таймеров на кнопках.
+func _wait_text(seconds: int) -> String:
+	if seconds >= 3600:
+		return "%d ч %02d мин" % [int(seconds / 3600), int(seconds % 3600 / 60)]
+	return _mmss(seconds)
+
+
 func _mmss(seconds: int) -> String:
 	return "%d:%02d" % [int(seconds / 60), seconds % 60]
 
@@ -1746,21 +1759,24 @@ func _refresh_competitors() -> void:
 		var button: Button = row["button"]
 		var id := str(ad_id)
 		var video: bool = GameState.get_ad_pay(id) == "video"
+		# Таймер — прямо на кнопке, на месте цены.
 		if str(active.get("id", "")) == id:
-			status.text = "Идёт, осталось %s" % _mmss(GameState.get_ad_left())
+			status.text = "Кампания идёт!"
+			button.text = "Идёт\n%s" % _wait_text(GameState.get_ad_left())
 		elif not active.is_empty():
 			status.text = "Сначала закончится текущая кампания"
-		else:
+			button.text = "Через\n%s" % _wait_text(GameState.get_ad_left())
+		elif video and GameState.get_ad_wait(id) > 0:
 			status.text = _ad_duel_hint(id)
-		if video and GameState.get_ad_wait(id) > 0:
-			var wait: int = GameState.get_ad_wait(id)
-			var wait_text: String = _mmss(wait) if wait < 3600 else "%d ч %02d мин" % [int(wait / 3600), int(wait % 3600 / 60)]
-			button.text = "Ролик\nчерез %s" % wait_text
+			button.text = "Ролик через\n%s" % _wait_text(GameState.get_ad_wait(id))
 		elif video:
+			status.text = _ad_duel_hint(id)
 			button.text = "▶ Смотреть\nролик"
 		else:
+			status.text = _ad_duel_hint(id)
 			button.text = "Запустить\n%s" % GameState.format_money(GameState.get_ad_price(id))
 		button.disabled = not GameState.can_buy_ad(id)
+		_timer_look(button, button.text.contains(":"))
 
 	for raw: Variant in rivals:
 		var id: String = str(raw.get("id", ""))
@@ -1839,9 +1855,6 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	var attack_left: int = GameState.get_rival_attack_left()
 	if attack_left > 0:
 		notes.append("их ход через %s: %s" % [_mmss(attack_left), _attack_text(GameState.get_rival_attack_kind(id))])
-	var wait: int = GameState.get_trick_wait(id)
-	if wait > 0:
-		notes.append("новая пакость через %s" % _mmss(wait))
 	effects.text = "• " + "\n• ".join(notes) if not notes.is_empty() else ""
 	var tricks: Dictionary = row["tricks"]
 	for trick_id: Variant in tricks.keys():
@@ -1851,12 +1864,17 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 		for raw: Variant in GameState.get_tricks():
 			if str(raw.get("id", "")) == tid:
 				trick_name = str(raw.get("name", tid))
-		button.text = "%s\n%s · риск %d%%" % [
-			trick_name,
-			GameState.format_money(GameState.get_trick_price(tid)),
-			int(roundf(GameState.get_catch_chance(id, tid) * 100.0)),
-		]
+		var trick_wait: int = GameState.get_trick_wait(id)
+		if trick_wait > 0:
+			button.text = "%s\nснова через %s" % [trick_name, _wait_text(trick_wait)]
+		else:
+			button.text = "%s\n%s · риск %d%%" % [
+				trick_name,
+				GameState.format_money(GameState.get_trick_price(tid)),
+				int(roundf(GameState.get_catch_chance(id, tid) * 100.0)),
+			]
 		button.disabled = not GameState.can_play_trick(id, tid)
+		_timer_look(button, trick_wait > 0)
 
 
 ## Подсказка у кампании: хватит ли её, чтобы обогнать текущего соперника.
@@ -2909,7 +2927,7 @@ func _rebuild_garage_list() -> void:
 			_add_label(text_box, "Свободных машин нет: один водитель останется без машины", 24, COLOR_DANGER)
 		var button := _make_row_button(_on_sell_garage_car.bind(model))
 		button.text = "Продать 1\n+%s" % GameState.format_money(GameState.get_sell_value(model))
-		_style_plain_button(button, COLOR_TRICK)
+		_style_plain_button(button, COLOR_DANGER)
 		button.add_theme_font_size_override("font_size", 28)
 		row.add_child(button)
 		_garage_box.add_child(parts[0])
