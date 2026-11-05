@@ -2,27 +2,37 @@ extends Control
 ## Главный экран. Весь интерфейс собирается в коде, сцена остаётся пустой.
 ## Экран не хранит экономику: он просит GameState и рисует то, что пришло в сигналах.
 
-## Палитра — цвета бангкокских такси (розовые, лаймовые, оранжевые) на вечернем небе.
-const COLOR_BG := Color("2e2366")
-const COLOR_BG_TOP := Color("3b2d8f")
-const COLOR_BG_BOTTOM := Color("231a52")
+# >>> PALETTE
+## Палитра «sky». Меняется целиком: все цвета экрана берутся отсюда.
+const COLOR_BG_TOP := Color("62c6ff")
+const COLOR_BG_BOTTOM := Color("2b8ae6")
+const COLOR_BG := Color("2b8ae6")
+const COLOR_TEXT := Color("1c2b4d")
+const COLOR_MUTED := Color("5c6d90")
+const COLOR_INK := Color("1c2b4d")
+const COLOR_PANEL := Color("ffffff")
+const COLOR_PANEL_EDGE := Color("b8d6f2")
+const COLOR_ACCENT := Color("ffc93c")
+const COLOR_GOLD := Color("c77d00")
+const COLOR_MONEY := Color("ffd23f")
+const COLOR_PILL := Color("1c2b4d")
+const COLOR_CHIP := Color("ffffff")
+const COLOR_DOCK := Color("ffffff")
+const COLOR_BUY := Color("2fbf5f")
+const COLOR_BUY_HOVER := Color("47c672")
+const COLOR_BUY_PRESSED := Color("2aab55")
+const COLOR_DISABLED := Color("d5e2f0")
+const COLOR_INCOME := Color("1e9e4a")
+const COLOR_DANGER := Color("ff4d5e")
+const COLOR_TRICK := Color("ff8a3d")
+const COLOR_SKY := Color("3fb2ff")
+const COLOR_SHIFT := Color("8c9eff")
+const COLOR_TITLE := Color("ffffff")
+const COLOR_TITLE_OUTLINE := Color("1c4f8f")
 const COLOR_TAXI := Color("ffc107")
 const COLOR_TAXI_PRESSED := Color("e0a800")
-const COLOR_INK := Color("1f1645")
-const COLOR_GOLD := Color("ffd23f")
-const COLOR_MUTED := Color("c9bff5")
 const COLOR_WINDOW := Color("26324a")
-const COLOR_PANEL := Color("45379a")
-const COLOR_PANEL_EDGE := Color("2a2066")
-const COLOR_BUY := Color("8be04e")
-const COLOR_BUY_HOVER := Color("9dec62")
-const COLOR_BUY_PRESSED := Color("74c93a")
-const COLOR_DISABLED := Color("5b4fa3")
-const COLOR_INCOME := Color("a6ff7a")
-const COLOR_DANGER := Color("ff5a6e")
-const COLOR_PINK := Color("ff4fa3")
-const COLOR_ORANGE := Color("ff8a3d")
-const COLOR_SKY := Color("4fc3ff")
+# <<< PALETTE
 
 const PAGE_TAP := 0
 const PAGE_UPGRADES := 1
@@ -210,19 +220,19 @@ func _apply_theme() -> void:
 	_display_font = load("res://assets/fonts/InterDisplay-BlackItalic.otf")
 	theme.default_font = body
 	theme.default_font_size = 30
-	theme.set_color("font_color", "Label", Color.WHITE)
-	theme.set_color("font_color", "Button", Color.WHITE)
-	theme.set_color("font_hover_color", "Button", Color.WHITE)
-	theme.set_color("font_pressed_color", "Button", Color.WHITE)
-	theme.set_color("font_focus_color", "Button", Color.WHITE)
-	theme.set_color("font_disabled_color", "Button", Color(1, 1, 1, 0.45))
+	theme.set_color("font_color", "Label", COLOR_TEXT)
+	theme.set_color("font_color", "Button", COLOR_TEXT)
+	theme.set_color("font_hover_color", "Button", COLOR_TEXT)
+	theme.set_color("font_pressed_color", "Button", COLOR_TEXT)
+	theme.set_color("font_focus_color", "Button", COLOR_TEXT)
+	theme.set_color("font_disabled_color", "Button", Color(COLOR_TEXT, 0.45))
 	var bold: Font = load("res://assets/fonts/Inter-Bold.otf")
 	theme.set_font("font", "Button", bold)
 	self.theme = theme
 
 
 ## Заголовок крупным наклонным шрифтом — «на скорости».
-func _display(label: Label, font_size: int, color: Color = Color.WHITE) -> Label:
+func _display(label: Label, font_size: int, color: Color = COLOR_TEXT) -> Label:
 	label.add_theme_font_override("font", _display_font)
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
@@ -310,7 +320,9 @@ func _build_header() -> VBoxContainer:
 	_company_label = Label.new()
 	_company_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_company_label.clip_text = true
-	_display(_company_label, 30, COLOR_PINK)
+	_display(_company_label, 30, COLOR_TITLE)
+	_company_label.add_theme_constant_override("outline_size", 8)
+	_company_label.add_theme_color_override("font_outline_color", COLOR_TITLE_OUTLINE)
 	header.add_child(_company_label)
 
 	# Деньги — в тёмной «пилюле» с золотой монетой.
@@ -318,10 +330,10 @@ func _build_header() -> VBoxContainer:
 	header.add_child(pill_center)
 	var pill := PanelContainer.new()
 	var pill_style := StyleBoxFlat.new()
-	pill_style.bg_color = COLOR_INK
+	pill_style.bg_color = COLOR_PILL
 	pill_style.set_corner_radius_all(60)
 	pill_style.set_border_width_all(4)
-	pill_style.border_color = COLOR_GOLD
+	pill_style.border_color = COLOR_MONEY
 	pill_style.content_margin_left = 18
 	pill_style.content_margin_right = 40
 	pill_style.content_margin_top = 6
@@ -343,7 +355,7 @@ func _build_header() -> VBoxContainer:
 	_coins_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_coins_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_coins_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_display(_coins_label, 70, COLOR_GOLD)
+	_display(_coins_label, 70, COLOR_MONEY)
 	coin_frame.add_child(_coins_label)
 
 	# Чипы: доход в секунду, рейтинг, доля рынка.
@@ -351,9 +363,9 @@ func _build_header() -> VBoxContainer:
 	chips.alignment = BoxContainer.ALIGNMENT_CENTER
 	chips.add_theme_constant_override("separation", 10)
 	header.add_child(chips)
-	_tap_label = _make_chip(chips, Color("2f7a3a"))
-	_reputation_label = _make_chip(chips, Color("8a6a12"))
-	_share_label = _make_chip(chips, Color("a3286a"))
+	_tap_label = _make_chip(chips, COLOR_CHIP)
+	_reputation_label = _make_chip(chips, COLOR_CHIP)
+	_share_label = _make_chip(chips, COLOR_CHIP)
 
 	var track := Control.new()
 	track.custom_minimum_size = Vector2(0, 10)
@@ -361,12 +373,12 @@ func _build_header() -> VBoxContainer:
 	track.clip_contents = true
 	header.add_child(track)
 	var track_bg := ColorRect.new()
-	track_bg.color = COLOR_INK
+	track_bg.color = COLOR_PANEL_EDGE
 	track_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	track_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	track.add_child(track_bg)
 	_share_fill = ColorRect.new()
-	_share_fill.color = COLOR_PINK
+	_share_fill.color = COLOR_ACCENT
 	_share_fill.anchor_right = 0.0
 	_share_fill.anchor_bottom = 1.0
 	_share_fill.offset_right = 0.0
@@ -413,6 +425,7 @@ func _make_chip(parent: Container, color: Color) -> Label:
 	var label := Label.new()
 	label.add_theme_font_size_override("font_size", 26)
 	label.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
+	label.add_theme_color_override("font_color", _text_on(color))
 	chip.add_child(label)
 	return label
 
@@ -460,7 +473,7 @@ func _build_my_car_panel() -> PanelContainer:
 	bars.add_theme_constant_override("separation", 6)
 	row.add_child(bars)
 	_my_clean_label = _add_label(bars, "", 26, COLOR_MUTED)
-	_my_clean_bar = _make_bar(Color("4fc3f7"))
+	_my_clean_bar = _make_bar(COLOR_SKY)
 	bars.add_child(_my_clean_bar)
 	_my_health_label = _add_label(bars, "", 26, COLOR_MUTED)
 	_my_health_bar = _make_bar(COLOR_INCOME)
@@ -483,7 +496,7 @@ func _make_bar(fill_color: Color) -> ProgressBar:
 	bar.show_percentage = false
 	bar.custom_minimum_size = Vector2(0, 18)
 	var back := StyleBoxFlat.new()
-	back.bg_color = COLOR_BG
+	back.bg_color = COLOR_PANEL_EDGE
 	back.set_corner_radius_all(9)
 	var fill := StyleBoxFlat.new()
 	fill.bg_color = fill_color
@@ -603,7 +616,7 @@ func _on_shifts_changed() -> void:
 		label.add_theme_color_override("font_color", color)
 		bar.value = minf(hours, bar.max_value)
 		var fill: StyleBoxFlat = bar.get_theme_stylebox("fill")
-		fill.bg_color = color if tired > 0.0 else Color("b39ddb")
+		fill.bg_color = color if tired > 0.0 else COLOR_SHIFT
 		button.disabled = not GameState.can_change_shift(int(uid))
 	if _shift_all_button != null:
 		var tired_count: int = GameState.get_tired_count()
@@ -731,10 +744,10 @@ var _tab_icons: Array = []
 func _build_tab_bar() -> Control:
 	var dock := PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = COLOR_INK
+	style.bg_color = COLOR_DOCK
 	style.set_corner_radius_all(40)
-	style.border_width_top = 3
-	style.border_color = Color("5b4fa3")
+	style.border_width_bottom = 8
+	style.border_color = COLOR_PANEL_EDGE
 	style.content_margin_left = 10
 	style.content_margin_right = 10
 	style.content_margin_top = 10
@@ -899,7 +912,7 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	_add_label(column, str(info.get("name", competitor_id)), 36)
 	_add_label(column, str(info.get("personality_name", "")), 26, COLOR_GOLD)
 	_add_label(column, str(info.get("description", "")), 24, COLOR_MUTED)
-	var share_label := _add_label(column, "", 26, Color.WHITE)
+	var share_label := _add_label(column, "", 26, COLOR_TEXT)
 	var effects := _add_label(column, "", 24, COLOR_INCOME)
 
 	var tricks := HBoxContainer.new()
@@ -913,9 +926,8 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 		button.custom_minimum_size = Vector2(0, 130)
 		button.focus_mode = Control.FOCUS_NONE
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_style_plain_button(button, COLOR_ORANGE)
+		_style_plain_button(button, COLOR_TRICK)
 		button.add_theme_font_size_override("font_size", 20)
-		button.add_theme_color_override("font_color", Color.WHITE)
 		button.pressed.connect(_on_trick.bind(competitor_id, trick_id))
 		tricks.add_child(button)
 		trick_buttons[trick_id] = button
@@ -1192,7 +1204,7 @@ func _build_sell_popup() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 18)
 	panel.add_child(box)
-	box.add_child(_make_center_label("Продать компанию?", 44, Color.WHITE))
+	box.add_child(_make_center_label("Продать компанию?", 44, COLOR_TEXT))
 	_sell_body = _make_center_label("", 28, COLOR_MUTED)
 	_sell_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_sell_body)
@@ -1314,7 +1326,7 @@ func _show_city_section(index: int) -> void:
 		_city_sections[section_index].visible = section_index == index
 		var button: Button = _city_section_buttons[section_index]
 		var active: bool = section_index == index
-		_style_plain_button(button, COLOR_PINK if active else COLOR_PANEL)
+		_style_plain_button(button, COLOR_ACCENT if active else COLOR_PANEL)
 
 
 var _more_list: VBoxContainer
@@ -1327,13 +1339,13 @@ func _build_more_rows() -> void:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", _panel_style())
 	_more_list.add_child(panel)
-	_more_stats = _add_label(panel, "", 28, Color.WHITE)
+	_more_stats = _add_label(panel, "", 28, COLOR_TEXT)
 	_more_list.add_child(_make_section_title("Настройки"))
 	_sound_button = _make_settings_button("", COLOR_SKY, _toggle_sound)
 	_more_list.add_child(_sound_button)
 	_refresh_sound_button()
 	_more_list.add_child(_make_settings_button("Сбросить прогресс", COLOR_DANGER, _ask_reset))
-	_add_label(_more_list, "Сброс стирает весь прогресс и название компании. Это для проверки игры.", 24, COLOR_MUTED)
+	_on_background(_add_label(_more_list, "Сброс стирает весь прогресс и название компании. Это для проверки игры.", 24))
 
 
 func _refresh_more() -> void:
@@ -1437,7 +1449,7 @@ func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer
 
 func _build_region_rows() -> void:
 	_world_list.add_child(_make_section_title("Карта мира"))
-	_world_progress = _add_label(_world_list, "", 26, COLOR_MUTED)
+	_world_progress = _on_background(_add_label(_world_list, "", 26))
 
 	_island_map = IslandMap.new()
 	_island_map.custom_minimum_size = Vector2(0, 860)
@@ -1458,7 +1470,7 @@ func _build_region_rows() -> void:
 	_island_button = _make_row_button(_on_island_button)
 	_island_button.custom_minimum_size = Vector2(0, 110)
 	box.add_child(_island_button)
-	_add_label(_world_list, "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого водителя. Открытый остров — свой гараж на 20 машин. Захваченный — +25% дохода навсегда.", 24, COLOR_MUTED)
+	_on_background(_add_label(_world_list, "Репутация растёт от заказов: +1 за каждые 20 тапов и за каждого водителя. Открытый остров — свой гараж на 20 машин. Захваченный — +25% дохода навсегда.", 24))
 
 
 ## Состояние острова для карты.
@@ -1580,7 +1592,9 @@ func _build_upgrade_rows() -> void:
 func _make_section_title(text: String) -> Label:
 	var label := Label.new()
 	label.text = text
-	_display(label, 44, COLOR_GOLD)
+	_display(label, 44, COLOR_TITLE)
+	label.add_theme_constant_override("outline_size", 10)
+	label.add_theme_color_override("font_outline_color", COLOR_TITLE_OUTLINE)
 	return label
 
 
@@ -1762,7 +1776,7 @@ func _build_name_popup() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 20)
 	panel.add_child(box)
-	box.add_child(_display(_make_center_label("Ваше такси", 52, Color.WHITE), 56, COLOR_PINK))
+	box.add_child(_display(_make_center_label("Ваше такси", 52, Color.WHITE), 56, COLOR_ACCENT))
 	var hint := _make_center_label("Бангкок ждёт. Как будет называться ваша компания? Конкуренты должны знать, кого бояться.", 28, COLOR_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(hint)
@@ -1808,7 +1822,7 @@ func _build_driver_rows() -> void:
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 26)
-	hint.add_theme_color_override("font_color", COLOR_MUTED)
+	_on_background(hint)
 	_driver_list.add_child(hint)
 
 	var summary := PanelContainer.new()
@@ -1922,7 +1936,7 @@ func _make_row_panel() -> Array:
 	return [panel, row]
 
 
-func _add_label(box: Container, text: String, font_size: int, color: Color = Color.WHITE) -> Label:
+func _add_label(box: Container, text: String, font_size: int, color: Color = COLOR_TEXT) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2000,7 +2014,7 @@ func _rebuild_staff() -> void:
 			var car_label := _add_label(text_box, "", 26, COLOR_INCOME)
 			_team_wear_rows[uid] = [car_label, person, car]
 		var shift_label := _add_label(text_box, "", 24, COLOR_MUTED)
-		var shift_bar := _make_bar(Color("b39ddb"))
+		var shift_bar := _make_bar(COLOR_SHIFT)
 		shift_bar.max_value = 14.0
 		text_box.add_child(shift_bar)
 		var buttons := VBoxContainer.new()
@@ -2198,9 +2212,27 @@ func _style_buy_button(button: Button) -> void:
 	button.add_theme_stylebox_override("disabled", _button_style(COLOR_DISABLED, true))
 	button.add_theme_stylebox_override("focus", _button_style(COLOR_BUY))
 	button.add_theme_font_size_override("font_size", 28)
+	_set_button_text(button, COLOR_BUY)
+
+
+## Подпись прямо на фоне, не на карточке: цвет и обводка как у заголовков.
+func _on_background(label: Label) -> Label:
+	label.add_theme_color_override("font_color", COLOR_TITLE)
+	label.add_theme_constant_override("outline_size", 6)
+	label.add_theme_color_override("font_outline_color", COLOR_TITLE_OUTLINE)
+	return label
+
+
+## Тёмный текст на светлой кнопке, белый — на тёмной.
+func _text_on(fill: Color) -> Color:
+	return COLOR_INK if fill.get_luminance() > 0.55 else Color.WHITE
+
+
+func _set_button_text(button: Button, fill: Color) -> void:
+	var text: Color = _text_on(fill)
 	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
-		button.add_theme_color_override(state, COLOR_INK)
-	button.add_theme_color_override("font_disabled_color", Color(1, 1, 1, 0.5))
+		button.add_theme_color_override(state, text)
+	button.add_theme_color_override("font_disabled_color", Color(_text_on(COLOR_DISABLED), 0.55))
 
 
 ## Объёмная кнопка: кромка снизу темнее. Нажатая — кромка тоньше, кнопка «проседает».
@@ -2348,7 +2380,7 @@ func _refresh_achievements() -> void:
 				GameState.format_number(need),
 				reward,
 			]
-			label.add_theme_color_override("font_color", Color.WHITE)
+			label.add_theme_color_override("font_color", COLOR_TEXT)
 
 
 func _on_achievement_unlocked(title: String, body: String) -> void:
@@ -2382,8 +2414,8 @@ func _build_toast() -> void:
 	_toast_layer.visible = false
 	_toast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := _panel_style()
-	style.bg_color = COLOR_GOLD
-	style.border_color = Color("c99400")
+	style.bg_color = COLOR_MONEY
+	style.border_color = COLOR_MONEY.darkened(0.3)
 	style.content_margin_left = 24
 	style.content_margin_right = 24
 	style.content_margin_top = 16
@@ -2588,17 +2620,18 @@ func _show_page(page: int) -> void:
 		var active: bool = index == page
 		var tab_style := StyleBoxFlat.new()
 		tab_style.set_corner_radius_all(32)
-		tab_style.bg_color = COLOR_PINK if active else Color(0, 0, 0, 0)
+		tab_style.bg_color = COLOR_ACCENT if active else Color(0, 0, 0, 0)
 		if active:
 			tab_style.border_width_bottom = 6
-			tab_style.border_color = COLOR_PINK.darkened(0.35)
+			tab_style.border_color = COLOR_ACCENT.darkened(0.35)
 		for state in ["normal", "hover", "pressed", "focus"]:
 			button.add_theme_stylebox_override(state, tab_style)
 		var parts: Array = _tab_icons[index]
 		var icon: Control = parts[0]
 		var label: Label = parts[1]
-		icon.color = Color.WHITE if active else Color(1, 1, 1, 0.55)
-		label.add_theme_color_override("font_color", Color.WHITE if active else Color(1, 1, 1, 0.55))
+		var tint: Color = _text_on(COLOR_ACCENT) if active else COLOR_MUTED
+		icon.color = tint
+		label.add_theme_color_override("font_color", tint)
 
 
 func _style_plain_button(button: Button, color: Color) -> void:
@@ -2607,6 +2640,7 @@ func _style_plain_button(button: Button, color: Color) -> void:
 	button.add_theme_stylebox_override("pressed", _button_style(color.darkened(0.08), true))
 	button.add_theme_stylebox_override("focus", _button_style(color))
 	button.add_theme_stylebox_override("disabled", _button_style(COLOR_DISABLED, true))
+	_set_button_text(button, color)
 
 
 func _open_settings() -> void:
@@ -2671,7 +2705,7 @@ func _build_settings_popup() -> void:
 	_settings_menu.add_theme_constant_override("separation", 24)
 	_settings_menu.alignment = BoxContainer.ALIGNMENT_CENTER
 	stack.add_child(_settings_menu)
-	_settings_menu.add_child(_make_center_label("Настройки", 52, Color.WHITE))
+	_settings_menu.add_child(_make_center_label("Настройки", 52, COLOR_TEXT))
 	var hint := _make_center_label("Сброс стирает деньги, улучшения и водителей. Это для проверки игры.", 28, COLOR_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_settings_menu.add_child(hint)
@@ -2684,7 +2718,7 @@ func _build_settings_popup() -> void:
 	_settings_confirm.alignment = BoxContainer.ALIGNMENT_CENTER
 	_settings_confirm.visible = false
 	stack.add_child(_settings_confirm)
-	var question := _display(_make_center_label("Точно стереть весь прогресс?", 44, Color.WHITE), 44, Color.WHITE)
+	var question := _display(_make_center_label("Точно стереть весь прогресс?", 44, COLOR_TEXT), 44, COLOR_TEXT)
 	question.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_settings_confirm.add_child(question)
 	_settings_confirm.add_child(_make_settings_button("Сбросить", COLOR_DANGER, _confirm_reset))
@@ -2707,9 +2741,6 @@ func _make_settings_button(text: String, color: Color, callback: Callable) -> Bu
 	button.focus_mode = Control.FOCUS_NONE
 	_style_plain_button(button, color)
 	button.add_theme_font_size_override("font_size", 32)
-	button.add_theme_color_override("font_color", Color.WHITE)
-	button.add_theme_color_override("font_hover_color", Color.WHITE)
-	button.add_theme_color_override("font_pressed_color", Color.WHITE)
 	button.pressed.connect(callback)
 	return button
 

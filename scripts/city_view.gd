@@ -6,16 +6,18 @@ signal tapped(at: Vector2)
 
 const CarArt := preload("res://scripts/car_art.gd")
 
-const GROUND := Color("7fcf6a")
-const SIDEWALK := Color("f6d5a8")
-const ROAD := Color("4a4570")
+# >>> PALETTE
+const GROUND := Color("8fdc6e")
+const SIDEWALK := Color("f3efe2")
+const ROAD := Color("5a6684")
 const MARK := Color(1, 1, 1, 0.8)
-const PARK := Color("5fd068")
-const POND := Color("4cc9f0")
-const TREE := Color("3dbb67")
-const TREE_DARK := Color("238a4a")
-const ROOFS := [Color("ff7f6e"), Color("ffc857"), Color("5bc0eb"), Color("9b5de5"), Color("f15bb5"), Color("00c49a"), Color("ff9f1c"), Color("e9ecef")]
-const PLAYER_RING := Color("ff4fa3")
+const PARK := Color("6fd75a")
+const POND := Color("3fb2ff")
+const TREE := Color("43b65c")
+const TREE_DARK := Color("2e8a44")
+const ROOFS := [Color("ff8a65"), Color("ffd166"), Color("4fc3f7"), Color("e8edf2"), Color("90caf9"), Color("ffab91")]
+const PLAYER_RING := Color("ffc93c")
+# <<< PALETTE
 const MAX_FLEET_CARS := 16
 const MAX_RIVAL_CARS := 8
 

@@ -4,11 +4,13 @@ extends Control
 
 signal island_pressed(island_id: String)
 
-const OCEAN := Color("2f6fe0")
-const OCEAN_DEEP := Color("2558c4")
-const WAVE := Color(1, 1, 1, 0.18)
+# >>> PALETTE
+const OCEAN := Color("3aa2ff")
+const OCEAN_DEEP := Color("2f88e0")
+const WAVE := Color(1, 1, 1, 0.2)
 const SAND := Color("e9d8a6")
-const LOCKED := Color("8a84b8")
+const LOCKED := Color("c3d3e6")
+# <<< PALETTE
 const ROUTE := Color(1, 1, 1, 0.35)
 const TAXI := Color("ffc107")
 
