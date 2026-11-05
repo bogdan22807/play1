@@ -141,9 +141,10 @@ func _gui_input(event: InputEvent) -> void:
 	var at := Vector2.ZERO
 	if event is InputEventMouseButton:
 		var mouse: InputEventMouseButton = event
-		pressed = mouse.pressed and mouse.button_index == MOUSE_BUTTON_LEFT
+		# Выбираем по отпусканию: потянул пальцем — это прокрутка страницы, а не выбор острова.
+		pressed = not mouse.pressed and mouse.button_index == MOUSE_BUTTON_LEFT
 		at = mouse.position
-	if not pressed:
+	if not pressed or not Rect2(Vector2.ZERO, size).has_point(at):
 		return
 	var best: String = ""
 	var best_distance: float = _radius() * 1.6

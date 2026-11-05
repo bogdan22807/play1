@@ -48,6 +48,10 @@ var _share_fill: ColorRect
 const CityView := preload("res://scripts/city_view.gd")
 const CarIcon := preload("res://scripts/car_icon.gd")
 var _city: Control
+const TouchScroll := preload("res://scripts/touch_scroll.gd")
+## Какая вкладка открыта и нужно ли обновить её списки (деньги поменялись).
+var _current_page: int = 0
+var _ui_dirty: bool = false
 const Mentor := preload("res://scripts/mentor.gd")
 const MentorPortrait := preload("res://scripts/mentor_portrait.gd")
 var _mentor: Node
@@ -68,6 +72,9 @@ var _sfx_tap: AudioStreamPlayer
 var _sfx_buy: AudioStreamPlayer
 var _sound_on: bool = true
 var _sound_button: Button
+var _music: AudioStreamPlayer
+var _music_on: bool = true
+var _music_button: Button
 var _last_coins: float = -1.0
 const SETTINGS_PATH := "user://settings.cfg"
 var _tap_page: Control
@@ -170,6 +177,11 @@ func _ready() -> void:
 	_apply_theme()
 	_build_sounds()
 	_build_ui()
+	var ui_timer := Timer.new()
+	ui_timer.wait_time = 0.25
+	ui_timer.autostart = true
+	ui_timer.timeout.connect(_flush_ui)
+	add_child(ui_timer)
 	if _toast_layer != null:
 		move_child(_toast_layer, get_child_count() - 1)
 	GameState.coins_changed.connect(_on_coins_changed)
@@ -853,7 +865,8 @@ func _team_car_text(person: Dictionary, car: Dictionary) -> String:
 ## Раз в секунду: часы смен, усталость, рейтинг.
 func _on_shifts_changed() -> void:
 	_refresh_meta_line()
-	_refresh_competitors()
+	if _current_page == PAGE_MARKET:
+		_refresh_competitors()
 	_refresh_market_share()
 	var shift: float = GameState.get_shift_hours()
 	for uid: Variant in _team_shift_rows.keys():
@@ -996,7 +1009,29 @@ func _build_scroll_page() -> Control:
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 16)
 	scroll.add_child(list)
+	# Листаем пальцем за любое место, с инерцией. Тонкая полоска прокрутки справа.
+	var touch: Node = TouchScroll.new()
+	page.add_child(touch)
+	touch.setup(scroll, _is_modal_open)
+	var bar: VScrollBar = scroll.get_v_scroll_bar()
+	var grabber := StyleBoxFlat.new()
+	grabber.bg_color = Color(COLOR_TITLE_OUTLINE, 0.45)
+	grabber.set_corner_radius_all(4)
+	bar.add_theme_stylebox_override("grabber", grabber)
+	bar.add_theme_stylebox_override("grabber_highlight", grabber)
+	bar.add_theme_stylebox_override("grabber_pressed", grabber)
+	bar.add_theme_stylebox_override("scroll", StyleBoxEmpty.new())
+	bar.custom_minimum_size = Vector2(8, 0)
 	return page
+
+
+## Открыто окно поверх экрана — списки под ним не листаем.
+func _is_modal_open() -> bool:
+	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer, _name_layer]:
+		var popup: Control = layer
+		if popup != null and popup.visible:
+			return true
+	return false
 
 
 const TABS := [["city", "Город"], ["car", "Машина"], ["team", "Команда"], ["map", "Карта"], ["market", "Рынок"]]
@@ -1608,6 +1643,8 @@ func _build_more_rows() -> void:
 	_more_list.add_child(panel)
 	_more_stats = _add_label(panel, "", 28, COLOR_TEXT)
 	_more_list.add_child(_make_section_title("Настройки"))
+	_music_button = _make_settings_button("", COLOR_SKY, _toggle_music)
+	_more_list.add_child(_music_button)
 	_sound_button = _make_settings_button("", COLOR_SKY, _toggle_sound)
 	_more_list.add_child(_sound_button)
 	_refresh_sound_button()
@@ -2852,6 +2889,17 @@ func _build_sounds() -> void:
 	var config := ConfigFile.new()
 	if config.load(SETTINGS_PATH) == OK:
 		_sound_on = bool(config.get_value("audio", "sound", true))
+		_music_on = bool(config.get_value("audio", "music", true))
+	# Фоновая мелодия «Бангкокский бриз» (tools/make_music.py), тихо и по кругу.
+	_music = AudioStreamPlayer.new()
+	var track: AudioStreamOggVorbis = load("res://assets/music/bangkok_breeze.ogg")
+	if track != null:
+		track.loop = true
+		_music.stream = track
+	_music.volume_db = -9.0
+	add_child(_music)
+	if _music_on:
+		_music.play()
 
 
 ## notes — [начальная частота, конечная, длительность]; громкость спадает к концу каждой ноты.
@@ -2895,14 +2943,32 @@ func _toggle_sound() -> void:
 	_play(_sfx_buy)
 
 
+func _toggle_music() -> void:
+	_music_on = not _music_on
+	var config := ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("audio", "music", _music_on)
+	config.save(SETTINGS_PATH)
+	if _music_on:
+		_music.play()
+	else:
+		_music.stop()
+	_refresh_sound_button()
+
+
 func _refresh_sound_button() -> void:
+	if _music_button != null:
+		_music_button.text = "Музыка: включена" if _music_on else "Музыка: выключена"
 	if _sound_button != null:
 		_sound_button.text = "Звук и вибрация: включены" if _sound_on else "Звук и вибрация: выключены"
 
 
 func _show_page(page: int) -> void:
+	_current_page = page
 	if _mentor != null:
 		_mentor.notify_page(page)
+	if _coins_label != null:
+		_refresh_page(page)
 	_tap_page.visible = page == PAGE_TAP
 	_upgrades_page.visible = page == PAGE_UPGRADES
 	_drivers_page.visible = page == PAGE_DRIVERS
@@ -3050,21 +3116,42 @@ func _on_coins_changed(value: float) -> void:
 	if _last_coins >= 0.0 and value < _last_coins - 0.5:
 		_play(_sfx_buy)
 	_last_coins = value
-	_refresh_achievements()
 	var text := GameState.format_money(value)
 	# Пока на экране та же строка, подпись не трогаем — иначе цифры двоятся.
 	if _coins_label.text == text:
 		return
 	_coins_label.text = text
-	_refresh_upgrades()
-	_refresh_staff_money()
-	_refresh_districts()
-	_refresh_regions()
-	_refresh_competitors()
-	_refresh_sell()
-	_refresh_cars()
-	_on_wear_changed()
-	_refresh_helpers()
+	# Доход капает каждый кадр. Перестраивать все меню так часто — тормоза на телефоне,
+	# поэтому открытую вкладку обновляем 4 раза в секунду, остальные — когда их откроют.
+	_ui_dirty = true
+
+
+func _flush_ui() -> void:
+	if not _ui_dirty:
+		return
+	_ui_dirty = false
+	_refresh_page(_current_page)
+
+
+func _refresh_page(page: int) -> void:
+	match page:
+		PAGE_TAP:
+			_on_wear_changed()
+		PAGE_UPGRADES:
+			_refresh_upgrades()
+			_refresh_cars()
+		PAGE_DRIVERS:
+			_refresh_staff_money()
+			_on_wear_changed()
+			_refresh_helpers()
+		PAGE_CITY:
+			_refresh_districts()
+			_refresh_regions()
+			_refresh_achievements()
+			_refresh_more()
+		PAGE_MARKET:
+			_refresh_competitors()
+			_refresh_sell()
 
 
 func _on_tap_power_changed(_value: float) -> void:
