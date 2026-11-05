@@ -1,4 +1,5 @@
 {
   "tap_from_income": 0.008,
-  "world_market_size": 600000000
+  "world_market_size": 600000000,
+  "offline_income_rate": 0.8
 }

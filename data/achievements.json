@@ -1,7 +1,7 @@
 [
   {
     "id": "first_thousand",
-    "name": "Первые 1000 монет",
+    "name": "Первая $1000",
     "kind": "earned",
     "need": 1000,
     "reward_coins": 100,
@@ -9,7 +9,7 @@
   },
   {
     "id": "hundred_thousand",
-    "name": "Сто тысяч монет",
+    "name": "Первые $100K",
     "kind": "earned",
     "need": 100000,
     "reward_coins": 1000,
