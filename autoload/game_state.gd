@@ -1765,6 +1765,11 @@ func get_duel_progress() -> float:
 
 
 ## Сколько конкурентов города уже выкуплено.
+## Сколько конкурентов во всём мире.
+func get_all_competitor_count() -> int:
+	return _competitor_defs.size()
+
+
 func get_city_owned_count() -> int:
 	var count: int = 0
 	for raw: Variant in get_competitors():

@@ -151,6 +151,7 @@ const BossPortrait := preload("res://scripts/boss_portrait.gd")
 const DuelRope := preload("res://scripts/duel_rope.gd")
 const BattleCity := preload("res://scripts/battle_city.gd")
 const ItemIcon := preload("res://scripts/item_icon.gd")
+const SkyBackground := preload("res://scripts/sky_background.gd")
 var _island_map: Control
 var _selected_island: String = ""
 var _world_progress: Label
@@ -307,18 +308,11 @@ func _display(label: Label, font_size: int, color: Color = COLOR_TEXT) -> Label:
 
 
 func _build_ui() -> void:
-	var gradient := Gradient.new()
-	gradient.set_color(0, COLOR_BG_TOP)
-	gradient.set_color(1, COLOR_BG_BOTTOM)
-	var texture := GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.fill_from = Vector2(0, 0)
-	texture.fill_to = Vector2(0, 1)
-	var background := TextureRect.new()
-	background.texture = texture
-	background.stretch_mode = TextureRect.STRETCH_SCALE
+	# Фон: небо, облака и силуэты города (рисуется один раз в картинку).
+	var background: Control = SkyBackground.new()
+	background.top_color = COLOR_BG_TOP
+	background.bottom_color = COLOR_BG_BOTTOM
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 
 	var margin := MarginContainer.new()
@@ -579,8 +573,7 @@ func _restart_tutorial() -> void:
 
 
 func _refresh_mentor_buttons() -> void:
-	if _mentor_tips_button != null:
-		_mentor_tips_button.text = "Советы дяди Буна: включены" if _mentor.tips_on() else "Советы дяди Буна: выключены"
+	_set_toggle(_mentor_tips_button, _mentor.tips_on())
 
 
 # --- Телефон ---------------------------------------------------------------------
@@ -2288,43 +2281,155 @@ func _show_city_section(index: int) -> void:
 
 
 var _more_list: VBoxContainer
-var _more_stats: Label
+var _more_name: Label
+var _more_sub: Label
+var _more_tiles: Dictionary = {}
+## true — окно названия открыто из «Ещё» (переименование), а не при первом запуске.
+var _renaming: bool = false
 
 
-## «Ещё»: сводка компании, звук, сброс. Сюда переехали настройки из шестерёнки.
+## «Ещё»: карточка компании с плитками, настройки строками с картинками, обучение, сброс.
 func _build_more_rows() -> void:
-	_more_list.add_child(_make_section_title("Компания"))
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _panel_style())
-	_more_list.add_child(panel)
-	_more_stats = _add_label(panel, "", 28, COLOR_TEXT)
+	# Карточка компании: эмблема-такси, название, кнопка «переименовать», плитки с цифрами.
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _panel_style())
+	_more_list.add_child(card)
+	var card_box := VBoxContainer.new()
+	card_box.add_theme_constant_override("separation", 14)
+	card.add_child(card_box)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 18)
+	card_box.add_child(head)
+	var emblem: Control = ItemIcon.new()
+	emblem.kind = "taxi"
+	emblem.custom_minimum_size = Vector2(130, 130)
+	head.add_child(emblem)
+	var names := VBoxContainer.new()
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	names.alignment = BoxContainer.ALIGNMENT_CENTER
+	head.add_child(names)
+	_more_name = Label.new()
+	_more_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_display(_more_name, 40, COLOR_TEXT)
+	names.add_child(_more_name)
+	_more_sub = _add_label(names, "", 24, COLOR_MUTED)
+	var rename := Button.new()
+	rename.custom_minimum_size = Vector2(100, 100)
+	rename.focus_mode = Control.FOCUS_NONE
+	rename.flat = true
+	rename.pressed.connect(_rename_company)
+	var pencil: Control = ItemIcon.new()
+	pencil.kind = "pencil"
+	pencil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	rename.add_child(pencil)
+	head.add_child(rename)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	card_box.add_child(grid)
+	for tile: Array in [["rating", "chip_star", "Рейтинг"], ["rep", "chip_rep", "Репутация"],
+			["franchise", "crown", "Франшиза"], ["earned", "money_bag", "Заработано всего"],
+			["islands", "island", "Острова"], ["rivals", "handshake", "Выкуплено"],
+			["team", "driver", "Водителей"], ["tap", "tap", "Уровень тапа"]]:
+		_more_tiles[tile[0]] = _make_stat_tile(grid, str(tile[1]), str(tile[2]))
+
 	_more_list.add_child(_make_section_title("Настройки"))
-	_music_button = _make_settings_button("", COLOR_SKY, _toggle_music)
-	_more_list.add_child(_music_button)
-	_sound_button = _make_settings_button("", COLOR_SKY, _toggle_sound)
-	_more_list.add_child(_sound_button)
+	_music_button = _make_setting_row("music", "Музыка", "Спокойная мелодия на фоне", _toggle_music)
+	_sound_button = _make_setting_row("sound", "Звук и вибрация", "Звон тапов и покупок", _toggle_sound)
 	_refresh_sound_button()
-	_mentor_tips_button = _make_settings_button("", COLOR_ACCENT, _toggle_mentor_tips)
-	_more_list.add_child(_mentor_tips_button)
-	_more_list.add_child(_make_settings_button("Пройти обучение заново", COLOR_PANEL, _restart_tutorial))
-	_more_list.add_child(_make_settings_button("Сбросить прогресс", COLOR_DANGER, _ask_reset))
-	_on_background(_add_label(_more_list, "Сброс стирает весь прогресс и название компании. Это для проверки игры.", 24))
+	_mentor_tips_button = _make_setting_row("", "Советы дяди Буна", "Шутки и подсказки деда", _toggle_mentor_tips)
+
+	_more_list.add_child(_make_section_title("Обучение"))
+	_make_action_row("restart", "Пройти обучение заново", "Дядя Бун снова всё покажет", "Начать", COLOR_BUY, _restart_tutorial)
+
+	_more_list.add_child(_make_section_title("Опасная зона"))
+	_make_action_row("trash", "Сбросить прогресс", "Сотрёт всю игру и название компании", "Сбросить", COLOR_DANGER, _ask_reset)
+	var version := _make_center_label("Такси Кликер · сделано с любовью к жёлтым машинам", 22, Color.WHITE)
+	_on_background(version)
+	_more_list.add_child(version)
+
+
+## Строка настройки: картинка, название, пояснение и переключатель справа.
+func _make_setting_row(icon_kind: String, title: String, hint: String, callback: Callable) -> Button:
+	var parts: Array = _make_row_panel()
+	var row: HBoxContainer = parts[1]
+	if icon_kind == "":
+		var boon: Control = MentorPortrait.new()
+		boon.custom_minimum_size = Vector2(100, 100)
+		row.add_child(boon)
+	else:
+		row.add_child(_make_item_icon(icon_kind))
+	var text_box := _make_text_box(row)
+	_add_label(text_box, title, 32)
+	_add_label(text_box, hint, 24, COLOR_MUTED)
+	var toggle := Button.new()
+	toggle.custom_minimum_size = Vector2(170, 84)
+	toggle.focus_mode = Control.FOCUS_NONE
+	toggle.add_theme_font_size_override("font_size", 28)
+	toggle.pressed.connect(callback)
+	row.add_child(toggle)
+	_more_list.add_child(parts[0])
+	return toggle
+
+
+func _make_action_row(icon_kind: String, title: String, hint: String, button_text: String, color: Color, callback: Callable) -> void:
+	var parts: Array = _make_row_panel()
+	var row: HBoxContainer = parts[1]
+	row.add_child(_make_item_icon(icon_kind))
+	var text_box := _make_text_box(row)
+	_add_label(text_box, title, 32)
+	_add_label(text_box, hint, 24, COLOR_MUTED)
+	var button := Button.new()
+	button.text = button_text
+	button.custom_minimum_size = Vector2(170, 84)
+	button.focus_mode = Control.FOCUS_NONE
+	_style_plain_button(button, color)
+	button.add_theme_font_size_override("font_size", 26)
+	button.pressed.connect(callback)
+	row.add_child(button)
+	_more_list.add_child(parts[0])
+
+
+## Переключатель «вкл/выкл»: зелёный — включено, серый — выключено.
+func _set_toggle(button: Button, on: bool) -> void:
+	if button == null:
+		return
+	button.text = "Вкл" if on else "Выкл"
+	_style_plain_button(button, COLOR_BUY if on else COLOR_DISABLED)
+
+
+func _rename_company() -> void:
+	_name_edit.text = GameState.company_name
+	_name_error.text = ""
+	_renaming = true
+	_name_layer.visible = true
+	move_child(_name_layer, get_child_count() - 1)
 
 
 func _refresh_more() -> void:
-	if _more_stats == null:
+	if _more_name == null:
 		return
 	if _mentor != null:
 		_refresh_mentor_buttons()
-	_more_stats.text = "Такси «%s»\nРейтинг: ★ %.1f\nРепутация: %d\nФраншиза: ×%s\nЗаработано за всё время: %s\nОстровов: %d из %d" % [
-		GameState.company_name,
-		GameState.get_rating(),
-		GameState.reputation,
-		GameState.format_number(GameState.get_franchise()),
-		GameState.format_money(GameState.lifetime_earned),
-		GameState.get_captured_count(),
-		GameState.get_regions().size(),
-	]
+	_more_name.text = "«%s»" % GameState.company_name
+	_more_sub.text = "Такси №1 в %d из %d городов" % [GameState.get_captured_count(), GameState.get_regions().size()] if GameState.get_captured_count() > 0 else "Борьба за %s" % GameState.get_front_city()
+	_more_tile("rating", "★ %.1f" % GameState.get_rating())
+	_more_tile("rep", GameState.format_number(float(GameState.reputation)))
+	_more_tile("franchise", "×%s" % GameState.format_number(GameState.get_franchise()))
+	_more_tile("earned", GameState.format_money(GameState.lifetime_earned))
+	_more_tile("islands", "%d из %d" % [GameState.get_captured_count(), GameState.get_regions().size()])
+	_more_tile("rivals", "%d из %d" % [GameState.get_achievement_value("competitors"), GameState.get_all_competitor_count()])
+	_more_tile("team", "%d" % GameState.get_team().size())
+	_more_tile("tap", "%d" % GameState.get_tap_level())
+
+
+func _more_tile(id: String, value: String) -> void:
+	var parts: Array = _more_tiles.get(id, [])
+	if parts.is_empty():
+		return
+	var label: Label = parts[0]
+	label.text = value
 
 
 func _build_city_rows() -> void:
@@ -2673,6 +2778,10 @@ func _on_name_confirm() -> void:
 		_name_error.text = "Без названия клиенты вас не найдут."
 		return
 	_name_layer.visible = false
+	if _renaming:
+		_renaming = false
+		_refresh_more()
+		return
 	_mentor.begin()
 
 
@@ -3785,10 +3894,8 @@ func _toggle_music() -> void:
 
 
 func _refresh_sound_button() -> void:
-	if _music_button != null:
-		_music_button.text = "Музыка: включена" if _music_on else "Музыка: выключена"
-	if _sound_button != null:
-		_sound_button.text = "Звук и вибрация: включены" if _sound_on else "Звук и вибрация: выключены"
+	_set_toggle(_music_button, _music_on)
+	_set_toggle(_sound_button, _sound_on)
 
 
 func _show_page(page: int) -> void:
