@@ -13,6 +13,7 @@ const BACKS := {
 	"chip_income": "e3f7ea", "chip_star": "fff4d6", "chip_rep": "fff4d6", "chip_city": "ffe3e3",
 	"money_bag": "e3f7ea", "taxi": "fff4d6", "driver": "dff0ff", "crown": "fff4d6", "island": "dff0ff",
 	"handshake": "e6e0ff", "tap": "e3f7ea", "wallet": "ffe3e3", "chart": "e3f7ea", "team": "dff0ff",
+	"music": "e6e0ff", "sound": "dff0ff", "restart": "e3f7ea", "trash": "ffe3e3", "pencil": "fff4d6",
 	"nails": "ffe3e3", "pies": "fff1dc", "rumor": "dff0ff",
 	"center": "fff1dc", "station": "e3e7ee", "airport": "dff0ff", "sleep": "e6e0ff", "business": "e3f7ea",
 }
@@ -46,6 +47,30 @@ func _draw() -> void:
 		# Значок чипа на плашке — чуть меньше, чтобы не упирался в края.
 		u *= 0.72
 	match kind:
+		"music":
+			for x in [-14, 14]:
+				draw_circle(c + Vector2(x - 6, 22) * u, 10 * u, Color("6c5ce7"))
+				draw_line(c + Vector2(x + 3, 22) * u, c + Vector2(x + 3, -24) * u, Color("6c5ce7"), 5 * u)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-11, -24) * u, c + Vector2(17, -32) * u, c + Vector2(17, -22) * u, c + Vector2(-11, -14) * u]), Color("6c5ce7"))
+		"sound":
+			draw_rect(Rect2(c + Vector2(-34, -10) * u, Vector2(16, 20) * u), INK)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-20, -10) * u, c + Vector2(4, -28) * u, c + Vector2(4, 28) * u, c + Vector2(-20, 10) * u]), INK)
+			for index in 3:
+				draw_arc(c + Vector2(6, 0) * u, (10 + index * 9) * u, -PI * 0.3, PI * 0.3, 10, Color("3fa3f5"), 4 * u)
+		"restart":
+			draw_arc(c, 26 * u, PI * 0.2, PI * 1.85, 24, Color("2fbf5f"), 8 * u)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(30, -20) * u, c + Vector2(14, -10) * u, c + Vector2(30, 2) * u]), Color("2fbf5f"))
+		"trash":
+			_round_rect(Rect2(c + Vector2(-22, -16) * u, Vector2(44, 48) * u), 6 * u, Color("e8434f"))
+			draw_rect(Rect2(c + Vector2(-28, -26) * u, Vector2(56, 8) * u), Color("c62828"))
+			draw_rect(Rect2(c + Vector2(-8, -32) * u, Vector2(16, 6) * u), Color("c62828"))
+			for x in [-10, 0, 10]:
+				draw_line(c + Vector2(x, -6) * u, c + Vector2(x, 24) * u, Color(1, 1, 1, 0.7), 3 * u)
+		"pencil":
+			draw_line(c + Vector2(-26, 26) * u, c + Vector2(22, -22) * u, Color("ffc93c"), 14 * u)
+			draw_line(c + Vector2(16, -16) * u, c + Vector2(26, -26) * u, Color("f28b82"), 14 * u)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-31, 31) * u, c + Vector2(-18, 28) * u, c + Vector2(-28, 18) * u]), Color("e0b48f"))
+			draw_circle(c + Vector2(-29, 29) * u, 2.5 * u, INK)
 		"money_bag":
 			_money_bag(c, u)
 		"taxi":
