@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Симуляция игрока, который покупает самую выгодную вещь.
 
-Читает те же JSON, что и игра, и повторяет формулы цены, тапа, дохода, рынка и островов.
-Игрок играет без остановки, вовремя моет, чинит и меняет смены, не пользуется рекламой
-и пакостями. Когда за STALL_HOURS часов не захвачено ни одного острова, а франшиза
+Читает те же JSON, что и игра, и повторяет формулы цены, тапа, дохода, дуэлей и островов.
+Игрок играет без остановки, вовремя моет, чинит и меняет смены, пакостями не пользуется.
+Соперники города идут по очереди: активный растёт, пока с ним дуэль; догнали по силе —
+он сдаётся, игрок выкупает его, как только хватит денег. Рекламу игрок покупает, только
+когда с ней точно обгонит соперника (самую дешёвую из подходящих). Когда за STALL_HOURS часов не захвачено ни одного острова, а франшиза
 вырастет хотя бы в PRESTIGE_GAIN раз, он продаёт компанию.
 
 Запуск: python3 scripts/balance_sim.py [часов]   (по умолчанию 400)
@@ -114,6 +116,11 @@ class Player:
         self.open_districts = set()
         self.open_regions = set(item["id"] for item in self.regions if item.get("home"))
         self.owned_competitors = set()
+        # id соперника -> цена выкупа после сдачи; id -> секунд дуэли с ним.
+        self.surrendered = {}
+        self.rival_age = {}
+        self.ad_boost = 0.0
+        self.ad_until = 0.0
         self.coins = 0.0
         self.taps = 0
         self.last_progress = self.time
@@ -198,14 +205,24 @@ class Player:
         island = self.front()
         return [item for item in self.competitors if item.get("island") == island]
 
-    def rival_power(self, item):
-        return 0.0 if item["id"] in self.owned_competitors else float(item["power"])
+    def duel(self):
+        return self.market.get("duel", {})
 
-    def share(self, item=None):
-        total = self.player_power() + sum(self.rival_power(other) for other in self.front_rivals())
-        if total <= 0:
+    def growth(self, item):
+        duel = self.duel()
+        hours = self.rival_age.get(item["id"], 0.0) / 3600.0
+        return min(float(duel.get("growth_cap", 1.6)), 1.0 + hours * float(duel.get("growth_per_hour", 0.25)))
+
+    def rival_power(self, item):
+        if item["id"] in self.owned_competitors:
             return 0.0
-        return (self.player_power() if item is None else self.rival_power(item)) / total
+        return float(item["power"]) * self.growth(item)
+
+    def active_rival(self):
+        for item in self.front_rivals():
+            if item["id"] not in self.owned_competitors and item["id"] not in self.surrendered:
+                return item
+        return None
 
     def preview_franchise(self):
         return 1.0 + self.franchise_weight * math.sqrt(self.lifetime / self.franchise_reference)
@@ -277,17 +294,11 @@ class Player:
                 continue
             # Новый остров — это и бонус, и гараж, и новая борьба: открываем, как только можем.
             found.append(("region", item["id"], item["name"], float(item["cost"]), 1e9))
-        rival_now = 1.0 + sum(o["income_bonus"] for o in self.competitors if o["id"] in self.owned_competitors)
         for item in self.front_rivals():
-            if item["id"] in self.owned_competitors:
+            if item["id"] not in self.surrendered:
                 continue
-            gain = dps * ((rival_now + item["income_bonus"]) / rival_now - 1.0)
-            cost = math.ceil(float(item["base_cost"]) * (
-                float(self.market.get("buyout_cost_base", 0.4))
-                + float(self.market.get("buyout_cost_per_share", 2.0)) * self.share(item)
-            ))
-            # Выкуп двигает к захвату острова — ценим его выше одного только бонуса.
-            found.append(("competitor", item["id"], item["name"], cost, max(gain / cost, dps * 2.0 / cost)))
+            # Сдавшегося выкупаем первым делом: это шаг к захвату острова.
+            found.append(("competitor", item["id"], item["name"], self.surrendered[item["id"]], 1e8))
         return found
 
     def buy(self, kind, entry_id, name, cost):
@@ -328,6 +339,7 @@ class Player:
             self.log.append((self.time, "Остров открыт", name, cost))
         elif kind == "competitor":
             self.owned_competitors.add(entry_id)
+            del self.surrendered[entry_id]
             self.log.append((self.time, "Выкуп", name, cost))
 
     def buy_best(self):
@@ -353,20 +365,47 @@ class Player:
         self.lifetime += gained
         self.taps += int(TAPS_PER_SECOND * dt)
         self.time += dt
+        rival = self.active_rival()
+        if self.time >= self.ad_until:
+            self.ad_boost = 0.0
+        if rival is not None:
+            self.rival_age[rival["id"]] = self.rival_age.get(rival["id"], 0.0) + dt
+            self.maybe_ad(rival)
+            if self.player_power() * (1.0 + self.ad_boost) >= self.rival_power(rival):
+                price = math.ceil(self.rival_power(rival) * float(self.duel().get("price_seconds", 180)))
+                self.surrendered[rival["id"]] = price
+                self.log.append((self.time, "Сдался", rival["name"], price))
+                self.mark("surrender-" + rival["id"], "Сдался: %s (забег %d)" % (rival["name"], self.runs))
         island = self.front()
-        if island is not None and (
-            self.share() >= float(self.market.get("capture_share", 0.5))
-            or all(item["id"] in self.owned_competitors for item in self.front_rivals())
-        ):
+        if island is not None and all(item["id"] in self.owned_competitors for item in self.front_rivals()):
             self.captured[island] = self.time
             self.last_progress = self.time
             city = next(item["city"] for item in self.regions if item["id"] == island)
-            self.log.append((self.time, "Захват", city, self.share()))
+            self.log.append((self.time, "Захват", city, 1.0))
             self.mark("capture-" + island, "Захват: %s (забег %d)" % (city, self.runs))
         self.buy_best()
         stalled = self.time - self.last_progress > STALL_HOURS * 3600
         if stalled and self.preview_franchise() >= self.franchise * PRESTIGE_GAIN:
             self.sell_company()
+
+    def maybe_ad(self, rival):
+        """Самая дешёвая реклама, с которой сила догоняет соперника, — если хватает денег."""
+        if self.ad_boost > 0.0:
+            return
+        need = self.rival_power(rival)
+        base = self.player_power()
+        best = None
+        for item in self.market.get("ads", []):
+            price = math.ceil(max(float(item.get("min_price", 100)), base * float(item.get("price_seconds", 60))))
+            if base * (1.0 + float(item["boost"])) >= need and price <= self.coins and (best is None or price < best[0]):
+                best = (price, item)
+        if best is None:
+            return
+        price, item = best
+        self.coins -= price
+        self.ad_boost = float(item["boost"])
+        self.ad_until = self.time + float(item.get("duration", 300))
+        self.log.append((self.time, "Реклама", item["name"], price))
 
     def run(self, horizon):
         while self.time < horizon and len(self.captured) < len(self.regions):

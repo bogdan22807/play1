@@ -20,6 +20,10 @@ signal shifts_changed
 signal helpers_changed
 ## Стали такси №1 на острове.
 signal island_captured(island_id: String, text: String)
+## Догнали соперника: он сдаётся и готов продаться.
+signal rival_surrendered(competitor_id: String, text: String)
+## Соперник ответил ударом.
+signal rival_attacked(competitor_id: String, text: String)
 ## Изменился пассивный доход в секунду.
 signal income_changed(income: float)
 ## Пора показать окно «Пока вас не было».
@@ -119,7 +123,14 @@ var _rival_cuts: Dictionary = {}
 var _rival_perm: Dictionary = {}
 ## id конкурента -> unix, до которого нельзя снова пакостить / предлагать выкуп.
 var _trick_ready: Dictionary = {}
-var _buyout_ready: Dictionary = {}
+## id конкурента -> цена выкупа: он проиграл дуэль и ждёт, когда его купят.
+var _surrendered: Dictionary = {}
+## id конкурента -> сколько секунд игры с ним идёт дуэль (от этого он растёт).
+var _rival_age: Dictionary = {}
+## С кем шла дуэль в прошлую секунду: сменился соперник — заводим таймер его первого хода.
+var _duel_rival: String = ""
+## Секунд игры до следующего ответного хода соперника.
+var _rival_attack_in: float = 0.0
 ## Текущая реклама: {"id", "until"}. Пусто — рекламы нет.
 var _ad: Dictionary = {}
 ## Прогресс дяди Буна: шаг обучения, включены ли советы. Хранит и меняет scripts/mentor.gd.
@@ -796,7 +807,7 @@ func _tick_fleet_wear(step: float) -> void:
 	_wear_left = 1.0
 	_tick_shifts(seconds)
 	_run_helpers(seconds)
-	_tick_market()
+	_tick_market(seconds)
 	if _team.is_empty():
 		return
 	var clean_rate: float = _wear_value("fleet_clean_per_second", 0.0016667)
@@ -1513,16 +1524,18 @@ func _player_earning() -> float:
 	return get_income_per_second() + get_ride_value() * _market_value("player_tap_rate", 3)
 
 
-## Сила конкурента: база, минус переманенные водители, минус действующие пакости.
+## Сила конкурента: база, рост за время дуэли, минус переманенные водители, плюс-минус действующие эффекты.
+## Отрицательный «удар» — это его собственная акция: тогда он сильнее.
 func get_competitor_power(competitor_id: String) -> float:
 	if is_competitor_owned(competitor_id):
 		return 0.0
 	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
 	var power: float = float(info.get("power", 0)) * float(_rival_perm.get(competitor_id, 1.0))
+	power *= get_rival_growth(competitor_id)
 	var now: int = _now()
 	for raw: Variant in _rival_cuts.get(competitor_id, []):
 		if int(raw.get("until", 0)) > now:
-			power *= 1.0 - clampf(float(raw.get("cut", 0)), 0.0, 0.95)
+			power *= 1.0 - clampf(float(raw.get("cut", 0)), -1.0, 0.95)
 	return power
 
 
@@ -1533,12 +1546,14 @@ func get_market_total() -> float:
 	return total
 
 
+## Доля конкурента среди всех такси города. Нужна только для картинки города (сколько чужих машин).
 func get_competitor_share(competitor_id: String) -> float:
 	var total: float = get_market_total()
 	return 0.0 if total <= 0.0 else get_competitor_power(competitor_id) / total
 
 
-## Действующие удары по конкуренту: [{"cut", "left"}], left — секунд до конца.
+## Действующие эффекты на конкуренте: [{"cut", "left"}], left — секунд до конца.
+## cut > 0 — ваша пакость ослабила его, cut < 0 — его акция усилила.
 func get_competitor_cuts(competitor_id: String) -> Array:
 	var result: Array = []
 	var now: int = _now()
@@ -1551,6 +1566,203 @@ func get_competitor_cuts(competitor_id: String) -> Array:
 
 func get_competitor_lost_drivers(competitor_id: String) -> float:
 	return 1.0 - float(_rival_perm.get(competitor_id, 1.0))
+
+
+# Дуэли
+
+func _duel_value(key: String, fallback: Variant) -> Variant:
+	var duel: Variant = _market.get("duel", {})
+	if typeof(duel) != TYPE_DICTIONARY:
+		return fallback
+	return duel.get(key, fallback)
+
+
+## С кем сейчас дуэль: первый конкурент города, который ещё не выкуплен и не сдался.
+func get_active_rival() -> String:
+	for raw: Variant in get_competitors():
+		var competitor_id: String = str(raw.get("id", ""))
+		if not is_competitor_owned(competitor_id) and not is_rival_surrendered(competitor_id):
+			return competitor_id
+	return ""
+
+
+## "owned" — выкуплен, "surrendered" — сдался и ждёт выкупа, "active" — дуэль сейчас, "waiting" — следующий.
+func get_rival_state(competitor_id: String) -> String:
+	if is_competitor_owned(competitor_id):
+		return "owned"
+	if is_rival_surrendered(competitor_id):
+		return "surrendered"
+	if competitor_id == get_active_rival():
+		return "active"
+	return "waiting"
+
+
+func is_rival_surrendered(competitor_id: String) -> bool:
+	return _surrendered.has(competitor_id) and not is_competitor_owned(competitor_id)
+
+
+## Во сколько раз конкурент вырос за время дуэли: растёт, пока вы с ним бьётесь, но не бесконечно.
+func get_rival_growth(competitor_id: String) -> float:
+	var hours: float = float(_rival_age.get(competitor_id, 0.0)) / 3600.0
+	var cap: float = float(_duel_value("growth_cap", 1.6))
+	return minf(cap, 1.0 + hours * float(_duel_value("growth_per_hour", 0.25)))
+
+
+func get_rival_growth_cap() -> float:
+	return float(_duel_value("growth_cap", 1.6))
+
+
+## Прогресс дуэли 0..1: ваша сила относительно силы соперника. 1 — догнали, он сдаётся.
+func get_duel_progress() -> float:
+	var rival_id: String = get_active_rival()
+	if rival_id == "":
+		return 1.0
+	var rival_power: float = get_competitor_power(rival_id)
+	if rival_power <= 0.0:
+		return 1.0
+	return clampf(get_player_power() / rival_power, 0.0, 1.0)
+
+
+## Сколько конкурентов города уже выкуплено.
+func get_city_owned_count() -> int:
+	var count: int = 0
+	for raw: Variant in get_competitors():
+		if is_competitor_owned(str(raw.get("id", ""))):
+			count += 1
+	return count
+
+
+## Цена выкупа сдавшегося: зафиксирована в момент сдачи.
+func get_competitor_cost(competitor_id: String) -> float:
+	if _surrendered.has(competitor_id):
+		return float(_surrendered[competitor_id])
+	return _surrender_price(competitor_id)
+
+
+func _surrender_price(competitor_id: String) -> float:
+	var seconds: float = float(_duel_value("price_seconds", 180))
+	return ceilf(maxf(1.0, get_competitor_power(competitor_id) * seconds))
+
+
+func can_buy_rival(competitor_id: String) -> bool:
+	return is_rival_surrendered(competitor_id) and coins + 0.001 >= get_competitor_cost(competitor_id)
+
+
+## Выкуп сдавшегося конкурента: без отказа, по цене, назначенной при сдаче.
+func buy_rival(competitor_id: String) -> Dictionary:
+	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
+	if info.is_empty():
+		return {"ok": false, "text": "Такой компании нет."}
+	if is_competitor_owned(competitor_id):
+		return {"ok": false, "text": "Эта компания уже ваша."}
+	if not is_rival_surrendered(competitor_id):
+		return {"ok": false, "text": "Сначала обгоните их — тогда сами придут продаваться."}
+	if not can_buy_rival(competitor_id):
+		return {"ok": false, "text": "Не хватает денег на выкуп."}
+	coins = maxf(0.0, coins - get_competitor_cost(competitor_id))
+	_owned_competitors[competitor_id] = 1
+	_surrendered.erase(competitor_id)
+	_rival_cuts.erase(competitor_id)
+	_after_market_change()
+	return {"ok": true, "text": _say(str(info.get("success_text", "Сделка состоялась.")))}
+
+
+## Эффект на сопернике. Тот же самый не складывается, а продлевается: двадцать гвоздей подряд не помогут.
+func _add_effect(competitor_id: String, source: String, cut: float, duration: int) -> void:
+	var cuts: Array = []
+	for raw: Variant in _rival_cuts.get(competitor_id, []):
+		if str(raw.get("source", "")) != source:
+			cuts.append(raw)
+	cuts.append({"cut": cut, "until": _now() + duration, "source": source})
+	_rival_cuts[competitor_id] = cuts
+
+
+## Сколько секунд до следующего хода соперника (только пока идёт игра).
+func get_rival_attack_left() -> int:
+	return maxi(0, int(ceilf(_rival_attack_in)))
+
+
+## Какой ход сделает соперник по характеру: "health", "rating" или "promo".
+func get_rival_attack_kind(competitor_id: String) -> String:
+	return str(_personality(competitor_id).get("attack", ""))
+
+
+func _duel_text(key: String, competitor_id: String) -> String:
+	var kind: String = str(_find_def(_competitor_defs, competitor_id).get("personality", ""))
+	var texts: Variant = _duel_value(key, {})
+	var text: String = ""
+	if typeof(texts) == TYPE_DICTIONARY:
+		text = str(texts.get(kind, texts.get("default", "")))
+	var rival_name: String = str(_find_def(_competitor_defs, competitor_id).get("name", ""))
+	return _say(text.replace("{rival}", rival_name))
+
+
+func _reset_attack_timer(first: bool) -> void:
+	if first:
+		_rival_attack_in = float(_duel_value("first_attack", 300))
+	else:
+		_rival_attack_in = randf_range(float(_duel_value("attack_min", 360)), float(_duel_value("attack_max", 600)))
+
+
+## Раз в секунду игры: соперник растёт, иногда отвечает ударом, а догнали — сдаётся.
+func _tick_duel(seconds: float) -> void:
+	var rival_id: String = get_active_rival()
+	if rival_id == "":
+		return
+	if rival_id != _duel_rival:
+		_duel_rival = rival_id
+		_reset_attack_timer(true)
+	_rival_age[rival_id] = float(_rival_age.get(rival_id, 0.0)) + seconds
+	if _check_surrender():
+		return
+	_rival_attack_in -= seconds
+	if _rival_attack_in <= 0.0:
+		_reset_attack_timer(false)
+		_rival_attack(rival_id)
+
+
+## Догнали соперника — он сдаётся и ждёт выкупа. Дуэль переходит к следующему.
+func _check_surrender() -> bool:
+	var rival_id: String = get_active_rival()
+	if rival_id == "" or get_player_power() < get_competitor_power(rival_id):
+		return false
+	_surrendered[rival_id] = _surrender_price(rival_id)
+	# Временные эффекты на сдавшемся больше не нужны.
+	_rival_cuts.erase(rival_id)
+	var text: String = "%s\nВыкуп: %s." % [_duel_text("surrender_texts", rival_id), format_money(_surrendered[rival_id])]
+	rival_surrendered.emit(rival_id, text)
+	competitors_changed.emit()
+	_note_progress()
+	save_game()
+	return true
+
+
+## Ответный ход соперника по характеру.
+func _rival_attack(rival_id: String) -> void:
+	var text: String = _duel_text("attack_texts", rival_id)
+	match get_rival_attack_kind(rival_id):
+		"health":
+			var hit: float = float(_duel_value("attack_health", 0.1))
+			_my_health = maxf(0.0, _my_health - hit)
+			for car: Variant in _garage:
+				car["health"] = maxf(0.0, float(car.get("health", 1)) - hit)
+			wear_changed.emit()
+			text += " Машины −%d%% здоровья." % int(roundf(hit * 100.0))
+		"rating":
+			var drop: float = float(_duel_value("attack_rating", 0.25))
+			rating = clampf(rating - drop, 1.0, 5.0)
+			text += " Рейтинг −%.2f★." % drop
+		"promo":
+			var boost: float = float(_duel_value("attack_promo", 0.2))
+			var duration: int = int(_duel_value("attack_promo_seconds", 300))
+			_add_effect(rival_id, "promo", -boost, duration)
+			text += " Они сильнее на %d%% ещё %d мин." % [int(roundf(boost * 100.0)), int(duration / 60)]
+		_:
+			return
+	_recalc_income()
+	rival_attacked.emit(rival_id, text)
+	competitors_changed.emit()
+	save_game()
 
 
 # Реклама
@@ -1623,7 +1835,10 @@ func get_trick_wait(competitor_id: String) -> int:
 
 
 func can_play_trick(competitor_id: String, trick_id: String) -> bool:
-	if is_competitor_owned(competitor_id) or _find_def(_competitor_defs, competitor_id).is_empty():
+	if competitor_id == "" or competitor_id != get_active_rival():
+		return false
+	# Переманить можно не всех: самые верные водители не уходят даже за пирожки.
+	if bool(_find_def(get_tricks(), trick_id).get("permanent", false)) and get_competitor_lost_drivers(competitor_id) >= 1.0 - _market_value("permanent_floor", 0.7) - 0.001:
 		return false
 	if _find_def(get_tricks(), trick_id).is_empty() or get_trick_wait(competitor_id) > 0:
 		return false
@@ -1653,11 +1868,10 @@ func play_trick(competitor_id: String, trick_id: String) -> Dictionary:
 	else:
 		var cut: float = float(trick.get("cut", 0.2))
 		if bool(trick.get("permanent", false)):
-			_rival_perm[competitor_id] = float(_rival_perm.get(competitor_id, 1.0)) * (1.0 - cut)
+			var floor_value: float = _market_value("permanent_floor", 0.7)
+			_rival_perm[competitor_id] = maxf(floor_value, float(_rival_perm.get(competitor_id, 1.0)) * (1.0 - cut))
 		else:
-			var cuts: Array = _rival_cuts.get(competitor_id, [])
-			cuts.append({"cut": cut, "until": _now() + int(trick.get("duration", 300))})
-			_rival_cuts[competitor_id] = cuts
+			_add_effect(competitor_id, trick_id, cut, int(trick.get("duration", 300)))
 		result["text"] = "Сработало! %s\nСила конкурента −%d%%." % [str(trick.get("description", "")), int(roundf(cut * 100.0))]
 	result["revenge"] = _maybe_revenge(competitor_id)
 	_after_market_change()
@@ -1685,56 +1899,6 @@ func _maybe_revenge(competitor_id: String) -> String:
 	return _say(str(rival.get("revenge_text", "")))
 
 
-# Выкуп
-
-## Чем меньше доля конкурента, тем он дешевле.
-func get_competitor_cost(competitor_id: String) -> float:
-	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
-	var factor: float = _market_value("buyout_cost_base", 0.4) + _market_value("buyout_cost_per_share", 2.0) * get_competitor_share(competitor_id)
-	return ceilf(maxf(0.0, float(info.get("base_cost", 0))) * factor)
-
-
-## Шанс отказа: от характера, и чем слабее конкурент, тем охотнее продаётся.
-func get_buyout_refuse_chance(competitor_id: String) -> float:
-	if _find_def(_competitor_defs, competitor_id).is_empty():
-		return 1.0
-	var base: float = float(_personality(competitor_id).get("refuse", 0.5))
-	var weight: float = clampf(get_competitor_share(competitor_id) / 0.5, 0.15, 1.3)
-	return clampf(base * weight, 0.05, 0.9)
-
-
-func get_buyout_wait(competitor_id: String) -> int:
-	return maxi(0, int(_buyout_ready.get(competitor_id, 0)) - _now())
-
-
-func can_offer_buyout(competitor_id: String) -> bool:
-	if is_competitor_owned(competitor_id) or _find_def(_competitor_defs, competitor_id).is_empty():
-		return false
-	if get_buyout_wait(competitor_id) > 0:
-		return false
-	return coins + 0.001 >= get_competitor_cost(competitor_id)
-
-
-## Деньги списываются только если конкурент согласился. После отказа — пауза.
-func offer_buyout(competitor_id: String) -> Dictionary:
-	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
-	if info.is_empty():
-		return {"ok": false, "refused": false, "text": "Такой компании нет."}
-	if is_competitor_owned(competitor_id):
-		return {"ok": false, "refused": false, "text": "Эта компания уже ваша."}
-	if not can_offer_buyout(competitor_id):
-		return {"ok": false, "refused": false, "text": "Сейчас не получится."}
-	if randf() < get_buyout_refuse_chance(competitor_id):
-		_buyout_ready[competitor_id] = _now() + int(_market_value("buyout_cooldown_seconds", 60))
-		_after_market_change()
-		return {"ok": false, "refused": true, "text": _say(str(info.get("refuse_text", "Нет, мы не продаёмся.")))}
-	coins = maxf(0.0, coins - get_competitor_cost(competitor_id))
-	_owned_competitors[competitor_id] = 1
-	_rival_cuts.erase(competitor_id)
-	_after_market_change()
-	return {"ok": true, "refused": false, "text": _say(str(info.get("success_text", "Сделка состоялась.")))}
-
-
 func _competitor_multiplier() -> float:
 	var bonus: float = 0.0
 	for raw: Variant in _competitor_defs:
@@ -1750,6 +1914,7 @@ func _competitor_multiplier() -> float:
 
 func _after_market_change() -> void:
 	_recalc_income()
+	_check_surrender()
 	_check_capture()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
@@ -1758,8 +1923,8 @@ func _after_market_change() -> void:
 	save_game()
 
 
-## Раз в секунду: чистим закончившиеся пакости и проверяем захват.
-func _tick_market() -> void:
+## Раз в секунду: чистим закончившиеся эффекты, ведём дуэль и проверяем захват.
+func _tick_market(seconds: float = 1.0) -> void:
 	var now: int = _now()
 	for competitor_id: Variant in _rival_cuts.keys():
 		var alive: Array = []
@@ -1767,21 +1932,19 @@ func _tick_market() -> void:
 			if int(raw.get("until", 0)) > now:
 				alive.append(raw)
 		_rival_cuts[competitor_id] = alive
+	_tick_duel(seconds)
 	_check_capture()
 
 
-## Захват острова: доля больше половины или все его конкуренты выкуплены.
+## Захват острова: все его конкуренты выкуплены.
 func _check_capture() -> void:
 	var island: String = get_front_island()
 	var rivals: Array = get_competitors()
 	if island == "" or rivals.is_empty():
 		return
-	var all_owned: bool = true
 	for raw: Variant in rivals:
 		if not is_competitor_owned(str(raw.get("id", ""))):
-			all_owned = false
-	if not all_owned and get_market_share() < _market_value("capture_share", 0.5):
-		return
+			return
 	_captured[island] = 1
 	_ad = {}
 	_recalc_income()
@@ -1815,7 +1978,10 @@ func _reset_market() -> void:
 	_rival_cuts.clear()
 	_rival_perm.clear()
 	_trick_ready.clear()
-	_buyout_ready.clear()
+	_surrendered.clear()
+	_rival_age.clear()
+	_duel_rival = ""
+	_rival_attack_in = 0.0
 	_ad = {}
 	_captured.clear()
 
@@ -2094,7 +2260,10 @@ func save_game() -> void:
 		"rival_cuts": _rival_cuts.duplicate(true),
 		"rival_perm": _rival_perm.duplicate(),
 		"trick_ready": _trick_ready.duplicate(),
-		"buyout_ready": _buyout_ready.duplicate(),
+		"surrendered": _surrendered.duplicate(),
+		"rival_age": _rival_age.duplicate(),
+		"duel_rival": _duel_rival,
+		"rival_attack_in": _rival_attack_in,
 		"ad": _ad.duplicate(),
 		"captured": _captured.keys(),
 		"franchise": franchise,
@@ -2173,15 +2342,22 @@ func _load_market(data: Dictionary) -> void:
 			if typeof(cuts[key]) == TYPE_ARRAY:
 				for raw: Variant in cuts[key]:
 					if typeof(raw) == TYPE_DICTIONARY:
-						list.append({"cut": clampf(float(raw.get("cut", 0)), 0.0, 0.95), "until": int(raw.get("until", 0))})
+						list.append({
+							"cut": clampf(float(raw.get("cut", 0)), -1.0, 0.95),
+							"until": int(raw.get("until", 0)),
+							"source": str(raw.get("source", "")),
+						})
 			_rival_cuts[str(key)] = list
 	_rival_perm.clear()
 	var perm: Variant = data.get("rival_perm", {})
 	if typeof(perm) == TYPE_DICTIONARY:
 		for key: Variant in perm.keys():
-			_rival_perm[str(key)] = clampf(float(perm[key]), 0.01, 1.0)
+			_rival_perm[str(key)] = clampf(float(perm[key]), _market_value("permanent_floor", 0.7), 1.0)
 	_trick_ready = _read_unix_dict(data.get("trick_ready", {}))
-	_buyout_ready = _read_unix_dict(data.get("buyout_ready", {}))
+	_surrendered = _read_float_dict(data.get("surrendered", {}))
+	_rival_age = _read_float_dict(data.get("rival_age", {}))
+	_duel_rival = str(data.get("duel_rival", ""))
+	_rival_attack_in = maxf(0.0, float(data.get("rival_attack_in", 0.0)))
 	var ad: Variant = data.get("ad", {})
 	_ad = {}
 	if typeof(ad) == TYPE_DICTIONARY and ad.has("id"):
@@ -2192,6 +2368,14 @@ func _load_market(data: Dictionary) -> void:
 		for raw: Variant in _region_defs:
 			if bool(raw.get("home", false)):
 				_captured[str(raw.get("id", ""))] = 1
+
+
+func _read_float_dict(raw: Variant) -> Dictionary:
+	var result: Dictionary = {}
+	if typeof(raw) == TYPE_DICTIONARY:
+		for key: Variant in raw.keys():
+			result[str(key)] = maxf(0.0, float(raw[key]))
+	return result
 
 
 func _read_unix_dict(raw: Variant) -> Dictionary:
