@@ -1,9 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="28" fill="#1a1d27"/>
-  <rect x="34" y="28" width="60" height="22" rx="6" fill="#1a1d27" stroke="#ffc107" stroke-width="6"/>
-  <rect x="16" y="52" width="96" height="40" rx="10" fill="#ffc107"/>
-  <circle cx="40" cy="98" r="12" fill="#ffc107"/>
-  <circle cx="88" cy="98" r="12" fill="#ffc107"/>
-  <circle cx="40" cy="98" r="6" fill="#1a1d27"/>
-  <circle cx="88" cy="98" r="6" fill="#1a1d27"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62c6ff"/>
+      <stop offset="1" stop-color="#2b8ae6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#sky)"/>
+  <!-- Дорога -->
+  <rect x="0" y="330" width="512" height="110" fill="#5a6684"/>
+  <rect x="40" y="380" width="70" height="12" rx="6" fill="#ffffff" opacity="0.8"/>
+  <rect x="220" y="380" width="70" height="12" rx="6" fill="#ffffff" opacity="0.8"/>
+  <rect x="400" y="380" width="70" height="12" rx="6" fill="#ffffff" opacity="0.8"/>
+  <!-- Такси спереди -->
+  <rect x="150" y="140" width="212" height="40" rx="12" fill="#1c2b4d"/>
+  <g fill="#ffc93c">
+    <rect x="158" y="148" width="24" height="12"/><rect x="206" y="148" width="24" height="12"/>
+    <rect x="254" y="148" width="24" height="12"/><rect x="302" y="148" width="24" height="12"/>
+    <rect x="182" y="160" width="24" height="12"/><rect x="230" y="160" width="24" height="12"/>
+    <rect x="278" y="160" width="24" height="12"/><rect x="326" y="160" width="24" height="12"/>
+  </g>
+  <path d="M120 300 L150 200 Q156 182 176 182 L336 182 Q356 182 362 200 L392 300 Z" fill="#ffc93c"/>
+  <path d="M165 288 L186 210 L326 210 L347 288 Z" fill="#1c2b4d"/>
+  <rect x="88" y="280" width="336" height="96" rx="30" fill="#ffc93c"/>
+  <circle cx="140" cy="326" r="20" fill="#fff59d" stroke="#1c2b4d" stroke-width="6"/>
+  <circle cx="372" cy="326" r="20" fill="#fff59d" stroke="#1c2b4d" stroke-width="6"/>
+  <rect x="200" y="314" width="112" height="22" rx="8" fill="#1c2b4d"/>
+  <rect x="112" y="370" width="64" height="44" rx="14" fill="#1c2b4d"/>
+  <rect x="336" y="370" width="64" height="44" rx="14" fill="#1c2b4d"/>
 </svg>

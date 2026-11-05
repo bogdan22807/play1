@@ -273,11 +273,10 @@ func _build_ui() -> void:
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 28)
-	margin.add_theme_constant_override("margin_right", 28)
-	margin.add_theme_constant_override("margin_top", 36)
-	margin.add_theme_constant_override("margin_bottom", 20)
+	_screen_margin = margin
 	add_child(margin)
+	_apply_safe_area()
+	get_viewport().size_changed.connect(_apply_safe_area)
 
 	var column := VBoxContainer.new()
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -530,6 +529,52 @@ func _restart_tutorial() -> void:
 func _refresh_mentor_buttons() -> void:
 	if _mentor_tips_button != null:
 		_mentor_tips_button.text = "Советы дяди Буна: включены" if _mentor.tips_on() else "Советы дяди Буна: выключены"
+
+
+# --- Телефон ---------------------------------------------------------------------
+
+var _screen_margin: MarginContainer
+
+
+## Отступы под «чёлку», вырез камеры и полоску «Домой»: телефон сам сообщает безопасную зону.
+func _apply_safe_area() -> void:
+	if _screen_margin == null:
+		return
+	var top: float = 36.0
+	var bottom: float = 20.0
+	var left: float = 28.0
+	var right: float = 28.0
+	var window: Vector2 = Vector2(DisplayServer.window_get_size())
+	var safe: Rect2i = DisplayServer.get_display_safe_area()
+	if window.x > 0.0 and window.y > 0.0 and safe.size.x > 0 and safe.size.y > 0:
+		var scale: Vector2 = get_viewport_rect().size / window
+		top = maxf(top, float(safe.position.y) * scale.y + 12.0)
+		bottom = maxf(bottom, (window.y - float(safe.end.y)) * scale.y + 8.0)
+		left = maxf(left, float(safe.position.x) * scale.x + 8.0)
+		right = maxf(right, (window.x - float(safe.end.x)) * scale.x + 8.0)
+	_screen_margin.add_theme_constant_override("margin_top", int(top))
+	_screen_margin.add_theme_constant_override("margin_bottom", int(bottom))
+	_screen_margin.add_theme_constant_override("margin_left", int(left))
+	_screen_margin.add_theme_constant_override("margin_right", int(right))
+
+
+## Кнопка «Назад» на Android: закрыть окно → вернуться в город → выйти с сохранением.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_WM_GO_BACK_REQUEST:
+		return
+	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer]:
+		var popup: Control = layer
+		if popup != null and popup.visible:
+			popup.visible = false
+			return
+	if _mentor_bubble != null and _mentor_bubble.visible:
+		_on_mentor_button()
+		return
+	if not _tap_page.visible:
+		_show_page(PAGE_TAP)
+		return
+	GameState.save_game()
+	get_tree().quit()
 
 
 func _build_header() -> VBoxContainer:
@@ -2760,6 +2805,9 @@ func _on_city_tapped(at: Vector2) -> void:
 	_city.bounce()
 	_spawn_floating_gain(gained, _city.get_global_transform() * at)
 	_play(_sfx_tap, randf_range(0.92, 1.12))
+	# Лёгкий отклик в руке. Вместе со звуком выключается в «Ещё».
+	if _sound_on and OS.has_feature("mobile"):
+		Input.vibrate_handheld(12)
 
 
 ## Кто ездит по городу: ваша машина, машины водителей, конкуренты по их доле рынка.
@@ -2849,7 +2897,7 @@ func _toggle_sound() -> void:
 
 func _refresh_sound_button() -> void:
 	if _sound_button != null:
-		_sound_button.text = "Звук: включён" if _sound_on else "Звук: выключен"
+		_sound_button.text = "Звук и вибрация: включены" if _sound_on else "Звук и вибрация: выключены"
 
 
 func _show_page(page: int) -> void:
