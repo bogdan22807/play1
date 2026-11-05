@@ -6,16 +6,16 @@ signal tapped(at: Vector2)
 
 const CarArt := preload("res://scripts/car_art.gd")
 
-const GROUND := Color("323a4e")
-const SIDEWALK := Color("4a5370")
-const ROAD := Color("23273a")
-const MARK := Color(1, 1, 1, 0.55)
-const PARK := Color("2f5d46")
-const POND := Color("3b6ea5")
-const TREE := Color("3f8f5f")
-const TREE_DARK := Color("2e6b47")
-const ROOFS := [Color("8d6e63"), Color("78909c"), Color("a1887f"), Color("5c6bc0"), Color("b0bec5"), Color("6d4c41"), Color("90a4ae"), Color("ef9a9a")]
-const PLAYER_RING := Color("ffc107")
+const GROUND := Color("7fcf6a")
+const SIDEWALK := Color("f6d5a8")
+const ROAD := Color("4a4570")
+const MARK := Color(1, 1, 1, 0.8)
+const PARK := Color("5fd068")
+const POND := Color("4cc9f0")
+const TREE := Color("3dbb67")
+const TREE_DARK := Color("238a4a")
+const ROOFS := [Color("ff7f6e"), Color("ffc857"), Color("5bc0eb"), Color("9b5de5"), Color("f15bb5"), Color("00c49a"), Color("ff9f1c"), Color("e9ecef")]
+const PLAYER_RING := Color("ff4fa3")
 const MAX_FLEET_CARS := 16
 const MAX_RIVAL_CARS := 8
 
@@ -104,8 +104,8 @@ func _build_blocks() -> void:
 			var block: Dictionary = {"rect": rect, "park": ix == 1 and iy == 2, "houses": [], "trees": []}
 			var inner: Rect2 = rect.grow(-_road * 0.18)
 			if not block["park"]:
-				var columns: int = maxi(1, int(inner.size.x / (_road * 1.6)))
-				var rows: int = maxi(1, int(inner.size.y / (_road * 1.6)))
+				var columns: int = maxi(1, int(inner.size.x / (_road * 1.05)))
+				var rows: int = maxi(1, int(inner.size.y / (_road * 1.05)))
 				var cell := Vector2(inner.size.x / columns, inner.size.y / rows)
 				for cx in columns:
 					for cy in rows:
@@ -240,7 +240,8 @@ func _draw() -> void:
 		if player_broken:
 			_draw_smoke(pos)
 		var font: Font = get_theme_default_font()
-		draw_string(font, pos + Vector2(-60, -_car_size * 1.05), "ВЫ", HORIZONTAL_ALIGNMENT_CENTER, 120, 26, PLAYER_RING)
+		draw_string_outline(font, pos + Vector2(-60, -_car_size * 1.05), "ВЫ", HORIZONTAL_ALIGNMENT_CENTER, 120, 28, 8, Color.WHITE)
+		draw_string(font, pos + Vector2(-60, -_car_size * 1.05), "ВЫ", HORIZONTAL_ALIGNMENT_CENTER, 120, 28, PLAYER_RING)
 
 
 func _draw_blocks() -> void:
@@ -254,11 +255,19 @@ func _draw_blocks() -> void:
 			draw_circle(inner.get_center() + Vector2(-6, -6), minf(inner.size.x, inner.size.y) * 0.08, Color(1, 1, 1, 0.15))
 		for house: Dictionary in block["houses"]:
 			var r: Rect2 = house["rect"]
-			draw_rect(r.grow(2), Color(0, 0, 0, 0.25))
-			draw_rect(r, house["roof"])
-			draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.18)), Color(1, 1, 1, 0.12))
+			# Двускатная крыша сверху: тень, кромка, светлый и тёмный скат, конёк.
+			var roof: Color = house["roof"]
+			draw_rect(Rect2(r.position + Vector2(5, 7), r.size), Color(0, 0, 0, 0.22))
+			draw_rect(r, roof.darkened(0.3))
+			var inner_roof: Rect2 = r.grow(-3)
+			var half_h: float = inner_roof.size.y / 2.0
+			draw_rect(Rect2(inner_roof.position, Vector2(inner_roof.size.x, half_h)), roof.lightened(0.12))
+			draw_rect(Rect2(inner_roof.position + Vector2(0, half_h), Vector2(inner_roof.size.x, half_h)), roof)
+			draw_line(inner_roof.position + Vector2(0, half_h), inner_roof.position + Vector2(inner_roof.size.x, half_h), roof.darkened(0.25), 3.0)
 			if house["ac"]:
-				draw_rect(Rect2(r.get_center() - Vector2(5, 5), Vector2(10, 10)), Color(0, 0, 0, 0.25))
+				var dormer := Rect2(inner_roof.position + Vector2(inner_roof.size.x * 0.62, half_h * 0.35), Vector2(inner_roof.size.x * 0.2, half_h * 0.45))
+				draw_rect(dormer, Color("5bc0eb").darkened(0.2))
+				draw_rect(dormer.grow(-2), Color("bde7ff"))
 		for tree: Vector2 in block["trees"]:
 			draw_circle(tree + Vector2(3, 4), _road * 0.28, Color(0, 0, 0, 0.25))
 			draw_circle(tree, _road * 0.28, TREE_DARK)

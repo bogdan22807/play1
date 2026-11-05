@@ -2,20 +2,27 @@ extends Control
 ## Главный экран. Весь интерфейс собирается в коде, сцена остаётся пустой.
 ## Экран не хранит экономику: он просит GameState и рисует то, что пришло в сигналах.
 
-const COLOR_BG := Color("1a1d27")
+## Палитра — цвета бангкокских такси (розовые, лаймовые, оранжевые) на вечернем небе.
+const COLOR_BG := Color("2e2366")
+const COLOR_BG_TOP := Color("3b2d8f")
+const COLOR_BG_BOTTOM := Color("231a52")
 const COLOR_TAXI := Color("ffc107")
 const COLOR_TAXI_PRESSED := Color("e0a800")
-const COLOR_INK := Color("1a1d27")
-const COLOR_GOLD := Color("ffd54a")
-const COLOR_MUTED := Color("a8b0c4")
+const COLOR_INK := Color("1f1645")
+const COLOR_GOLD := Color("ffd23f")
+const COLOR_MUTED := Color("c9bff5")
 const COLOR_WINDOW := Color("26324a")
-const COLOR_PANEL := Color("262b3a")
-const COLOR_BUY := Color("3d7eff")
-const COLOR_BUY_HOVER := Color("548dff")
-const COLOR_BUY_PRESSED := Color("2c63d6")
-const COLOR_DISABLED := Color("3a4054")
-const COLOR_INCOME := Color("3ddc84")
-const COLOR_DANGER := Color("d45d5d")
+const COLOR_PANEL := Color("45379a")
+const COLOR_PANEL_EDGE := Color("2a2066")
+const COLOR_BUY := Color("8be04e")
+const COLOR_BUY_HOVER := Color("9dec62")
+const COLOR_BUY_PRESSED := Color("74c93a")
+const COLOR_DISABLED := Color("5b4fa3")
+const COLOR_INCOME := Color("a6ff7a")
+const COLOR_DANGER := Color("ff5a6e")
+const COLOR_PINK := Color("ff4fa3")
+const COLOR_ORANGE := Color("ff8a3d")
+const COLOR_SKY := Color("4fc3ff")
 
 const PAGE_TAP := 0
 const PAGE_UPGRADES := 1
@@ -31,6 +38,7 @@ var _share_fill: ColorRect
 const CityView := preload("res://scripts/city_view.gd")
 const CarIcon := preload("res://scripts/car_icon.gd")
 var _city: Control
+var _tap_hint: Label
 var _sfx_tap: AudioStreamPlayer
 var _sfx_buy: AudioStreamPlayer
 var _sound_on: bool = true
@@ -192,38 +200,56 @@ func _ready() -> void:
 	_show_name_popup()
 
 
+var _display_font: Font
+
+
+## Шрифты лежат в проекте: Inter SemiBold для текста, Inter Display Black Italic для денег и заголовков.
 func _apply_theme() -> void:
 	var theme := Theme.new()
-	var font := SystemFont.new()
-	# Берём системный шрифт: встроенный шрифт Godot не всегда рисует русские буквы.
-	font.font_names = PackedStringArray([
-		"Noto Sans",
-		"DejaVu Sans",
-		"Liberation Sans",
-		"Segoe UI",
-		"Arial",
-		"Roboto",
-		"sans-serif",
-	])
-	theme.default_font = font
-	theme.default_font_size = 32
+	var body: Font = load("res://assets/fonts/Inter-SemiBold.otf")
+	_display_font = load("res://assets/fonts/InterDisplay-BlackItalic.otf")
+	theme.default_font = body
+	theme.default_font_size = 30
 	theme.set_color("font_color", "Label", Color.WHITE)
+	theme.set_color("font_color", "Button", Color.WHITE)
+	theme.set_color("font_hover_color", "Button", Color.WHITE)
+	theme.set_color("font_pressed_color", "Button", Color.WHITE)
+	theme.set_color("font_focus_color", "Button", Color.WHITE)
+	theme.set_color("font_disabled_color", "Button", Color(1, 1, 1, 0.45))
+	var bold: Font = load("res://assets/fonts/Inter-Bold.otf")
+	theme.set_font("font", "Button", bold)
 	self.theme = theme
 
 
+## Заголовок крупным наклонным шрифтом — «на скорости».
+func _display(label: Label, font_size: int, color: Color = Color.WHITE) -> Label:
+	label.add_theme_font_override("font", _display_font)
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	return label
+
+
 func _build_ui() -> void:
-	var background := ColorRect.new()
-	background.color = COLOR_BG
+	var gradient := Gradient.new()
+	gradient.set_color(0, COLOR_BG_TOP)
+	gradient.set_color(1, COLOR_BG_BOTTOM)
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill_from = Vector2(0, 0)
+	texture.fill_to = Vector2(0, 1)
+	var background := TextureRect.new()
+	background.texture = texture
+	background.stretch_mode = TextureRect.STRETCH_SCALE
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 36)
-	margin.add_theme_constant_override("margin_right", 36)
-	margin.add_theme_constant_override("margin_top", 48)
-	margin.add_theme_constant_override("margin_bottom", 28)
+	margin.add_theme_constant_override("margin_left", 28)
+	margin.add_theme_constant_override("margin_right", 28)
+	margin.add_theme_constant_override("margin_top", 36)
+	margin.add_theme_constant_override("margin_bottom", 20)
 	add_child(margin)
 
 	var column := VBoxContainer.new()
@@ -277,91 +303,118 @@ func _build_ui() -> void:
 	_build_name_popup()
 
 
-func _build_header() -> HBoxContainer:
-	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 16)
-	header.alignment = BoxContainer.ALIGNMENT_CENTER
-
-	var text_box := VBoxContainer.new()
-	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	text_box.add_theme_constant_override("separation", 0)
-	header.add_child(text_box)
+func _build_header() -> VBoxContainer:
+	var header := VBoxContainer.new()
+	header.add_theme_constant_override("separation", 10)
 
 	_company_label = Label.new()
 	_company_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_company_label.clip_text = true
-	_company_label.add_theme_font_size_override("font_size", 26)
-	_company_label.add_theme_color_override("font_color", COLOR_TAXI)
-	text_box.add_child(_company_label)
+	_display(_company_label, 30, COLOR_PINK)
+	header.add_child(_company_label)
 
-	# Фиксированная рамка: одна надпись не прыгает по ширине и не оставляет старые цифры.
+	# Деньги — в тёмной «пилюле» с золотой монетой.
+	var pill_center := CenterContainer.new()
+	header.add_child(pill_center)
+	var pill := PanelContainer.new()
+	var pill_style := StyleBoxFlat.new()
+	pill_style.bg_color = COLOR_INK
+	pill_style.set_corner_radius_all(60)
+	pill_style.set_border_width_all(4)
+	pill_style.border_color = COLOR_GOLD
+	pill_style.content_margin_left = 18
+	pill_style.content_margin_right = 40
+	pill_style.content_margin_top = 6
+	pill_style.content_margin_bottom = 6
+	pill.add_theme_stylebox_override("panel", pill_style)
+	pill_center.add_child(pill)
+	var pill_row := HBoxContainer.new()
+	pill_row.add_theme_constant_override("separation", 14)
+	pill.add_child(pill_row)
+	var coin := _make_coin()
+	pill_row.add_child(coin)
+	# Фиксированная ширина: цифры не прыгают и не оставляют старых знаков.
 	var coin_frame := Control.new()
-	coin_frame.custom_minimum_size = Vector2(0, 72)
-	coin_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	coin_frame.custom_minimum_size = Vector2(440, 84)
 	coin_frame.clip_contents = true
-	text_box.add_child(coin_frame)
-
+	pill_row.add_child(coin_frame)
 	_coins_label = Label.new()
 	_coins_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_coins_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_coins_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_coins_label.clip_contents = true
 	_coins_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_coins_label.add_theme_font_size_override("font_size", 64)
-	_coins_label.add_theme_color_override("font_color", COLOR_GOLD)
+	_display(_coins_label, 70, COLOR_GOLD)
 	coin_frame.add_child(_coins_label)
 
-	_share_label = Label.new()
-	_share_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_share_label.add_theme_font_size_override("font_size", 22)
-	_share_label.add_theme_color_override("font_color", COLOR_MUTED)
-	text_box.add_child(_share_label)
+	# Чипы: доход в секунду, рейтинг, доля рынка.
+	var chips := HBoxContainer.new()
+	chips.alignment = BoxContainer.ALIGNMENT_CENTER
+	chips.add_theme_constant_override("separation", 10)
+	header.add_child(chips)
+	_tap_label = _make_chip(chips, Color("2f7a3a"))
+	_reputation_label = _make_chip(chips, Color("8a6a12"))
+	_share_label = _make_chip(chips, Color("a3286a"))
 
 	var track := Control.new()
 	track.custom_minimum_size = Vector2(0, 10)
 	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	track.clip_contents = true
-	text_box.add_child(track)
-
+	header.add_child(track)
 	var track_bg := ColorRect.new()
-	track_bg.color = COLOR_PANEL
+	track_bg.color = COLOR_INK
 	track_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	track_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	track.add_child(track_bg)
-
 	_share_fill = ColorRect.new()
-	_share_fill.color = COLOR_INCOME
+	_share_fill.color = COLOR_PINK
 	_share_fill.anchor_right = 0.0
 	_share_fill.anchor_bottom = 1.0
 	_share_fill.offset_right = 0.0
 	_share_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	track.add_child(_share_fill)
-
-	_tap_label = Label.new()
-	_tap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_tap_label.add_theme_font_size_override("font_size", 26)
-	_tap_label.add_theme_color_override("font_color", COLOR_MUTED)
-	text_box.add_child(_tap_label)
-
-	_reputation_label = Label.new()
-	_reputation_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_reputation_label.add_theme_font_size_override("font_size", 26)
-	_reputation_label.add_theme_color_override("font_color", Color("c5d4f5"))
-	text_box.add_child(_reputation_label)
-
-	var settings_button := Button.new()
-	settings_button.text = "⚙"
-	settings_button.tooltip_text = "Настройки"
-	settings_button.custom_minimum_size = Vector2(84, 84)
-	settings_button.focus_mode = Control.FOCUS_NONE
-	_style_plain_button(settings_button, COLOR_PANEL)
-	settings_button.add_theme_font_size_override("font_size", 40)
-	settings_button.add_theme_color_override("font_color", Color.WHITE)
-	settings_button.add_theme_color_override("font_hover_color", Color.WHITE)
-	settings_button.add_theme_color_override("font_pressed_color", Color.WHITE)
-	settings_button.pressed.connect(_open_settings)
-	header.add_child(settings_button)
 	return header
+
+
+## Золотая монета с долларом, нарисованная из кругов.
+func _make_coin() -> Control:
+	var coin := Panel.new()
+	coin.custom_minimum_size = Vector2(70, 70)
+	coin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var style := StyleBoxFlat.new()
+	style.bg_color = COLOR_GOLD
+	style.set_corner_radius_all(35)
+	style.set_border_width_all(5)
+	style.border_color = Color("e0a800")
+	coin.add_theme_stylebox_override("panel", style)
+	var sign := Label.new()
+	sign.text = "$"
+	sign.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sign.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sign.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_display(sign, 40, Color("8a5a00"))
+	coin.add_child(sign)
+	return coin
+
+
+## Цветной чип с текстом. Возвращает подпись, чтобы её обновлять.
+func _make_chip(parent: Container, color: Color) -> Label:
+	var chip := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.set_corner_radius_all(26)
+	style.border_width_bottom = 4
+	style.border_color = color.darkened(0.35)
+	style.content_margin_left = 18
+	style.content_margin_right = 18
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
+	chip.add_theme_stylebox_override("panel", style)
+	parent.add_child(chip)
+	var label := Label.new()
+	label.add_theme_font_size_override("font_size", 26)
+	label.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
+	chip.add_child(label)
+	return label
 
 
 func _build_tap_page() -> Control:
@@ -379,7 +432,8 @@ func _build_tap_page() -> Control:
 	_city.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_city.tapped.connect(_on_city_tapped)
 	taxi_holder.add_child(_city)
-	var hint := _make_center_label("Тапайте по городу — каждый тап это заказ", 24, Color(1, 1, 1, 0.75))
+	var hint := _make_center_label("", 26, Color.WHITE)
+	_tap_hint = hint
 	hint.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	hint.offset_top = 8
 	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -668,37 +722,74 @@ func _build_scroll_page() -> Control:
 	return page
 
 
-func _build_tab_bar() -> HBoxContainer:
+const TABS := [["city", "Город"], ["car", "Машина"], ["team", "Команда"], ["map", "Карта"], ["market", "Рынок"]]
+const TabIcon := preload("res://scripts/tab_icon.gd")
+## Иконки вкладок, чтобы перекрашивать активную и ставить красную точку.
+var _tab_icons: Array = []
+
+
+func _build_tab_bar() -> Control:
+	var dock := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = COLOR_INK
+	style.set_corner_radius_all(40)
+	style.border_width_top = 3
+	style.border_color = Color("5b4fa3")
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 10
+	style.content_margin_bottom = 10
+	dock.add_theme_stylebox_override("panel", style)
 	var bar := HBoxContainer.new()
-	bar.add_theme_constant_override("separation", 12)
-	_tab_buttons = [
-		_make_tab("Тап"),
-		_make_tab("Машина"),
-		_make_tab("Водители"),
-		_make_tab("Карта"),
-		_make_tab("Рынок"),
-	]
-	for index in _tab_buttons.size():
-		var button: Button = _tab_buttons[index]
+	bar.add_theme_constant_override("separation", 6)
+	dock.add_child(bar)
+	_tab_buttons = []
+	_tab_icons = []
+	for index in TABS.size():
+		var button := _make_tab(TABS[index][0], TABS[index][1])
 		button.pressed.connect(_show_page.bind(index))
 		bar.add_child(button)
-	return bar
+		_tab_buttons.append(button)
+	return dock
 
 
-func _make_tab(title: String) -> Button:
+func _make_tab(kind: String, title: String) -> Button:
 	var button := Button.new()
-	button.text = title
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.custom_minimum_size = Vector2(0, 112)
+	button.custom_minimum_size = Vector2(0, 124)
 	button.focus_mode = Control.FOCUS_NONE
-	button.add_theme_font_size_override("font_size", 24)
-	button.clip_text = false
-	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var box := VBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 2)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(box)
+	var icon: Control = TabIcon.new()
+	icon.kind = kind
+	icon.custom_minimum_size = Vector2(0, 62)
+	icon.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(icon)
+	var label := Label.new()
+	label.text = title
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(label)
+	_tab_icons.append([icon, label])
 	return button
 
 
+## Красная точка на «Команде»: кто-то устал или машина сломана.
+func _refresh_tab_badges() -> void:
+	if _tab_icons.size() < 3:
+		return
+	var icon: Control = _tab_icons[PAGE_DRIVERS][0]
+	icon.badge = GameState.get_tired_count() > 0 or GameState.get_broken_count() > 0
+
+
 ## Цвета на полоске долей: игрок жёлтый, конкуренты острова — по порядку.
-const RIVAL_COLORS := [Color("8d99ae"), Color("f06292"), Color("a1887f"), Color("4db6ac")]
+const RIVAL_COLORS := [Color("a0aec8"), Color("ffb347"), Color("c39bff"), Color("5ee6c7")]
 
 
 func _market_color(id: String) -> Color:
@@ -822,7 +913,7 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 		button.custom_minimum_size = Vector2(0, 130)
 		button.focus_mode = Control.FOCUS_NONE
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_style_plain_button(button, Color("6d4c41"))
+		_style_plain_button(button, COLOR_ORANGE)
 		button.add_theme_font_size_override("font_size", 20)
 		button.add_theme_color_override("font_color", Color.WHITE)
 		button.pressed.connect(_on_trick.bind(competitor_id, trick_id))
@@ -1146,7 +1237,7 @@ func _build_notice_popup() -> void:
 	box.add_theme_constant_override("separation", 20)
 	panel.add_child(box)
 
-	_notice_title = _make_center_label("", 44, Color.WHITE)
+	_notice_title = _display(_make_center_label("", 44, Color.WHITE), 46, COLOR_GOLD)
 	box.add_child(_notice_title)
 	_notice_body = _make_center_label("", 30, COLOR_MUTED)
 	_notice_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1178,13 +1269,16 @@ func _build_city_page() -> Control:
 	var district_page := _build_scroll_page()
 	var world_page := _build_scroll_page()
 	var achievement_page := _build_scroll_page()
-	_city_sections = [world_page, district_page, achievement_page]
+	var more_page := _build_scroll_page()
+	_city_sections = [world_page, district_page, achievement_page, more_page]
 	for section: Control in _city_sections:
 		section.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		stack.add_child(section)
 	_district_list = district_page.get_child(0).get_child(0) as VBoxContainer
 	_world_list = world_page.get_child(0).get_child(0) as VBoxContainer
 	_achievement_list = achievement_page.get_child(0).get_child(0) as VBoxContainer
+	_more_list = more_page.get_child(0).get_child(0) as VBoxContainer
+	_build_more_rows()
 	_show_city_section(0)
 	return page
 
@@ -1195,7 +1289,8 @@ func _build_city_switch() -> HBoxContainer:
 	_city_section_buttons = [
 		_make_section_button("Мир"),
 		_make_section_button("Районы"),
-		_make_section_button("Достижения"),
+		_make_section_button("Награды"),
+		_make_section_button("Ещё"),
 	]
 	for index in _city_section_buttons.size():
 		var button: Button = _city_section_buttons[index]
@@ -1219,13 +1314,40 @@ func _show_city_section(index: int) -> void:
 		_city_sections[section_index].visible = section_index == index
 		var button: Button = _city_section_buttons[section_index]
 		var active: bool = section_index == index
-		var background: Color = COLOR_TAXI if active else COLOR_PANEL
-		var font_color: Color = COLOR_INK if active else Color.WHITE
-		_style_plain_button(button, background)
-		button.add_theme_color_override("font_color", font_color)
-		button.add_theme_color_override("font_hover_color", font_color)
-		button.add_theme_color_override("font_pressed_color", font_color)
-		button.add_theme_color_override("font_focus_color", font_color)
+		_style_plain_button(button, COLOR_PINK if active else COLOR_PANEL)
+
+
+var _more_list: VBoxContainer
+var _more_stats: Label
+
+
+## «Ещё»: сводка компании, звук, сброс. Сюда переехали настройки из шестерёнки.
+func _build_more_rows() -> void:
+	_more_list.add_child(_make_section_title("Компания"))
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	_more_list.add_child(panel)
+	_more_stats = _add_label(panel, "", 28, Color.WHITE)
+	_more_list.add_child(_make_section_title("Настройки"))
+	_sound_button = _make_settings_button("", COLOR_SKY, _toggle_sound)
+	_more_list.add_child(_sound_button)
+	_refresh_sound_button()
+	_more_list.add_child(_make_settings_button("Сбросить прогресс", COLOR_DANGER, _ask_reset))
+	_add_label(_more_list, "Сброс стирает весь прогресс и название компании. Это для проверки игры.", 24, COLOR_MUTED)
+
+
+func _refresh_more() -> void:
+	if _more_stats == null:
+		return
+	_more_stats.text = "Такси «%s»\nРейтинг: ★ %.1f\nРепутация: %d\nФраншиза: ×%s\nЗаработано за всё время: %s\nОстровов: %d из %d" % [
+		GameState.company_name,
+		GameState.get_rating(),
+		GameState.reputation,
+		GameState.format_number(GameState.get_franchise()),
+		GameState.format_money(GameState.lifetime_earned),
+		GameState.get_captured_count(),
+		GameState.get_regions().size(),
+	]
 
 
 func _build_city_rows() -> void:
@@ -1458,8 +1580,7 @@ func _build_upgrade_rows() -> void:
 func _make_section_title(text: String) -> Label:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 40)
-	label.add_theme_color_override("font_color", COLOR_GOLD)
+	_display(label, 44, COLOR_GOLD)
 	return label
 
 
@@ -1606,6 +1727,7 @@ func _refresh_cars() -> void:
 func _on_company_changed(company_name: String) -> void:
 	if _company_label != null:
 		_company_label.text = "Такси «%s»" % company_name if company_name != "" else ""
+	_refresh_more()
 
 
 ## Окно при первом запуске: игрок называет свою компанию.
@@ -1640,7 +1762,7 @@ func _build_name_popup() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 20)
 	panel.add_child(box)
-	box.add_child(_make_center_label("Ваше такси", 52, Color.WHITE))
+	box.add_child(_display(_make_center_label("Ваше такси", 52, Color.WHITE), 56, COLOR_PINK))
 	var hint := _make_center_label("Бангкок ждёт. Как будет называться ваша компания? Конкуренты должны знать, кого бояться.", 28, COLOR_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(hint)
@@ -2054,34 +2176,44 @@ func _make_upgrade_row(upgrade_id: String, info: Dictionary) -> PanelContainer:
 	return panel
 
 
+## Плашка: светлее фона, с тёмной кромкой снизу — как объёмная карточка.
 func _panel_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = COLOR_PANEL
-	style.set_corner_radius_all(24)
+	style.set_corner_radius_all(30)
+	style.border_width_bottom = 8
+	style.border_color = COLOR_PANEL_EDGE
 	style.content_margin_left = 24
 	style.content_margin_right = 24
-	style.content_margin_top = 18
-	style.content_margin_bottom = 18
+	style.content_margin_top = 20
+	style.content_margin_bottom = 22
 	return style
 
 
+## Кнопка покупки: лаймовая, когда хватает денег; тёмный текст на ярком.
 func _style_buy_button(button: Button) -> void:
 	button.add_theme_stylebox_override("normal", _button_style(COLOR_BUY))
 	button.add_theme_stylebox_override("hover", _button_style(COLOR_BUY_HOVER))
-	button.add_theme_stylebox_override("pressed", _button_style(COLOR_BUY_PRESSED))
-	button.add_theme_stylebox_override("disabled", _button_style(COLOR_DISABLED))
+	button.add_theme_stylebox_override("pressed", _button_style(COLOR_BUY_PRESSED, true))
+	button.add_theme_stylebox_override("disabled", _button_style(COLOR_DISABLED, true))
 	button.add_theme_stylebox_override("focus", _button_style(COLOR_BUY))
 	button.add_theme_font_size_override("font_size", 28)
+	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		button.add_theme_color_override(state, COLOR_INK)
+	button.add_theme_color_override("font_disabled_color", Color(1, 1, 1, 0.5))
 
 
-func _button_style(color: Color) -> StyleBoxFlat:
+## Объёмная кнопка: кромка снизу темнее. Нажатая — кромка тоньше, кнопка «проседает».
+func _button_style(color: Color, flat: bool = false) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
-	style.set_corner_radius_all(20)
-	style.content_margin_left = 12
-	style.content_margin_right = 12
-	style.content_margin_top = 10
-	style.content_margin_bottom = 10
+	style.set_corner_radius_all(26)
+	style.border_width_bottom = 2 if flat else 8
+	style.border_color = color.darkened(0.35)
+	style.content_margin_left = 14
+	style.content_margin_right = 14
+	style.content_margin_top = 12 if not flat else 16
+	style.content_margin_bottom = 12
 	return style
 
 
@@ -2241,15 +2373,17 @@ func _show_next_toast() -> void:
 
 func _build_toast() -> void:
 	_toast_layer = PanelContainer.new()
-	_toast_layer.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_toast_layer.offset_left = -420
-	_toast_layer.offset_right = 420
-	_toast_layer.offset_top = 36
-	_toast_layer.offset_bottom = 190
+	# Над панелью вкладок, чтобы не закрывать деньги в шапке. Золотая, как награда.
+	_toast_layer.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_toast_layer.offset_left = -400
+	_toast_layer.offset_right = 400
+	_toast_layer.offset_top = -330
+	_toast_layer.offset_bottom = -190
 	_toast_layer.visible = false
 	_toast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := _panel_style()
-	style.bg_color = Color("1d4a32")
+	style.bg_color = COLOR_GOLD
+	style.border_color = Color("c99400")
 	style.content_margin_left = 24
 	style.content_margin_right = 24
 	style.content_margin_top = 16
@@ -2257,7 +2391,8 @@ func _build_toast() -> void:
 	_toast_layer.add_theme_stylebox_override("panel", style)
 	add_child(_toast_layer)
 
-	_toast_label = _make_center_label("", 30, Color.WHITE)
+	_toast_label = _make_center_label("", 30, COLOR_INK)
+	_display(_toast_label, 32, COLOR_INK)
 	_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_toast_layer.add_child(_toast_label)
 
@@ -2298,7 +2433,7 @@ func _build_daily_popup() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 18)
 	panel.add_child(box)
-	box.add_child(_make_center_label("Ежедневная награда", 44, Color.WHITE))
+	box.add_child(_display(_make_center_label("Ежедневная награда", 44, Color.WHITE), 46, COLOR_GOLD))
 	box.add_child(_make_center_label("$250.\nЗаходите завтра — награда обновится.", 30, COLOR_MUTED))
 	box.add_child(_make_settings_button("Забрать", COLOR_BUY, _on_collect_daily))
 
@@ -2451,20 +2586,27 @@ func _show_page(page: int) -> void:
 	for index in _tab_buttons.size():
 		var button: Button = _tab_buttons[index]
 		var active: bool = index == page
-		var background: Color = COLOR_TAXI if active else COLOR_PANEL
-		var font_color: Color = COLOR_INK if active else Color.WHITE
-		_style_plain_button(button, background)
-		button.add_theme_color_override("font_color", font_color)
-		button.add_theme_color_override("font_hover_color", font_color)
-		button.add_theme_color_override("font_pressed_color", font_color)
-		button.add_theme_color_override("font_focus_color", font_color)
+		var tab_style := StyleBoxFlat.new()
+		tab_style.set_corner_radius_all(32)
+		tab_style.bg_color = COLOR_PINK if active else Color(0, 0, 0, 0)
+		if active:
+			tab_style.border_width_bottom = 6
+			tab_style.border_color = COLOR_PINK.darkened(0.35)
+		for state in ["normal", "hover", "pressed", "focus"]:
+			button.add_theme_stylebox_override(state, tab_style)
+		var parts: Array = _tab_icons[index]
+		var icon: Control = parts[0]
+		var label: Label = parts[1]
+		icon.color = Color.WHITE if active else Color(1, 1, 1, 0.55)
+		label.add_theme_color_override("font_color", Color.WHITE if active else Color(1, 1, 1, 0.55))
 
 
 func _style_plain_button(button: Button, color: Color) -> void:
 	button.add_theme_stylebox_override("normal", _button_style(color))
 	button.add_theme_stylebox_override("hover", _button_style(color.lightened(0.08)))
-	button.add_theme_stylebox_override("pressed", _button_style(color.darkened(0.08)))
+	button.add_theme_stylebox_override("pressed", _button_style(color.darkened(0.08), true))
 	button.add_theme_stylebox_override("focus", _button_style(color))
+	button.add_theme_stylebox_override("disabled", _button_style(COLOR_DISABLED, true))
 
 
 func _open_settings() -> void:
@@ -2480,6 +2622,7 @@ func _close_settings() -> void:
 func _ask_reset() -> void:
 	_settings_menu.visible = false
 	_settings_confirm.visible = true
+	_settings_layer.visible = true
 
 
 func _confirm_reset() -> void:
@@ -2532,9 +2675,6 @@ func _build_settings_popup() -> void:
 	var hint := _make_center_label("Сброс стирает деньги, улучшения и водителей. Это для проверки игры.", 28, COLOR_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_settings_menu.add_child(hint)
-	_sound_button = _make_settings_button("", COLOR_BUY, _toggle_sound)
-	_settings_menu.add_child(_sound_button)
-	_refresh_sound_button()
 	_settings_menu.add_child(_make_settings_button("Сбросить прогресс", COLOR_DANGER, _ask_reset))
 	_settings_menu.add_child(_make_settings_button("Закрыть", COLOR_PANEL, _close_settings))
 
@@ -2544,11 +2684,11 @@ func _build_settings_popup() -> void:
 	_settings_confirm.alignment = BoxContainer.ALIGNMENT_CENTER
 	_settings_confirm.visible = false
 	stack.add_child(_settings_confirm)
-	var question := _make_center_label("Точно стереть весь прогресс?", 44, Color.WHITE)
+	var question := _display(_make_center_label("Точно стереть весь прогресс?", 44, Color.WHITE), 44, Color.WHITE)
 	question.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_settings_confirm.add_child(question)
 	_settings_confirm.add_child(_make_settings_button("Сбросить", COLOR_DANGER, _confirm_reset))
-	_settings_confirm.add_child(_make_settings_button("Отмена", COLOR_PANEL, _open_settings))
+	_settings_confirm.add_child(_make_settings_button("Отмена", COLOR_PANEL, _close_settings))
 
 
 func _make_center_label(text: String, font_size: int, color: Color) -> Label:
@@ -2608,10 +2748,9 @@ func _on_income_changed(_value: float) -> void:
 
 
 func _refresh_rate_line() -> void:
-	_tap_label.text = "За тап: %s  ·  В секунду: %s" % [
-		GameState.format_money(GameState.get_tap_power()),
-		GameState.format_money(GameState.get_income_per_second()),
-	]
+	_tap_label.text = "+%s/с" % GameState.format_money(GameState.get_income_per_second())
+	if _tap_hint != null:
+		_tap_hint.text = "Тап по городу — заказ на %s" % GameState.format_money(GameState.get_tap_power())
 	_refresh_market_share()
 
 
@@ -2626,18 +2765,16 @@ func _refresh_market_share() -> void:
 	else:
 		text = "%.1f%%" % percent
 	if GameState.get_front_island() == "":
-		_share_label.text = "Ваши острова: %d из %d" % [GameState.get_captured_count(), GameState.get_regions().size()]
+		_share_label.text = "Острова %d/%d" % [GameState.get_captured_count(), GameState.get_regions().size()]
 	else:
-		_share_label.text = "Доля рынка, %s: %s" % [GameState.get_front_city(), text]
+		_share_label.text = "%s %s" % [GameState.get_front_city(), text]
 	_share_fill.anchor_right = share
 
 
 func _refresh_meta_line() -> void:
-	_reputation_label.text = "★ %.1f  ·  Репутация: %d  ·  Франшиза: ×%s" % [
-		GameState.get_rating(),
-		GameState.reputation,
-		GameState.format_number(GameState.get_franchise()),
-	]
+	_reputation_label.text = "★ %.1f" % GameState.get_rating()
+	_refresh_tab_badges()
+	_refresh_more()
 
 
 func _on_upgrades_changed() -> void:
