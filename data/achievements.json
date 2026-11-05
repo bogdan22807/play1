@@ -118,5 +118,13 @@
     "need": 1,
     "reward_coins": 10000,
     "reward_reputation": 0
+  },
+  {
+    "id": "whole_world",
+    "name": "Такси всего мира",
+    "kind": "captured",
+    "need": 6,
+    "reward_coins": 1000000000,
+    "reward_reputation": 0
   }
 ]

@@ -19,7 +19,7 @@ HIRE_BASE = 100.0
 # Игрок вовремя меняет смены и моет машины: рейтинг держится около 4.5 звёзд.
 KEPT_RATING = 4.5
 DT = 1.0
-HORIZON = 7 * 3600
+HORIZON = 12 * 3600
 
 
 def load(name):
@@ -53,7 +53,8 @@ class Player:
         self.regions = load("regions.json")
         self.competitors = load("competitors.json")
         self.market = load("market.json")
-        self.captured_at = None
+        # Захваченные острова: id -> время захвата.
+        self.captured = {}
         balance = load("balance.json")
         self.tap_from_income = float(balance.get("tap_from_income", 0.01))
         self.rent_share = float(balance.get("car_rent_share", 0.3))
@@ -86,7 +87,7 @@ class Player:
             for district in city["districts"]:
                 self.districts.append(district)
         self.open_districts = set()
-        self.open_regions = set()
+        self.open_regions = set(item["id"] for item in self.regions if item.get("home"))
         self.owned_competitors = set()
         self.coins = 0.0
         self.lifetime = 0.0
@@ -105,8 +106,7 @@ class Player:
         rival = 1.0 + sum(
             item["income_bonus"] for item in self.competitors if item["id"] in self.owned_competitors
         )
-        if self.captured_at is not None:
-            rival += float(self.market.get("capture_bonus", 0.25))
+        rival += float(self.market.get("capture_bonus", 0.25)) * len(self.captured)
         rating = 1.0 + (KEPT_RATING - 4.0) * self.rating_per_star
         return district * region * rival * self.franchise * rating
 
@@ -148,11 +148,21 @@ class Player:
         ride = self.flat_tap() * self.car_factor() * self.multiplier()
         return self.passive() + ride * float(self.market.get("player_tap_rate", 3))
 
+    def front(self):
+        for item in self.regions:
+            if item["id"] in self.open_regions and item["id"] not in self.captured:
+                return item["id"]
+        return None
+
+    def front_rivals(self):
+        island = self.front()
+        return [item for item in self.competitors if item.get("island") == island]
+
     def rival_power(self, item):
         return 0.0 if item["id"] in self.owned_competitors else float(item["power"])
 
     def share(self, item=None):
-        total = self.player_power() + sum(self.rival_power(other) for other in self.competitors)
+        total = self.player_power() + sum(self.rival_power(other) for other in self.front_rivals())
         if total <= 0:
             return 0.0
         return (self.player_power() if item is None else self.rival_power(item)) / total
@@ -234,7 +244,8 @@ class Player:
         for item in self.regions:
             if item["id"] in self.open_regions:
                 continue
-            if rep < item["reputation"] or self.captured_at is None:
+            index = self.regions.index(item)
+            if rep < item["reputation"] or (index > 0 and self.regions[index - 1]["id"] not in self.captured):
                 continue
             current = 1.0 + sum(
                 other["income_bonus"] for other in self.regions if other["id"] in self.open_regions
@@ -242,7 +253,7 @@ class Player:
             ratio = (current + item["income_bonus"]) / current
             gain = dps * (ratio - 1.0)
             found.append(("region", item["id"], item["name"], float(item["cost"]), gain / item["cost"] if item["cost"] else 0.0))
-        for item in self.competitors:
+        for item in self.front_rivals():
             if item["id"] in self.owned_competitors:
                 continue
             current = 1.0 + sum(
@@ -318,12 +329,14 @@ class Player:
         self.lifetime += gained
         self.taps += int(TAPS_PER_SECOND * DT)
         self.time += DT
-        if self.captured_at is None and (
+        island = self.front()
+        if island is not None and (
             self.share() >= float(self.market.get("capture_share", 0.5))
-            or len(self.owned_competitors) == len(self.competitors)
+            or all(item["id"] in self.owned_competitors for item in self.front_rivals())
         ):
-            self.captured_at = self.time
-            self.log.append((self.time, "Захват", self.market.get("home_city", "город"), self.share()))
+            self.captured[island] = self.time
+            city = next(item["city"] for item in self.regions if item["id"] == island)
+            self.log.append((self.time, "Захват", city, self.share()))
         self.buy_best()
 
     def run(self):
@@ -362,7 +375,7 @@ def main():
         )
     print("престиж +10%:", fmt_time(prestige_at))
     print("районы", len(player.open_districts), "/", len(player.districts))
-    print("регионы", len(player.open_regions), "/", len(player.regions))
+    print("острова захвачены", len(player.captured), "/", len(player.regions))
     print("конкуренты", len(player.owned_competitors))
     print("гараж", len(player.garage), "/", player.capacity, " водителей", player.team)
     print("машины в парке:", ", ".join(sorted(set(player.cars[i]["name"] for i in player.garage))))

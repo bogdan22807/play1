@@ -96,7 +96,7 @@ func _init() -> void:
 
 	# Захват: все выкуплены — Бангкок наш.
 	var captured_text: Array = []
-	gs.home_captured.connect(func(text: String) -> void: captured_text.append(text))
+	gs.island_captured.connect(func(_island: String, text: String) -> void: captured_text.append(text))
 	for id in ["wolf", "lotus"]:
 		gs._owned_competitors[id] = 1
 	var income_before: float = gs.get_income_multiplier()
