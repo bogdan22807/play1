@@ -69,6 +69,8 @@ var _wash_fleet_button: Button
 ## uid водителя -> [Label смены, ProgressBar, кнопка «Сменить», карточка водителя].
 var _team_shift_rows: Dictionary = {}
 var _shift_all_button: Button
+## id помощника -> {"status", "button"}.
+var _helper_rows: Dictionary = {}
 var _rating_label: Label
 var _repair_fleet_button: Button
 var _my_clean_bar: ProgressBar
@@ -129,6 +131,7 @@ func _ready() -> void:
 	GameState.garage_changed.connect(_on_drivers_changed)
 	GameState.wear_changed.connect(_on_wear_changed)
 	GameState.shifts_changed.connect(_on_shifts_changed)
+	GameState.helpers_changed.connect(_refresh_helpers)
 	GameState.company_changed.connect(_on_company_changed)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -460,10 +463,7 @@ func _on_wear_changed() -> void:
 		var repair_fleet: float = GameState.get_fleet_repair_cost()
 		_repair_fleet_button.text = "Починить парк\n%s" % GameState.format_money(repair_fleet) if repair_fleet > 0.0 else "Парк\nцелый"
 		_repair_fleet_button.disabled = not GameState.can_repair_fleet()
-		_staff_summary.text = "Команда приносит %s/с  ·  зарплаты %s/с" % [
-			GameState.format_money(GameState.get_income_per_second()),
-			GameState.format_money(GameState.get_salary_per_second()),
-		]
+		_staff_summary.text = _staff_summary_text()
 	for uid: Variant in _team_wear_rows.keys():
 		var entry: Array = _team_wear_rows[uid]
 		var label: Label = entry[0]
@@ -535,6 +535,63 @@ func _on_shifts_changed() -> void:
 		var car_label: Label = entry[0]
 		if is_instance_valid(car_label):
 			car_label.text = _team_car_text(entry[1], entry[2])
+
+
+func _staff_summary_text() -> String:
+	var text: String = "Команда приносит %s/с  ·  зарплаты %s/с" % [
+		GameState.format_money(GameState.get_income_per_second()),
+		GameState.format_money(GameState.get_salary_per_second()),
+	]
+	if GameState.get_helper_fee_share() > 0.0:
+		text += "  ·  помощникам %s/с" % GameState.format_money(GameState.get_helper_fee_per_second())
+	return text
+
+
+func _make_helper_row(info: Dictionary) -> PanelContainer:
+	var helper_id: String = str(info.get("id", ""))
+	var parts: Array = _make_row_panel()
+	var row: HBoxContainer = parts[1]
+	var text_box := _make_text_box(row)
+	_add_label(text_box, str(info.get("name", helper_id)), 34)
+	_add_label(text_box, str(info.get("description", "")), 24, COLOR_MUTED)
+	var terms: String = "Берёт %d%% дохода водителей" % int(roundf(float(info.get("fee_share", 0)) * 100.0))
+	if float(info.get("offline_bonus", 0)) > 0.0:
+		terms += "  ·  пока вас нет, парк работает на 100%"
+	_add_label(text_box, terms, 24, COLOR_INCOME)
+	var status := _add_label(text_box, "", 26, COLOR_GOLD)
+	var button := _make_row_button(_on_helper_pressed.bind(helper_id))
+	row.add_child(button)
+	_helper_rows[helper_id] = {"status": status, "button": button}
+	return parts[0]
+
+
+func _refresh_helpers() -> void:
+	for helper_id: Variant in _helper_rows.keys():
+		var id := str(helper_id)
+		var row: Dictionary = _helper_rows[helper_id]
+		var status: Label = row["status"]
+		var button: Button = row["button"]
+		if not GameState.is_helper_hired(id):
+			status.text = ""
+			button.text = "Нанять\n%s" % GameState.format_money(GameState.get_helper_cost(id))
+			button.disabled = not GameState.can_hire_helper(id)
+		elif GameState.is_helper_on(id):
+			status.text = "Работает"
+			button.text = "Выключить"
+			button.disabled = false
+		else:
+			status.text = "Отдыхает — работа на вас"
+			button.text = "Включить"
+			button.disabled = false
+	if _staff_summary != null:
+		_staff_summary.text = _staff_summary_text()
+
+
+func _on_helper_pressed(helper_id: String) -> void:
+	if not GameState.is_helper_hired(helper_id):
+		GameState.hire_helper(helper_id)
+	else:
+		GameState.set_helper_on(helper_id, not GameState.is_helper_on(helper_id))
 
 
 func _on_change_shift(uid: int) -> void:
@@ -1532,6 +1589,11 @@ func _build_driver_rows() -> void:
 	_shift_all_button.custom_minimum_size = Vector2(0, 90)
 	service_box.add_child(_shift_all_button)
 
+	_driver_list.add_child(_make_section_title("Помощники"))
+	for raw: Variant in GameState.get_helpers():
+		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
+			_driver_list.add_child(_make_helper_row(raw))
+
 	_driver_list.add_child(_make_section_title("Команда"))
 	_team_box = VBoxContainer.new()
 	_team_box.add_theme_constant_override("separation", 16)
@@ -1734,10 +1796,7 @@ func _refresh_staff_money() -> void:
 		GameState.get_garage_capacity(),
 		GameState.get_team().size(),
 	]
-	_staff_summary.text = "Команда приносит %s/с  ·  зарплаты %s/с" % [
-		GameState.format_money(GameState.get_income_per_second()),
-		GameState.format_money(GameState.get_salary_per_second()),
-	]
+	_staff_summary.text = _staff_summary_text()
 	var step: Dictionary = GameState.get_next_expansion()
 	if step.is_empty():
 		_expand_button.text = "Гараж\nмаксимум"
@@ -2303,6 +2362,7 @@ func _on_coins_changed(value: float) -> void:
 	_refresh_sell()
 	_refresh_cars()
 	_on_wear_changed()
+	_refresh_helpers()
 
 
 func _on_tap_power_changed(_value: float) -> void:
