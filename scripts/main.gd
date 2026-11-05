@@ -129,11 +129,10 @@ var _repair_me_button: Button
 var _district_rows: Dictionary = {}
 var _region_rows: Dictionary = {}
 var _competitor_rows: Dictionary = {}
+## Шапка вкладки «Рынок»: сколько конкурентов города выкуплено.
 var _market_status: Label
-var _market_bar: HBoxContainer
-## "player" или id конкурента -> кусок полоски долей.
-var _market_bar_parts: Dictionary = {}
-var _market_legend: Label
+## id конкурента -> Label-ступенька на лестнице соперников.
+var _ladder_steps: Dictionary = {}
 ## id рекламы -> {"status", "button"}.
 var _ad_rows: Dictionary = {}
 ## Для какого острова собрана вкладка «Рынок». Фронт сменился — пересобираем.
@@ -148,6 +147,7 @@ var _island_status: Label
 var _island_reason: Label
 var _island_button: Button
 var _notice_layer: Control
+var _notice_queue: Array = []
 var _notice_title: Label
 var _notice_body: Label
 var _sell_info: Label
@@ -194,6 +194,8 @@ func _ready() -> void:
 	GameState.reputation_changed.connect(_on_reputation_changed)
 	GameState.competitors_changed.connect(_on_competitors_changed)
 	GameState.island_captured.connect(_on_island_captured)
+	GameState.rival_surrendered.connect(_on_rival_surrendered)
+	GameState.rival_attacked.connect(_on_rival_attacked)
 	GameState.franchise_changed.connect(_on_franchise_changed)
 	GameState.achievement_unlocked.connect(_on_achievement_unlocked)
 	GameState.achievements_changed.connect(_refresh_achievements)
@@ -577,7 +579,10 @@ func _notification(what: int) -> void:
 	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer]:
 		var popup: Control = layer
 		if popup != null and popup.visible:
-			popup.visible = false
+			if popup == _notice_layer:
+				_close_notice()
+			else:
+				popup.visible = false
 			return
 	if _mentor_bubble != null and _mentor_bubble.visible:
 		_on_mentor_button()
@@ -1117,7 +1122,7 @@ func _market_color(id: String) -> Color:
 func _build_market_rows() -> void:
 	_market_built_for = GameState.get_front_island()
 	_competitor_rows.clear()
-	_market_bar_parts.clear()
+	_ladder_steps.clear()
 	_ad_rows.clear()
 	_market_status = null
 	if _market_built_for == "":
@@ -1136,47 +1141,42 @@ func _build_market_rows() -> void:
 		calm_box.add_child(to_map)
 		_market_list.add_child(_make_sell_panel())
 		return
-	_market_list.add_child(_make_section_title("Рынок: %s" % GameState.get_front_city()))
+	_market_list.add_child(_make_section_title("Битва за %s" % GameState.get_front_city()))
 
-	var share_panel := PanelContainer.new()
-	share_panel.add_theme_stylebox_override("panel", _panel_style())
-	_market_list.add_child(share_panel)
-	var share_box := VBoxContainer.new()
-	share_box.add_theme_constant_override("separation", 10)
-	share_panel.add_child(share_box)
-	_market_status = _add_label(share_box, "", 34, COLOR_GOLD)
-	_market_bar = HBoxContainer.new()
-	_market_bar.custom_minimum_size = Vector2(0, 36)
-	_market_bar.add_theme_constant_override("separation", 2)
-	share_box.add_child(_market_bar)
-	_market_bar_parts["player"] = _make_share_part("player")
+	# Лестница: соперники по очереди, от слабого к сильному.
+	var ladder_panel := PanelContainer.new()
+	ladder_panel.add_theme_stylebox_override("panel", _panel_style())
+	_market_list.add_child(ladder_panel)
+	var ladder_box := VBoxContainer.new()
+	ladder_box.add_theme_constant_override("separation", 12)
+	ladder_panel.add_child(ladder_box)
+	_market_status = _add_label(ladder_box, "", 34, COLOR_GOLD)
+	var steps := HBoxContainer.new()
+	steps.add_theme_constant_override("separation", 10)
+	ladder_box.add_child(steps)
 	for raw: Variant in GameState.get_competitors():
 		var id: String = str(raw.get("id", ""))
-		_market_bar_parts[id] = _make_share_part(id)
-	_market_legend = _add_label(share_box, "", 26, COLOR_MUTED)
-	_add_label(share_box, "Захват города: доля больше 50% или выкупить всех. Доля растёт от дохода, рейтинга и рекламы.", 24, COLOR_MUTED)
+		var chip := PanelContainer.new()
+		chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		steps.add_child(chip)
+		var chip_label := Label.new()
+		chip_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		chip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		chip_label.add_theme_font_size_override("font_size", 22)
+		chip.add_child(chip_label)
+		_ladder_steps[id] = chip_label
+	_add_label(ladder_box, "Соперники идут по очереди. Догоните текущего по силе — он сдастся и предложит выкуп. Выкупите всех — город ваш.", 24, COLOR_MUTED)
 
-	_market_list.add_child(_make_section_title("Реклама"))
-	for raw: Variant in GameState.get_ads():
-		if typeof(raw) == TYPE_DICTIONARY:
-			_market_list.add_child(_make_ad_row(raw))
-
-	_market_list.add_child(_make_section_title("Конкуренты"))
 	for raw: Variant in GameState.get_competitors():
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
 			_market_list.add_child(_make_competitor_row(str(raw.get("id", "")), raw))
 
+	_market_list.add_child(_make_section_title("Реклама — рывок на время"))
+	for raw: Variant in GameState.get_ads():
+		if typeof(raw) == TYPE_DICTIONARY:
+			_market_list.add_child(_make_ad_row(raw))
+
 	_market_list.add_child(_make_sell_panel())
-
-
-func _make_share_part(id: String) -> ColorRect:
-	var part := ColorRect.new()
-	part.color = _market_color(id)
-	part.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	part.size_flags_stretch_ratio = 0.01
-	part.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_market_bar.add_child(part)
-	return part
 
 
 func _make_ad_row(info: Dictionary) -> PanelContainer:
@@ -1208,10 +1208,28 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	column.add_theme_constant_override("separation", 8)
 	panel.add_child(column)
 
-	_add_label(column, str(info.get("name", competitor_id)), 36)
-	_add_label(column, str(info.get("personality_name", "")), 26, COLOR_GOLD)
-	_add_label(column, str(info.get("description", "")), 24, COLOR_MUTED)
-	var share_label := _add_label(column, "", 26, COLOR_TEXT)
+	var title := _add_label(column, str(info.get("name", competitor_id)), 36)
+	var mood := _add_label(column, str(info.get("personality_name", "")), 26, COLOR_GOLD)
+	var description := _add_label(column, str(info.get("description", "")), 24, COLOR_MUTED)
+	var status := _add_label(column, "", 30, COLOR_TEXT)
+
+	# Канат: жёлтое — ваша сила, цвет соперника — сколько ещё не хватает.
+	var bar := HBoxContainer.new()
+	bar.custom_minimum_size = Vector2(0, 40)
+	bar.add_theme_constant_override("separation", 0)
+	column.add_child(bar)
+	var mine := ColorRect.new()
+	mine.color = COLOR_TAXI
+	mine.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mine.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(mine)
+	var theirs := ColorRect.new()
+	theirs.color = _market_color(competitor_id)
+	theirs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	theirs.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(theirs)
+	var powers := _add_label(column, "", 26, COLOR_TEXT)
+	var hint := _add_label(column, "", 24, COLOR_MUTED)
 	var effects := _add_label(column, "", 24, COLOR_INCOME)
 
 	var tricks := HBoxContainer.new()
@@ -1231,19 +1249,27 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 		tricks.add_child(button)
 		trick_buttons[trick_id] = button
 
-	var offer_button := Button.new()
-	offer_button.custom_minimum_size = Vector2(0, 100)
-	offer_button.focus_mode = Control.FOCUS_NONE
-	_style_buy_button(offer_button)
-	offer_button.pressed.connect(_on_offer_buyout.bind(competitor_id))
-	column.add_child(offer_button)
+	var buy_button := Button.new()
+	buy_button.custom_minimum_size = Vector2(0, 110)
+	buy_button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(buy_button)
+	buy_button.pressed.connect(_on_buy_rival.bind(competitor_id))
+	column.add_child(buy_button)
 
 	_competitor_rows[competitor_id] = {
-		"share": share_label,
+		"mood": mood,
+		"description": description,
+		"status": status,
+		"bar": bar,
+		"mine": mine,
+		"theirs": theirs,
+		"powers": powers,
+		"hint": hint,
 		"effects": effects,
 		"tricks": trick_buttons,
 		"tricks_box": tricks,
-		"offer": offer_button,
+		"buy": buy_button,
+		"title": title,
 	}
 	return panel
 
@@ -1266,12 +1292,20 @@ func _on_trick(competitor_id: String, trick_id: String) -> void:
 		_mentor.on_event("caught")
 
 
-func _on_offer_buyout(competitor_id: String) -> void:
-	var result: Dictionary = GameState.offer_buyout(competitor_id)
-	var title := "Отказ"
+func _on_buy_rival(competitor_id: String) -> void:
+	var result: Dictionary = GameState.buy_rival(competitor_id)
 	if bool(result.get("ok", false)):
-		title = "Сделка"
-	_show_notice(title, str(result.get("text", "")))
+		_show_notice("Сделка", str(result.get("text", "")))
+
+
+func _on_rival_surrendered(competitor_id: String, text: String) -> void:
+	_show_notice("Сдаются!", text)
+	_mentor.on_event("surrender")
+
+
+func _on_rival_attacked(competitor_id: String, text: String) -> void:
+	_enqueue_toast("Ход соперника", text)
+	_mentor.on_event("rival_attack")
 
 
 func _on_island_captured(island_id: String, text: String) -> void:
@@ -1305,21 +1339,28 @@ func _refresh_competitors() -> void:
 	_rebuild_market_if_needed()
 	if _market_status == null:
 		return
-	var share: float = GameState.get_market_share()
-	_market_status.text = "Ваша доля %s из 50%% нужных" % _share_text(share)
-	var legend: PackedStringArray = PackedStringArray(["Вы %s" % _share_text(share)])
-	var player_part: ColorRect = _market_bar_parts["player"]
-	player_part.size_flags_stretch_ratio = maxf(share, 0.004)
-	for raw: Variant in GameState.get_competitors():
+	var rivals: Array = GameState.get_competitors()
+	_market_status.text = "Выкуплено %d из %d" % [GameState.get_city_owned_count(), rivals.size()]
+	for raw: Variant in rivals:
 		var id: String = str(raw.get("id", ""))
-		var rival_share: float = GameState.get_competitor_share(id)
-		var part: ColorRect = _market_bar_parts.get(id)
-		if part != null:
-			part.visible = rival_share > 0.0
-			part.size_flags_stretch_ratio = maxf(rival_share, 0.004)
+		var chip_label: Label = _ladder_steps.get(id)
+		if chip_label == null:
+			continue
 		var short_name: String = str(raw.get("name", id)).replace("Таксопарк ", "")
-		legend.append("%s %s" % [short_name, _share_text(rival_share) if rival_share > 0.0 else "— ваш"])
-	_market_legend.text = "  ·  ".join(legend)
+		var state: String = GameState.get_rival_state(id)
+		var state_text: String = {"owned": "ваш", "surrendered": "сдался", "active": "дуэль", "waiting": "ждёт"}.get(state, "")
+		chip_label.text = "%s\n%s" % [short_name, state_text]
+		var chip: PanelContainer = chip_label.get_parent()
+		var color: Color = {"owned": COLOR_BUY, "surrendered": COLOR_ACCENT, "active": COLOR_TRICK, "waiting": COLOR_DISABLED}.get(state, COLOR_DISABLED)
+		var chip_style := StyleBoxFlat.new()
+		chip_style.bg_color = color
+		chip_style.set_corner_radius_all(18)
+		chip_style.content_margin_top = 8
+		chip_style.content_margin_bottom = 8
+		chip_style.content_margin_left = 6
+		chip_style.content_margin_right = 6
+		chip.add_theme_stylebox_override("panel", chip_style)
+		chip_label.add_theme_color_override("font_color", _text_on(color))
 
 	var active: Dictionary = GameState.get_active_ad()
 	for ad_id: Variant in _ad_rows.keys():
@@ -1336,58 +1377,132 @@ func _refresh_competitors() -> void:
 		button.text = "Запустить\n%s" % GameState.format_money(GameState.get_ad_price(id))
 		button.disabled = not GameState.can_buy_ad(id)
 
-	for competitor_id: Variant in _competitor_rows.keys():
-		var id := str(competitor_id)
-		var row: Dictionary = _competitor_rows[competitor_id]
-		var share_label: Label = row["share"]
-		var effects: Label = row["effects"]
-		var tricks_box: HBoxContainer = row["tricks_box"]
-		var offer: Button = row["offer"]
-		var info: Dictionary = {}
-		for raw: Variant in GameState.get_competitors():
-			if str(raw.get("id", "")) == id:
-				info = raw
-		if GameState.is_competitor_owned(id):
-			share_label.text = "Компания ваша  ·  доход +%d%%" % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
-			share_label.add_theme_color_override("font_color", COLOR_INCOME)
-			effects.text = ""
-			tricks_box.visible = false
-			offer.visible = false
-			continue
-		share_label.text = "Доля %s  ·  возит на %s/с" % [_share_text(GameState.get_competitor_share(id)), GameState.format_money(GameState.get_competitor_power(id))]
-		var notes: PackedStringArray = PackedStringArray()
-		for cut: Variant in GameState.get_competitor_cuts(id):
-			notes.append("−%d%% ещё %s" % [int(roundf(float(cut["cut"]) * 100.0)), _mmss(int(cut["left"]))])
-		var lost: float = GameState.get_competitor_lost_drivers(id)
-		if lost > 0.0:
-			notes.append("переманено водителей: −%d%% навсегда" % int(roundf(lost * 100.0)))
-		var wait: int = GameState.get_trick_wait(id)
-		if wait > 0:
-			notes.append("новая пакость через %s" % _mmss(wait))
-		effects.text = "  ·  ".join(notes)
-		var tricks: Dictionary = row["tricks"]
-		for trick_id: Variant in tricks.keys():
-			var button: Button = tricks[trick_id]
-			var tid := str(trick_id)
-			var trick_name: String = ""
-			for raw: Variant in GameState.get_tricks():
-				if str(raw.get("id", "")) == tid:
-					trick_name = str(raw.get("name", tid))
-			button.text = "%s\n%s · риск %d%%" % [
-				trick_name,
-				GameState.format_money(GameState.get_trick_price(tid)),
-				int(roundf(GameState.get_catch_chance(id, tid) * 100.0)),
-			]
-			button.disabled = not GameState.can_play_trick(id, tid)
-		var buy_wait: int = GameState.get_buyout_wait(id)
-		if buy_wait > 0:
-			offer.text = "Обиделись на прошлое предложение. Ещё %s" % _mmss(buy_wait)
+	for raw: Variant in rivals:
+		var id: String = str(raw.get("id", ""))
+		if _competitor_rows.has(id):
+			_refresh_rival_row(id, raw)
+
+
+func _refresh_rival_row(id: String, info: Dictionary) -> void:
+	var row: Dictionary = _competitor_rows[id]
+	var status: Label = row["status"]
+	var bar: HBoxContainer = row["bar"]
+	var powers: Label = row["powers"]
+	var hint: Label = row["hint"]
+	var effects: Label = row["effects"]
+	var tricks_box: HBoxContainer = row["tricks_box"]
+	var buy: Button = row["buy"]
+	var state: String = GameState.get_rival_state(id)
+	var full: bool = state == "active"
+	# Подробности — только у текущего соперника, остальные карточки короткие.
+	for key: String in ["mood", "description", "powers", "hint", "effects"]:
+		var label: Label = row[key]
+		label.visible = full
+	bar.visible = full
+	tricks_box.visible = full
+	buy.visible = state == "surrendered"
+	var short_name: String = str(info.get("name", id)).replace("Таксопарк ", "")
+	match state:
+		"owned":
+			status.text = "Компания ваша  ·  доход +%d%%" % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
+			status.add_theme_color_override("font_color", COLOR_INCOME)
+			return
+		"surrendered":
+			status.text = "Сдался и ждёт выкупа. Купите — и доход +%d%%." % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
+			status.add_theme_color_override("font_color", COLOR_GOLD)
+			buy.text = "Выкупить за %s" % GameState.format_money(GameState.get_competitor_cost(id))
+			buy.disabled = not GameState.can_buy_rival(id)
+			return
+		"waiting":
+			status.text = "Следующий соперник. Сейчас возит на %s/с — и тоже растёт, когда до него дойдёт очередь." % GameState.format_money(GameState.get_competitor_power(id))
+			status.add_theme_color_override("font_color", COLOR_MUTED)
+			return
+	var mine: float = GameState.get_player_power()
+	var theirs: float = GameState.get_competitor_power(id)
+	var progress: float = GameState.get_duel_progress()
+	status.add_theme_color_override("font_color", COLOR_TEXT)
+	if theirs <= 0.0 or mine >= theirs:
+		status.text = "Вы догнали! Сейчас сдадутся."
+	elif theirs / maxf(mine, 0.001) >= 1.5:
+		status.text = "Дуэль: нужно стать сильнее в %s" % _ratio_text(theirs / maxf(mine, 0.001))
+	else:
+		status.text = "Дуэль: осталось +%d%% силы" % maxi(1, int(ceilf((theirs / maxf(mine, 0.001) - 1.0) * 100.0)))
+	var mine_part: ColorRect = row["mine"]
+	var theirs_part: ColorRect = row["theirs"]
+	mine_part.size_flags_stretch_ratio = maxf(progress, 0.01)
+	theirs_part.size_flags_stretch_ratio = maxf(1.0 - progress, 0.0)
+	theirs_part.visible = progress < 1.0
+	powers.text = "Вы %s/с  —  %s %s/с" % [GameState.format_money(mine), short_name, GameState.format_money(theirs)]
+	var tips: PackedStringArray = PackedStringArray()
+	tips.append("Сила — это доход в секунду плюс заказы с тапов.")
+	if GameState.get_active_ad().is_empty():
+		tips.append("Реклама даёт рывок на несколько минут — обгоните на нём, и победа засчитается.")
+	tips.append("Пакости ослабляют соперника, но могут поймать.")
+	hint.text = " ".join(tips)
+	var notes: PackedStringArray = PackedStringArray()
+	var growth: float = GameState.get_rival_growth(id)
+	if growth > 1.001:
+		notes.append("вырос за дуэль на +%d%% (максимум +%d%%)" % [
+			int(roundf((growth - 1.0) * 100.0)), int(roundf((GameState.get_rival_growth_cap() - 1.0) * 100.0))])
+	for cut: Variant in GameState.get_competitor_cuts(id):
+		var value: float = float(cut["cut"])
+		if value >= 0.0:
+			notes.append("−%d%% от пакости ещё %s" % [int(roundf(value * 100.0)), _mmss(int(cut["left"]))])
 		else:
-			offer.text = "Предложить выкуп %s  ·  откажут с шансом %d%%" % [
-				GameState.format_money(GameState.get_competitor_cost(id)),
-				int(roundf(GameState.get_buyout_refuse_chance(id) * 100.0)),
-			]
-		offer.disabled = not GameState.can_offer_buyout(id)
+			notes.append("их акция +%d%% ещё %s" % [int(roundf(-value * 100.0)), _mmss(int(cut["left"]))])
+	var lost: float = GameState.get_competitor_lost_drivers(id)
+	if lost > 0.0:
+		notes.append("переманено водителей: −%d%% навсегда" % int(roundf(lost * 100.0)))
+	var attack_left: int = GameState.get_rival_attack_left()
+	if attack_left > 0:
+		notes.append("их ход через %s: %s" % [_mmss(attack_left), _attack_text(GameState.get_rival_attack_kind(id))])
+	var wait: int = GameState.get_trick_wait(id)
+	if wait > 0:
+		notes.append("новая пакость через %s" % _mmss(wait))
+	effects.text = "  ·  ".join(notes)
+	var tricks: Dictionary = row["tricks"]
+	for trick_id: Variant in tricks.keys():
+		var button: Button = tricks[trick_id]
+		var tid := str(trick_id)
+		var trick_name: String = ""
+		for raw: Variant in GameState.get_tricks():
+			if str(raw.get("id", "")) == tid:
+				trick_name = str(raw.get("name", tid))
+		button.text = "%s\n%s · риск %d%%" % [
+			trick_name,
+			GameState.format_money(GameState.get_trick_price(tid)),
+			int(roundf(GameState.get_catch_chance(id, tid) * 100.0)),
+		]
+		button.disabled = not GameState.can_play_trick(id, tid)
+
+
+func _rival_name(competitor_id: String) -> String:
+	for raw: Variant in GameState.get_competitors():
+		if str(raw.get("id", "")) == competitor_id:
+			return str(raw.get("name", competitor_id))
+	return competitor_id
+
+
+func _attack_text(kind: String) -> String:
+	match kind:
+		"health":
+			return "побьют машины"
+		"rating":
+			return "испортят отзывы"
+		"promo":
+			return "устроят акцию"
+	return "что-то задумали"
+
+
+## «9 раз», «2,4 раза», «23 раза»: во сколько раз соперник сильнее.
+func _ratio_text(ratio: float) -> String:
+	if ratio < 10.0 and not is_equal_approx(snappedf(ratio, 0.1), roundf(ratio)):
+		return "%s раза" % ("%.1f" % ratio).replace(".", ",")
+	var whole: int = int(roundf(ratio)) if ratio < 10.0 else int(ceilf(ratio))
+	var last: int = whole % 10
+	var tens: int = whole % 100
+	var word: String = "раза" if last >= 2 and last <= 4 and (tens < 12 or tens > 14) else "раз"
+	return "%d %s" % [whole, word]
 
 
 func _share_text(share: float) -> String:
@@ -1560,7 +1675,12 @@ func _build_notice_popup() -> void:
 	box.add_child(close_button)
 
 
+## Окна не перекрывают друг друга: пока открыто одно, следующие ждут очереди
+## (например, сразу два сдавшихся соперника).
 func _show_notice(title: String, body: String) -> void:
+	if _notice_layer.visible:
+		_notice_queue.append([title, body])
+		return
 	_notice_title.text = title
 	_notice_body.text = body
 	_notice_layer.visible = true
@@ -1568,6 +1688,9 @@ func _show_notice(title: String, body: String) -> void:
 
 func _close_notice() -> void:
 	_notice_layer.visible = false
+	if not _notice_queue.is_empty():
+		var next: Array = _notice_queue.pop_front()
+		_show_notice(str(next[0]), str(next[1]))
 
 
 func _build_city_page() -> Control:
@@ -1874,8 +1997,17 @@ func _refresh_regions() -> void:
 			_island_status.text = "Ваш остров ★ Все конкуренты позади."
 			_island_button.visible = false
 		"front":
-			_island_status.text = "Идёт борьба за %s. Ваша доля %s. Соперники: %s" % [
-				str(info.get("city", "")), _share_text(GameState.get_market_share()), ", ".join(rivals)]
+			var rival_id: String = GameState.get_active_rival()
+			var duel_text: String = "Все сдались — осталось выкупить."
+			if rival_id != "":
+				var progress: float = GameState.get_duel_progress()
+				if progress < 0.5:
+					duel_text = "Сейчас дуэль: %s, нужно стать сильнее в %s." % [
+						_rival_name(rival_id), _ratio_text(1.0 / maxf(progress, 0.0001))]
+				else:
+					duel_text = "Сейчас дуэль: %s, вы на %d%% его силы." % [_rival_name(rival_id), int(floorf(progress * 100.0))]
+			_island_status.text = "Идёт борьба за %s. Выкуплено %d из %d. %s" % [
+				str(info.get("city", "")), GameState.get_city_owned_count(), GameState.get_competitors().size(), duel_text]
 			_island_button.text = "К рынку"
 			_island_button.disabled = false
 		_:
@@ -3169,21 +3301,14 @@ func _refresh_rate_line() -> void:
 	_refresh_market_share()
 
 
+## Чип в шапке: город борьбы, сколько конкурентов выкуплено, полоска — текущая дуэль.
 func _refresh_market_share() -> void:
-	var share: float = GameState.get_market_share()
-	var percent: float = share * 100.0
-	var text: String
-	if percent >= 100.0:
-		text = "100%"
-	elif percent >= 10.0:
-		text = "%d%%" % int(percent)
-	else:
-		text = "%.1f%%" % percent
 	if GameState.get_front_island() == "":
 		_share_label.text = "Острова %d/%d" % [GameState.get_captured_count(), GameState.get_regions().size()]
-	else:
-		_share_label.text = "%s %s" % [GameState.get_front_city(), text]
-	_share_fill.anchor_right = share
+		_share_fill.anchor_right = 1.0
+		return
+	_share_label.text = "%s %d/%d" % [GameState.get_front_city(), GameState.get_city_owned_count(), GameState.get_competitors().size()]
+	_share_fill.anchor_right = GameState.get_duel_progress()
 
 
 func _refresh_meta_line() -> void:

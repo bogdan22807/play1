@@ -1,33 +1,30 @@
 {
   "player_tap_rate": 3,
-  "capture_share": 0.5,
   "capture_bonus": 0.25,
-  "buyout_cost_base": 0.4,
-  "buyout_cost_per_share": 2.0,
   "trick_cooldown_seconds": 60,
-  "buyout_cooldown_seconds": 60,
+  "permanent_floor": 0.7,
   "caught_rating_hit": 0.3,
   "caught_fine_mult": 2.0,
   "revenge_health_hit": 0.15,
   "revenge_rating_hit": 0.4,
   "personalities": {
     "aggressive": {
-      "refuse": 0.5,
       "catch_bonus": 0.0,
       "revenge_chance": 0.5,
-      "revenge": "health"
+      "revenge": "health",
+      "attack": "health"
     },
     "cunning": {
-      "refuse": 0.6,
       "catch_bonus": 0.15,
       "revenge_chance": 0.35,
-      "revenge": "rating"
+      "revenge": "rating",
+      "attack": "rating"
     },
     "family": {
-      "refuse": 0.4,
       "catch_bonus": -0.1,
       "revenge_chance": 0.0,
-      "revenge": ""
+      "revenge": "",
+      "attack": "promo"
     }
   },
   "ads": [
@@ -93,5 +90,29 @@
       "catch": 0.35,
       "permanent": false
     }
-  ]
+  ],
+  "duel": {
+    "growth_per_hour": 0.25,
+    "growth_cap": 1.6,
+    "price_seconds": 180,
+    "first_attack": 300,
+    "attack_min": 360,
+    "attack_max": 600,
+    "attack_health": 0.1,
+    "attack_rating": 0.25,
+    "attack_promo": 0.2,
+    "attack_promo_seconds": 300,
+    "surrender_texts": {
+      "aggressive": "{rival}: «Ладно, ваша взяла. Платите — и наши стоянки ваши. Только никому не говорите, что мы сдались».",
+      "cunning": "{rival}: «Как неожиданно! «{company}» нас обогнали. Мы, разумеется, готовы обсудить цену… без мелкого шрифта».",
+      "family": "{rival}: «Семейный совет решил: «{company}» возят лучше. Дети давно просились на пенсию — покупайте».",
+      "default": "{rival} сдаётся и готов продаться."
+    },
+    "attack_texts": {
+      "aggressive": "{rival} огрызается: ночью кто-то прошёлся по вашим колёсам.",
+      "cunning": "{rival} шепнул блогерам, что у «{company}» водители путают право и лево.",
+      "family": "{rival} устроил семейную акцию: «Каждому пассажиру — бабушкин суп».",
+      "default": "{rival} отвечает ударом."
+    }
+  }
 }
