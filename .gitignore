@@ -4,3 +4,6 @@
 # Системный мусор
 .DS_Store
 Thumbs.db
+
+# Собранные APK
+build/

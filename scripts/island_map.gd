@@ -141,10 +141,6 @@ func _gui_input(event: InputEvent) -> void:
 		var mouse: InputEventMouseButton = event
 		pressed = mouse.pressed and mouse.button_index == MOUSE_BUTTON_LEFT
 		at = mouse.position
-	elif event is InputEventScreenTouch:
-		var touch: InputEventScreenTouch = event
-		pressed = touch.pressed
-		at = touch.position
 	if not pressed:
 		return
 	var best: String = ""
