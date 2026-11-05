@@ -115,6 +115,8 @@ func _draw_overlay() -> void:
 
 func _draw_art() -> void:
 	var c: CanvasItem = _art
+	if size.x < 1.0 or size.y < 1.0:
+		return
 	c.draw_rect(Rect2(Vector2.ZERO, size), OCEAN)
 	# Глубина: тёмные полосы у краёв и пятна поглубже.
 	c.draw_rect(Rect2(Vector2(0, size.y * 0.9), Vector2(size.x, size.y * 0.1)), OCEAN_DEEP)
