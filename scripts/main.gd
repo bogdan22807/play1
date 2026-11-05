@@ -1776,7 +1776,7 @@ func _build_name_popup() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 20)
 	panel.add_child(box)
-	box.add_child(_display(_make_center_label("Ваше такси", 52, Color.WHITE), 56, COLOR_ACCENT))
+	box.add_child(_display(_make_center_label("Ваше такси", 52, COLOR_TEXT), 56, COLOR_TEXT))
 	var hint := _make_center_label("Бангкок ждёт. Как будет называться ваша компания? Конкуренты должны знать, кого бояться.", 28, COLOR_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(hint)
@@ -1787,6 +1787,20 @@ func _build_name_popup() -> void:
 	_name_edit.custom_minimum_size = Vector2(0, 100)
 	_name_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_name_edit.add_theme_font_size_override("font_size", 36)
+	var field := StyleBoxFlat.new()
+	field.bg_color = Color.WHITE
+	field.set_corner_radius_all(22)
+	field.set_border_width_all(4)
+	field.border_color = COLOR_PANEL_EDGE
+	field.content_margin_left = 20
+	field.content_margin_right = 20
+	var focused: StyleBoxFlat = field.duplicate()
+	focused.border_color = COLOR_ACCENT
+	_name_edit.add_theme_stylebox_override("normal", field)
+	_name_edit.add_theme_stylebox_override("focus", focused)
+	_name_edit.add_theme_color_override("font_color", COLOR_TEXT)
+	_name_edit.add_theme_color_override("font_placeholder_color", COLOR_MUTED)
+	_name_edit.add_theme_color_override("caret_color", COLOR_TEXT)
 	_name_edit.text_submitted.connect(_on_name_submitted)
 	box.add_child(_name_edit)
 
