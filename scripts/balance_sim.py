@@ -4,8 +4,9 @@
 Читает те же JSON, что и игра, и повторяет формулы цены, тапа, дохода, дуэлей и островов.
 Игрок играет без остановки, вовремя моет, чинит и меняет смены, пакостями не пользуется.
 Соперники города идут по очереди: активный растёт, пока с ним дуэль; догнали по силе —
-он сдаётся, игрок выкупает его, как только хватит денег. Рекламу игрок покупает, только
-когда с ней точно обгонит соперника (самую дешёвую из подходящих). Когда за STALL_HOURS часов не захвачено ни одного острова, а франшиза
+он сдаётся, игрок выкупает его, как только хватит денег. Листовки (за монеты) игрок
+держит включёнными всё время: они окупаются. Кампании за просмотр роликов не смотрит —
+это базовый темп без ускорения рекламой. Когда за STALL_HOURS часов не захвачено ни одного острова, а франшиза
 вырастет хотя бы в PRESTIGE_GAIN раз, он продаёт компанию.
 
 Запуск: python3 scripts/balance_sim.py [часов]   (по умолчанию 400)
@@ -139,7 +140,7 @@ class Player:
         rival = 1.0 + sum(item["income_bonus"] for item in self.competitors if item["id"] in self.owned_competitors)
         rival += float(self.market.get("capture_bonus", 0.25)) * len(self.captured)
         rating = 1.0 + (KEPT_RATING - 4.0) * self.rating_per_star
-        return district * region * rival * self.franchise * rating
+        return district * region * rival * self.franchise * rating * (1.0 + self.ad_boost)
 
     def capacity(self):
         islands = sum(
@@ -368,10 +369,10 @@ class Player:
         rival = self.active_rival()
         if self.time >= self.ad_until:
             self.ad_boost = 0.0
+        self.maybe_ad()
         if rival is not None:
             self.rival_age[rival["id"]] = self.rival_age.get(rival["id"], 0.0) + dt
-            self.maybe_ad(rival)
-            if self.player_power() * (1.0 + self.ad_boost) >= self.rival_power(rival):
+            if self.player_power() >= self.rival_power(rival):
                 price = math.ceil(self.rival_power(rival) * float(self.duel().get("price_seconds", 180)))
                 self.surrendered[rival["id"]] = price
                 self.log.append((self.time, "Сдался", rival["name"], price))
@@ -388,24 +389,20 @@ class Player:
         if stalled and self.preview_franchise() >= self.franchise * PRESTIGE_GAIN:
             self.sell_company()
 
-    def maybe_ad(self, rival):
-        """Самая дешёвая реклама, с которой сила догоняет соперника, — если хватает денег."""
+    def maybe_ad(self):
+        """Листовки за монеты — как только кончилась прошлая кампания и хватает денег."""
         if self.ad_boost > 0.0:
             return
-        need = self.rival_power(rival)
-        base = self.player_power()
-        best = None
         for item in self.market.get("ads", []):
-            price = math.ceil(max(float(item.get("min_price", 100)), base * float(item.get("price_seconds", 60))))
-            if base * (1.0 + float(item["boost"])) >= need and price <= self.coins and (best is None or price < best[0]):
-                best = (price, item)
-        if best is None:
+            if item.get("pay", "coins") != "coins":
+                continue
+            price = math.ceil(max(float(item.get("min_price", 100)), self.player_power() * float(item.get("price_seconds", 60))))
+            if price > self.coins:
+                continue
+            self.coins -= price
+            self.ad_boost = float(item["boost"])
+            self.ad_until = self.time + float(item.get("duration", 300))
             return
-        price, item = best
-        self.coins -= price
-        self.ad_boost = float(item["boost"])
-        self.ad_until = self.time + float(item.get("duration", 300))
-        self.log.append((self.time, "Реклама", item["name"], price))
 
     def run(self, horizon):
         while self.time < horizon and len(self.captured) < len(self.regions):

@@ -148,6 +148,13 @@ var _island_reason: Label
 var _island_button: Button
 var _notice_layer: Control
 var _notice_queue: Array = []
+## Окно-заглушка рекламного ролика.
+const VIDEO_STUB_SECONDS := 5.0
+var _video_layer: Control
+var _video_label: Label
+var _video_button: Button
+var _video_left: float = 0.0
+var _video_reward: Callable = Callable()
 var _notice_title: Label
 var _notice_body: Label
 var _sell_info: Label
@@ -337,6 +344,7 @@ func _build_ui() -> void:
 	_build_mentor()
 	_build_settings_popup()
 	_build_notice_popup()
+	_build_video_popup()
 	_build_sell_popup()
 	_build_toast()
 	_build_daily_popup()
@@ -576,11 +584,13 @@ func _apply_safe_area() -> void:
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_WM_GO_BACK_REQUEST:
 		return
-	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer]:
+	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer, _video_layer]:
 		var popup: Control = layer
 		if popup != null and popup.visible:
 			if popup == _notice_layer:
 				_close_notice()
+			elif popup == _video_layer:
+				_cancel_video()
 			else:
 				popup.visible = false
 			return
@@ -1032,7 +1042,7 @@ func _build_scroll_page() -> Control:
 
 ## Открыто окно поверх экрана — списки под ним не листаем.
 func _is_modal_open() -> bool:
-	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer, _name_layer]:
+	for layer: Variant in [_notice_layer, _sell_layer, _settings_layer, _offline_layer, _daily_layer, _name_layer, _video_layer]:
 		var popup: Control = layer
 		if popup != null and popup.visible:
 			return true
@@ -1171,7 +1181,7 @@ func _build_market_rows() -> void:
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
 			_market_list.add_child(_make_competitor_row(str(raw.get("id", "")), raw))
 
-	_market_list.add_child(_make_section_title("Реклама — рывок на время"))
+	_market_list.add_child(_make_section_title("Рекламная кампания"))
 	for raw: Variant in GameState.get_ads():
 		if typeof(raw) == TYPE_DICTIONARY:
 			_market_list.add_child(_make_ad_row(raw))
@@ -1186,9 +1196,11 @@ func _make_ad_row(info: Dictionary) -> PanelContainer:
 	var text_box := _make_text_box(row)
 	_add_label(text_box, str(info.get("name", ad_id)), 34)
 	_add_label(text_box, str(info.get("description", "")), 24, COLOR_MUTED)
-	_add_label(text_box, "+%d%% к вашей силе на %d мин" % [
+	var pay_text: String = "за просмотр ролика" if str(info.get("pay", "coins")) == "video" else "за монеты"
+	_add_label(text_box, "+%d%% к доходу на %d мин · %s" % [
 		int(roundf(float(info.get("boost", 0)) * 100.0)),
 		int(float(info.get("duration", 0)) / 60.0),
+		pay_text,
 	], 24, COLOR_INCOME)
 	var status := _add_label(text_box, "", 26, COLOR_GOLD)
 	var button := _make_row_button(_on_buy_ad.bind(ad_id))
@@ -1275,7 +1287,90 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 
 
 func _on_buy_ad(ad_id: String) -> void:
+	if GameState.get_ad_pay(ad_id) == "video":
+		if GameState.can_buy_ad(ad_id):
+			_show_rewarded(func() -> void: GameState.buy_ad(ad_id))
+		return
 	GameState.buy_ad(ad_id)
+
+
+# --- Рекламный ролик за награду ----------------------------------------------
+
+## Показывает ролик и после просмотра вызывает on_reward.
+## Пока рекламной сети нет — заглушка: окно с отсчётом. Сюда потом подключим AdMob и т.п.
+func _show_rewarded(on_reward: Callable) -> void:
+	_video_reward = on_reward
+	_video_left = VIDEO_STUB_SECONDS
+	_video_layer.visible = true
+	_refresh_video()
+
+
+func _build_video_popup() -> void:
+	_video_layer = Control.new()
+	_video_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_video_layer.visible = false
+	_video_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_video_layer)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.85)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_video_layer.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_video_layer.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(860, 0)
+	var style := _panel_style()
+	style.content_margin_left = 40
+	style.content_margin_right = 40
+	style.content_margin_top = 40
+	style.content_margin_bottom = 36
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 20)
+	panel.add_child(box)
+	box.add_child(_display(_make_center_label("Рекламный ролик", 44, Color.WHITE), 46, COLOR_GOLD))
+	_video_label = _make_center_label("", 30, COLOR_MUTED)
+	_video_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_video_label)
+	_video_button = _make_settings_button("", COLOR_BUY, _finish_video)
+	box.add_child(_video_button)
+	box.add_child(_make_settings_button("Закрыть без награды", COLOR_DISABLED, _cancel_video))
+
+
+func _refresh_video() -> void:
+	var done: bool = _video_left <= 0.0
+	_video_label.text = "Здесь будет настоящий рекламный ролик.\n%s" % (
+		"Досмотрели — забирайте награду!" if done else "Осталось %d с…" % int(ceilf(_video_left)))
+	_video_button.text = "Получить награду" if done else "Смотрим…"
+	_video_button.disabled = not done
+
+
+func _process(delta: float) -> void:
+	_tick_video(delta)
+
+
+func _tick_video(delta: float) -> void:
+	if _video_layer == null or not _video_layer.visible or _video_left <= 0.0:
+		return
+	_video_left -= delta
+	_refresh_video()
+
+
+func _finish_video() -> void:
+	_video_layer.visible = false
+	var reward: Callable = _video_reward
+	_video_reward = Callable()
+	if reward.is_valid():
+		reward.call()
+
+
+func _cancel_video() -> void:
+	_video_layer.visible = false
+	_video_reward = Callable()
 
 
 func _on_trick(competitor_id: String, trick_id: String) -> void:
@@ -1368,13 +1463,21 @@ func _refresh_competitors() -> void:
 		var status: Label = row["status"]
 		var button: Button = row["button"]
 		var id := str(ad_id)
+		var video: bool = GameState.get_ad_pay(id) == "video"
 		if str(active.get("id", "")) == id:
 			status.text = "Идёт, осталось %s" % _mmss(GameState.get_ad_left())
 		elif not active.is_empty():
 			status.text = "Сначала закончится текущая кампания"
 		else:
-			status.text = ""
-		button.text = "Запустить\n%s" % GameState.format_money(GameState.get_ad_price(id))
+			status.text = _ad_duel_hint(id)
+		if video and GameState.get_ad_wait(id) > 0:
+			var wait: int = GameState.get_ad_wait(id)
+			var wait_text: String = _mmss(wait) if wait < 3600 else "%d ч %02d мин" % [int(wait / 3600), int(wait % 3600 / 60)]
+			button.text = "Ролик\nчерез %s" % wait_text
+		elif video:
+			button.text = "▶ Смотреть\nролик"
+		else:
+			button.text = "Запустить\n%s" % GameState.format_money(GameState.get_ad_price(id))
 		button.disabled = not GameState.can_buy_ad(id)
 
 	for raw: Variant in rivals:
@@ -1436,7 +1539,7 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	var tips: PackedStringArray = PackedStringArray()
 	tips.append("Сила — это доход в секунду плюс заказы с тапов.")
 	if GameState.get_active_ad().is_empty():
-		tips.append("Реклама даёт рывок на несколько минут — обгоните на нём, и победа засчитается.")
+		tips.append("Рекламная кампания поднимает доход, а с ним и силу — обгоните на ней, и победа засчитается.")
 	tips.append("Пакости ослабляют соперника, но могут поймать.")
 	hint.text = " ".join(tips)
 	var notes: PackedStringArray = PackedStringArray()
@@ -1474,6 +1577,21 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 			int(roundf(GameState.get_catch_chance(id, tid) * 100.0)),
 		]
 		button.disabled = not GameState.can_play_trick(id, tid)
+
+
+## Подсказка у кампании: хватит ли её, чтобы обогнать текущего соперника.
+func _ad_duel_hint(ad_id: String) -> String:
+	var rival_id: String = GameState.get_active_rival()
+	if rival_id == "":
+		return ""
+	var boost: float = 0.0
+	for raw: Variant in GameState.get_ads():
+		if str(raw.get("id", "")) == ad_id:
+			boost = float(raw.get("boost", 0))
+	var short_name: String = _rival_name(rival_id).replace("Таксопарк ", "")
+	if GameState.get_player_power() * (1.0 + boost) >= GameState.get_competitor_power(rival_id):
+		return "С ней вы обгоните %s — он сдастся!" % short_name
+	return "Обогнать %s пока не хватит, но доход вырастет." % short_name
 
 
 func _rival_name(competitor_id: String) -> String:

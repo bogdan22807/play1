@@ -46,7 +46,29 @@ func _init() -> void:
 	check(gs.get_player_power() > before, "реклама подняла силу")
 	check(not gs.can_buy_ad("tv"), "вторая кампания ждёт окончания первой")
 	check(gs.get_ad_left() > 290, "реклама идёт 5 минут")
+	check(gs.get_income_multiplier() > 1.49 * gs.get_income_multiplier() / (1.0 + gs.get_ad_boost()), "реклама подняла и доход")
+	# Кончилась — доход обычный.
+	var income_with_ad: float = gs.get_ride_value()
+	gs._ad["until"] = gs._now() - 1
+	gs._tick_market()
+	check(gs._ad.is_empty() and gs.get_ride_value() < income_with_ad, "после рекламы доход вернулся")
+
+	# Кампании за ролик: без денег, но с паузой.
+	gs.coins = 0.0
+	check(gs.get_ad_pay("tv") == "video" and gs.can_buy_ad("tv"), "ТВ — за ролик, монеты не нужны")
+	check(not gs.can_buy_ad("flyers"), "листовки — только за монеты")
+	check(gs.buy_ad("tv") and gs.coins == 0.0, "ТВ запущено бесплатно")
 	gs._ad = {}
+	check(not gs.can_buy_ad("tv") and gs.get_ad_wait("tv") > 3600, "следующий ролик ТВ не раньше чем через пару часов")
+	check(gs.can_buy_ad("billboard"), "билборд — отдельная пауза")
+	gs.save_game()
+	var gs4 := _make_state()
+	await process_frame
+	check(gs4.get_ad_wait("tv") > 3600, "пауза ролика сохранилась")
+	gs4.queue_free()
+	gs._ad_ready.clear()
+	gs._ad = {}
+	gs._recalc_income()
 
 	# Пакость: проверяем обе ветки.
 	seed(1)
