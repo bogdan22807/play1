@@ -1417,6 +1417,8 @@ func _build_market_rows() -> void:
 		to_map.text = "Открыть карту"
 		to_map.custom_minimum_size = Vector2(0, 100)
 		calm_box.add_child(to_map)
+		# Реклама нужна и без соперников: она поднимает доход.
+		_add_ad_section()
 		_market_list.add_child(_make_sell_panel())
 		return
 	_market_list.add_child(_make_section_title("Битва за %s" % GameState.get_front_city()))
@@ -1438,12 +1440,44 @@ func _build_market_rows() -> void:
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
 			_market_list.add_child(_make_competitor_row(str(raw.get("id", "")), raw))
 
+	_add_ad_section()
+	_market_list.add_child(_make_sell_panel())
+
+
+## Кнопки и таймеры рекламных кампаний — и при соперниках, и без них.
+func _refresh_ads() -> void:
+	var active: Dictionary = GameState.get_active_ad()
+	for ad_id: Variant in _ad_rows.keys():
+		var row: Dictionary = _ad_rows[ad_id]
+		var status: Label = row["status"]
+		var button: Button = row["button"]
+		var id := str(ad_id)
+		var video: bool = GameState.get_ad_pay(id) == "video"
+		# Таймер — прямо на кнопке, на месте цены.
+		if str(active.get("id", "")) == id:
+			status.text = "Кампания идёт!"
+			button.text = "Идёт\n%s" % _wait_text(GameState.get_ad_left())
+		elif not active.is_empty():
+			status.text = "Сначала закончится текущая кампания"
+			button.text = "Через\n%s" % _wait_text(GameState.get_ad_left())
+		elif video and GameState.get_ad_wait(id) > 0:
+			status.text = _ad_duel_hint(id)
+			button.text = "Ролик через\n%s" % _wait_text(GameState.get_ad_wait(id))
+		elif video:
+			status.text = _ad_duel_hint(id)
+			button.text = "▶ Смотреть\nролик"
+		else:
+			status.text = _ad_duel_hint(id)
+			button.text = "Запустить\n%s" % GameState.format_money(GameState.get_ad_price(id))
+		button.disabled = not GameState.can_buy_ad(id)
+		_timer_look(button, button.text.contains(":"))
+
+
+func _add_ad_section() -> void:
 	_market_list.add_child(_make_section_title("Рекламная кампания"))
 	for raw: Variant in GameState.get_ads():
 		if typeof(raw) == TYPE_DICTIONARY:
 			_market_list.add_child(_make_ad_row(raw))
-
-	_market_list.add_child(_make_sell_panel())
 
 
 func _make_ad_row(info: Dictionary) -> PanelContainer:
@@ -1843,6 +1877,7 @@ func _mmss(seconds: int) -> String:
 
 func _refresh_competitors() -> void:
 	_rebuild_market_if_needed()
+	_refresh_ads()
 	if _market_status == null:
 		return
 	var rivals: Array = GameState.get_competitors()
@@ -1859,31 +1894,6 @@ func _refresh_competitors() -> void:
 	if _battle_city != null:
 		_battle_city.set_rivals(scene, GameState.get_front_city())
 
-	var active: Dictionary = GameState.get_active_ad()
-	for ad_id: Variant in _ad_rows.keys():
-		var row: Dictionary = _ad_rows[ad_id]
-		var status: Label = row["status"]
-		var button: Button = row["button"]
-		var id := str(ad_id)
-		var video: bool = GameState.get_ad_pay(id) == "video"
-		# Таймер — прямо на кнопке, на месте цены.
-		if str(active.get("id", "")) == id:
-			status.text = "Кампания идёт!"
-			button.text = "Идёт\n%s" % _wait_text(GameState.get_ad_left())
-		elif not active.is_empty():
-			status.text = "Сначала закончится текущая кампания"
-			button.text = "Через\n%s" % _wait_text(GameState.get_ad_left())
-		elif video and GameState.get_ad_wait(id) > 0:
-			status.text = _ad_duel_hint(id)
-			button.text = "Ролик через\n%s" % _wait_text(GameState.get_ad_wait(id))
-		elif video:
-			status.text = _ad_duel_hint(id)
-			button.text = "▶ Смотреть\nролик"
-		else:
-			status.text = _ad_duel_hint(id)
-			button.text = "Запустить\n%s" % GameState.format_money(GameState.get_ad_price(id))
-		button.disabled = not GameState.can_buy_ad(id)
-		_timer_look(button, button.text.contains(":"))
 
 	for raw: Variant in rivals:
 		var id: String = str(raw.get("id", ""))
