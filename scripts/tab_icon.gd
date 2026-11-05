@@ -16,8 +16,23 @@ var badge: bool = false:
 		queue_redraw()
 
 
+## Пульсирующее кольцо: дядя Бун показывает сюда.
+var glow: bool = false:
+	set(value):
+		glow = value
+		queue_redraw()
+var glow_color: Color = Color("ff4d5e")
+var _pulse: float = 0.0
+
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
+func _process(delta: float) -> void:
+	if glow and is_visible_in_tree():
+		_pulse = fmod(_pulse + delta * 2.5, TAU)
+		queue_redraw()
 
 
 func _draw() -> void:
@@ -34,6 +49,9 @@ func _draw() -> void:
 			_map(o, s)
 		"market":
 			_market(o, s)
+	if glow:
+		var ring: float = s * (0.62 + 0.08 * sin(_pulse))
+		draw_arc(o + Vector2(s, s) / 2.0, ring, 0, TAU, 40, Color(glow_color, 0.9), s * 0.08)
 	if badge:
 		var at := o + Vector2(s * 0.92, s * 0.1)
 		draw_circle(at, s * 0.14, Color("1f1645"))

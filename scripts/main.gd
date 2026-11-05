@@ -48,6 +48,21 @@ var _share_fill: ColorRect
 const CityView := preload("res://scripts/city_view.gd")
 const CarIcon := preload("res://scripts/car_icon.gd")
 var _city: Control
+const Mentor := preload("res://scripts/mentor.gd")
+const MentorPortrait := preload("res://scripts/mentor_portrait.gd")
+var _mentor: Node
+var _mentor_bubble: PanelContainer
+var _mentor_portrait: Control
+var _mentor_text: Label
+var _mentor_button: Button
+var _mentor_skip: Button
+var _mentor_task: PanelContainer
+var _mentor_task_label: Label
+var _mentor_kind: String = ""
+var _mentor_last_step_text: String = ""
+var _mentor_task_text: String = ""
+var _mentor_hide_timer: Timer
+var _mentor_tips_button: Button
 var _tap_hint: Label
 var _sfx_tap: AudioStreamPlayer
 var _sfx_buy: AudioStreamPlayer
@@ -200,6 +215,8 @@ func _ready() -> void:
 	_on_shifts_changed()
 	_sync_city()
 	_last_coins = GameState.coins
+	GameState.shifts_changed.connect(_mentor.tick)
+	_mentor.begin()
 	for item: Variant in GameState.take_fresh_achievements():
 		if typeof(item) == TYPE_DICTIONARY:
 			var info: Dictionary = item
@@ -304,6 +321,7 @@ func _build_ui() -> void:
 
 	column.add_child(_build_tab_bar())
 	_show_page(PAGE_TAP)
+	_build_mentor()
 	_build_settings_popup()
 	_build_notice_popup()
 	_build_sell_popup()
@@ -311,6 +329,207 @@ func _build_ui() -> void:
 	_build_daily_popup()
 	_build_offline_popup()
 	_build_name_popup()
+
+
+# --- Дядя Бун -------------------------------------------------------------------
+
+## Облачко с портретом над вкладками и плашка с заданием. Тапы по городу не перекрывает.
+func _build_mentor() -> void:
+	_mentor = Mentor.new()
+	add_child(_mentor)
+	_mentor.setup(GameState)
+	_mentor.said.connect(_on_mentor_said)
+	_mentor.task_changed.connect(_on_mentor_task)
+	_mentor.highlight_tab.connect(_on_mentor_highlight)
+
+	_mentor_bubble = PanelContainer.new()
+	_mentor_bubble.anchor_left = 0.0
+	_mentor_bubble.anchor_right = 1.0
+	_mentor_bubble.anchor_top = 1.0
+	_mentor_bubble.anchor_bottom = 1.0
+	_mentor_bubble.offset_left = 24
+	_mentor_bubble.offset_right = -24
+	_mentor_bubble.offset_bottom = -188
+	_mentor_bubble.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_mentor_bubble.visible = false
+	var style := _panel_style()
+	style.bg_color = Color.WHITE
+	style.set_border_width_all(4)
+	style.border_width_bottom = 10
+	style.border_color = COLOR_ACCENT.darkened(0.15)
+	_mentor_bubble.add_theme_stylebox_override("panel", style)
+	add_child(_mentor_bubble)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	_mentor_bubble.add_child(row)
+	_mentor_portrait = MentorPortrait.new()
+	_mentor_portrait.custom_minimum_size = Vector2(170, 170)
+	_mentor_portrait.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(_mentor_portrait)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 8)
+	row.add_child(box)
+	var title := Label.new()
+	title.text = _mentor.mentor_name()
+	_display(title, 34, COLOR_TEXT)
+	box.add_child(title)
+	_mentor_text = Label.new()
+	_mentor_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_mentor_text.add_theme_font_size_override("font_size", 28)
+	_mentor_text.add_theme_color_override("font_color", COLOR_TEXT)
+	box.add_child(_mentor_text)
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 12)
+	box.add_child(buttons)
+	_mentor_button = _make_settings_button("Понял", COLOR_BUY, _on_mentor_button)
+	_mentor_button.custom_minimum_size = Vector2(0, 90)
+	_mentor_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	buttons.add_child(_mentor_button)
+	_mentor_skip = Button.new()
+	_mentor_skip.text = "Пропустить обучение"
+	_mentor_skip.flat = true
+	_mentor_skip.focus_mode = Control.FOCUS_NONE
+	_mentor_skip.add_theme_font_size_override("font_size", 22)
+	for state in ["font_color", "font_hover_color", "font_pressed_color"]:
+		_mentor_skip.add_theme_color_override(state, COLOR_MUTED)
+	_mentor_skip.pressed.connect(_on_mentor_skip)
+	buttons.add_child(_mentor_skip)
+
+	_mentor_task = PanelContainer.new()
+	_mentor_task.anchor_left = 0.5
+	_mentor_task.anchor_right = 0.5
+	# Под шапкой: не закрывает полоски машины и кнопки внизу.
+	_mentor_task.anchor_top = 0.0
+	_mentor_task.anchor_bottom = 0.0
+	_mentor_task.offset_top = 336
+	_mentor_task.grow_vertical = Control.GROW_DIRECTION_END
+	_mentor_task.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_mentor_task.visible = false
+	_mentor_task.mouse_filter = Control.MOUSE_FILTER_STOP
+	_mentor_task.gui_input.connect(_on_mentor_task_input)
+	var pill := StyleBoxFlat.new()
+	pill.bg_color = COLOR_PILL
+	pill.set_corner_radius_all(40)
+	pill.set_border_width_all(4)
+	pill.border_color = COLOR_ACCENT
+	pill.content_margin_left = 10
+	pill.content_margin_right = 26
+	pill.content_margin_top = 6
+	pill.content_margin_bottom = 6
+	_mentor_task.add_theme_stylebox_override("panel", pill)
+	add_child(_mentor_task)
+	var task_row := HBoxContainer.new()
+	task_row.add_theme_constant_override("separation", 12)
+	task_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_mentor_task.add_child(task_row)
+	var mini: Control = MentorPortrait.new()
+	mini.custom_minimum_size = Vector2(72, 72)
+	task_row.add_child(mini)
+	_mentor_task_label = Label.new()
+	_mentor_task_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_mentor_task_label.add_theme_font_size_override("font_size", 26)
+	_mentor_task_label.add_theme_color_override("font_color", Color.WHITE)
+	_mentor_task_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	task_row.add_child(_mentor_task_label)
+
+	_mentor_hide_timer = Timer.new()
+	_mentor_hide_timer.one_shot = true
+	_mentor_hide_timer.timeout.connect(_hide_mentor_quip)
+	add_child(_mentor_hide_timer)
+
+
+func _on_mentor_said(text: String, kind: String) -> void:
+	# Шутка не перебивает урок или похвалу.
+	if kind == "quip" and _mentor_bubble.visible and _mentor_kind != "quip":
+		return
+	_mentor_kind = kind
+	if kind == "step":
+		_mentor_last_step_text = text
+	_mentor_text.text = text
+	match kind:
+		"praise":
+			_mentor_button.text = "Спасибо, дядя Бун!"
+		"quip":
+			_mentor_button.text = "Ха!"
+		_:
+			var step: Dictionary = _mentor.current_step()
+			_mentor_button.text = "Дальше" if str(step.get("goal", "")) == "next" else "Понял"
+	_mentor_skip.visible = kind == "step" and not _mentor.is_tutorial_done()
+	_mentor_bubble.visible = true
+	_mentor_task.visible = false
+	_mentor_portrait.talk(minf(4.0, 0.6 + text.length() * 0.025))
+	_mentor_bubble.pivot_offset = Vector2(_mentor_bubble.size.x / 2.0, _mentor_bubble.size.y)
+	_mentor_bubble.scale = Vector2(0.9, 0.9)
+	var pop := create_tween()
+	pop.tween_property(_mentor_bubble, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if kind == "quip":
+		_mentor_hide_timer.start(8.0)
+	else:
+		_mentor_hide_timer.stop()
+
+
+func _on_mentor_button() -> void:
+	_play(_sfx_tap)
+	var kind: String = _mentor_kind
+	_mentor_bubble.visible = false
+	_mentor_kind = ""
+	if kind == "step" or kind == "praise":
+		_mentor.acknowledge()
+	_refresh_mentor_task()
+
+
+func _hide_mentor_quip() -> void:
+	if _mentor_kind == "quip":
+		_mentor_bubble.visible = false
+		_mentor_kind = ""
+		_refresh_mentor_task()
+
+
+func _on_mentor_skip() -> void:
+	_mentor_bubble.visible = false
+	_mentor_kind = ""
+	_mentor.skip_tutorial()
+
+
+func _on_mentor_task(text: String, reward: float) -> void:
+	_mentor_task_text = text
+	if text != "":
+		_mentor_task_label.text = "%s  ·  +%s" % [text, GameState.format_money(reward)] if reward > 0.0 else text
+	_refresh_mentor_task()
+
+
+func _refresh_mentor_task() -> void:
+	_mentor_task.visible = _mentor_task_text != "" and not _mentor_bubble.visible
+
+
+## Тап по плашке — дед повторяет, что нужно сделать.
+func _on_mentor_task_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		_mentor_task.accept_event()
+		_on_mentor_said(_mentor_last_step_text, "repeat")
+
+
+func _on_mentor_highlight(index: int) -> void:
+	for tab_index in _tab_icons.size():
+		var icon: Control = _tab_icons[tab_index][0]
+		icon.glow = tab_index == index
+
+
+func _toggle_mentor_tips() -> void:
+	_mentor.set_tips(not _mentor.tips_on())
+	_refresh_mentor_buttons()
+
+
+func _restart_tutorial() -> void:
+	_show_page(PAGE_TAP)
+	_mentor.restart_tutorial()
+
+
+func _refresh_mentor_buttons() -> void:
+	if _mentor_tips_button != null:
+		_mentor_tips_button.text = "Советы дяди Буна: включены" if _mentor.tips_on() else "Советы дяди Буна: выключены"
 
 
 func _build_header() -> VBoxContainer:
@@ -963,6 +1182,8 @@ func _on_trick(competitor_id: String, trick_id: String) -> void:
 	if revenge != "":
 		body += "\n\nОтвет: " + revenge
 	_show_notice(title, body)
+	if bool(result.get("caught", false)):
+		_mentor.on_event("caught")
 
 
 func _on_offer_buyout(competitor_id: String) -> void:
@@ -977,6 +1198,7 @@ func _on_island_captured(island_id: String, text: String) -> void:
 	_show_notice("%s ваш!" % str(GameState.get_island_info(island_id).get("city", "Город")), text)
 	_selected_island = ""
 	_refresh_regions()
+	_mentor.on_event("captured")
 
 
 func _go_to_map() -> void:
@@ -1344,6 +1566,9 @@ func _build_more_rows() -> void:
 	_sound_button = _make_settings_button("", COLOR_SKY, _toggle_sound)
 	_more_list.add_child(_sound_button)
 	_refresh_sound_button()
+	_mentor_tips_button = _make_settings_button("", COLOR_ACCENT, _toggle_mentor_tips)
+	_more_list.add_child(_mentor_tips_button)
+	_more_list.add_child(_make_settings_button("Пройти обучение заново", COLOR_PANEL, _restart_tutorial))
 	_more_list.add_child(_make_settings_button("Сбросить прогресс", COLOR_DANGER, _ask_reset))
 	_on_background(_add_label(_more_list, "Сброс стирает весь прогресс и название компании. Это для проверки игры.", 24))
 
@@ -1351,6 +1576,8 @@ func _build_more_rows() -> void:
 func _refresh_more() -> void:
 	if _more_stats == null:
 		return
+	if _mentor != null:
+		_refresh_mentor_buttons()
 	_more_stats.text = "Такси «%s»\nРейтинг: ★ %.1f\nРепутация: %d\nФраншиза: ×%s\nЗаработано за всё время: %s\nОстровов: %d из %d" % [
 		GameState.company_name,
 		GameState.get_rating(),
@@ -1828,6 +2055,7 @@ func _on_name_confirm() -> void:
 		_name_error.text = "Без названия клиенты вас не найдут."
 		return
 	_name_layer.visible = false
+	_mentor.begin()
 
 
 func _build_driver_rows() -> void:
@@ -2419,12 +2647,12 @@ func _show_next_toast() -> void:
 
 func _build_toast() -> void:
 	_toast_layer = PanelContainer.new()
-	# Над панелью вкладок, чтобы не закрывать деньги в шапке. Золотая, как награда.
-	_toast_layer.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	# Под шапкой: не закрывает деньги и не спорит с облачком дяди Буна внизу. Золотая, как награда.
+	_toast_layer.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_toast_layer.offset_left = -400
 	_toast_layer.offset_right = 400
-	_toast_layer.offset_top = -330
-	_toast_layer.offset_bottom = -190
+	_toast_layer.offset_top = 400
+	_toast_layer.offset_bottom = 540
 	_toast_layer.visible = false
 	_toast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := _panel_style()
@@ -2500,6 +2728,7 @@ func _on_collect_offline() -> void:
 	GameState.collect_offline_reward()
 	_offline_layer.visible = false
 	_show_daily_popup()
+	_mentor.on_event("welcome_back")
 
 
 ## Над такси всплывает «+N» и тает.
@@ -2624,6 +2853,8 @@ func _refresh_sound_button() -> void:
 
 
 func _show_page(page: int) -> void:
+	if _mentor != null:
+		_mentor.notify_page(page)
 	_tap_page.visible = page == PAGE_TAP
 	_upgrades_page.visible = page == PAGE_UPGRADES
 	_drivers_page.visible = page == PAGE_DRIVERS
@@ -2675,6 +2906,10 @@ func _ask_reset() -> void:
 
 func _confirm_reset() -> void:
 	GameState.reset_progress()
+	_mentor.setup(GameState)
+	_mentor_bubble.visible = false
+	_mentor_task_text = ""
+	_refresh_mentor_task()
 	_close_settings()
 	_show_page(PAGE_TAP)
 	if _offline_layer != null:

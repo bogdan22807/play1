@@ -122,6 +122,8 @@ var _trick_ready: Dictionary = {}
 var _buyout_ready: Dictionary = {}
 ## Текущая реклама: {"id", "until"}. Пусто — рекламы нет.
 var _ad: Dictionary = {}
+## Прогресс дяди Буна: шаг обучения, включены ли советы. Хранит и меняет scripts/mentor.gd.
+var mentor: Dictionary = {}
 ## id острова -> 1, если стали там такси №1. Захват открывает дорогу на следующий остров.
 var _captured: Dictionary = {}
 var _city_defs: Array = []
@@ -418,6 +420,18 @@ func _reset_car() -> void:
 	_car_id = _start_car_id()
 	_car_rented = false
 	_owned_cars.clear()
+
+
+# --- Награды дяди Буна ------------------------------------------------------
+
+## Награда за задание обучения: деньги сразу в кошелёк.
+func grant_reward(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	_gain_coins(amount)
+	coins_changed.emit(coins)
+	_note_progress()
+	save_game()
 
 
 # --- Название компании -----------------------------------------------------
@@ -1868,6 +1882,7 @@ func reset_progress() -> void:
 	_fresh_achievements.clear()
 	_reset_car()
 	company_name = ""
+	mentor = {}
 	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
@@ -2059,6 +2074,7 @@ func save_game() -> void:
 		"upgrades": _upgrade_levels.duplicate(),
 		"garage": _garage.duplicate(true),
 		"my_clean": _my_clean,
+		"mentor": mentor.duplicate(true),
 		"helpers": _helpers.duplicate(),
 		"rating": rating,
 		"my_health": _my_health,
@@ -2129,6 +2145,8 @@ func load_game() -> void:
 	_load_car(data)
 	_my_clean = clampf(float(data.get("my_clean", 1.0)), 0.0, 1.0)
 	_my_health = clampf(float(data.get("my_health", 1.0)), 0.0, 1.0)
+	var raw_mentor: Variant = data.get("mentor", {})
+	mentor = raw_mentor if typeof(raw_mentor) == TYPE_DICTIONARY else {}
 	rating = clampf(float(data.get("rating", _rating_value("start", 4))), 1.0, 5.0)
 	_helpers.clear()
 	var raw_helpers: Variant = data.get("helpers", {})
