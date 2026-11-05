@@ -239,7 +239,6 @@ func _process(delta: float) -> void:
 		if step > MAX_INCOME_STEP:
 			step = MAX_INCOME_STEP
 		_gain_coins(_income_per_second * step)
-		_note_progress()
 		coins_changed.emit(coins)
 	_tick_fleet_wear(minf(delta, MAX_INCOME_STEP))
 	_autosave_left -= delta
@@ -872,6 +871,8 @@ func _tick_fleet_wear(step: float) -> void:
 		return
 	var seconds: float = 1.0 - _wear_left
 	_wear_left = 1.0
+	# Достижения проверяем раз в секунду, а не каждый кадр.
+	_note_progress()
 	_tick_shifts(seconds)
 	_run_helpers(seconds)
 	_tick_market(seconds)

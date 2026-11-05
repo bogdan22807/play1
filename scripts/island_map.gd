@@ -34,11 +34,18 @@ func set_data(new_islands: Array, new_states: Dictionary, new_selected: String) 
 	queue_redraw()
 
 
+var _redraw_left: float = 0.0
+
+
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return
 	_pulse = fmod(_pulse + delta, 2.0)
-	queue_redraw()
+	# Пульсирующее кольцо острова — хватит 12 кадров в секунду.
+	_redraw_left -= delta
+	if _redraw_left <= 0.0:
+		_redraw_left = 0.08
+		queue_redraw()
 
 
 func _radius() -> float:

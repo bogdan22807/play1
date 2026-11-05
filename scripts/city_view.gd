@@ -39,12 +39,32 @@ var _bounce: float = 0.0
 var _boost: float = 0.0
 var _time: float = 0.0
 var _rng := RandomNumberGenerator.new()
+## Город рисуется в два слоя. Дома и дороги один раз «запекаются» в картинку
+## (SubViewport, обновляется только при смене размера), машины рисуются каждый кадр
+## поверх неё. Так телефон за кадр рисует одну картинку, а не сотни прямоугольников.
+var _bake: SubViewport
+var _static_layer: Control
+var _cars_layer: Control
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	clip_contents = true
 	_rng.seed = 2026
+	_bake = SubViewport.new()
+	_bake.disable_3d = true
+	_bake.transparent_bg = false
+	_bake.render_target_update_mode = SubViewport.UPDATE_ONCE
+	add_child(_bake)
+	_static_layer = Control.new()
+	_static_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bake.add_child(_static_layer)
+	_cars_layer = Control.new()
+	_cars_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_cars_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_cars_layer)
+	_static_layer.draw.connect(_draw_static)
+	_cars_layer.draw.connect(_draw_cars)
 	resized.connect(_layout)
 	_layout()
 
@@ -83,7 +103,12 @@ func _layout() -> void:
 	for car: Dictionary in _cars:
 		car["from"] = _clamp_node(car["from"])
 		car["to"] = _clamp_node(car["to"])
-	queue_redraw()
+	if _static_layer != null:
+		_bake.size = Vector2i(ceili(size.x), ceili(size.y))
+		_static_layer.size = size
+		_static_layer.queue_redraw()
+		_bake.render_target_update_mode = SubViewport.UPDATE_ONCE
+		_cars_layer.queue_redraw()
 
 
 func _clamp_node(node: Vector2i) -> Vector2i:
@@ -212,13 +237,17 @@ func _process(delta: float) -> void:
 		car["t"] = float(car["t"]) + speed * delta / length
 		if car["t"] >= 1.0:
 			_next_target(car)
-	queue_redraw()
+	_cars_layer.queue_redraw()
 
 
-func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), GROUND)
+func _draw_static() -> void:
+	_static_layer.draw_rect(Rect2(Vector2.ZERO, size), GROUND)
 	_draw_blocks()
 	_draw_roads()
+
+
+func _draw_cars() -> void:
+	_cars_layer.draw_texture(_bake.get_texture(), Vector2.ZERO)
 	var player: Dictionary = {}
 	for car: Dictionary in _cars:
 		match car["kind"]:
@@ -227,80 +256,80 @@ func _draw() -> void:
 			"fleet":
 				var info: Dictionary = fleet[car["slot"]] if car["slot"] < fleet.size() else {}
 				var broken: bool = bool(info.get("broken", false))
-				CarArt.draw_car(self, _car_pos(car), _car_angle(car), str(info.get("model", "old_sedan")), _car_size, Color(0, 0, 0, 0), float(info.get("dirt", 0)), broken)
+				CarArt.draw_car(_cars_layer, _car_pos(car), _car_angle(car), str(info.get("model", "old_sedan")), _car_size, Color(0, 0, 0, 0), float(info.get("dirt", 0)), broken)
 				if broken:
 					_draw_smoke(_car_pos(car))
 			"rival":
 				var color: Color = rival_colors[car["slot"]] if car["slot"] < rival_colors.size() else Color.GRAY
-				CarArt.draw_car(self, _car_pos(car), _car_angle(car), "old_sedan", _car_size * 0.95, color)
+				CarArt.draw_car(_cars_layer, _car_pos(car), _car_angle(car), "old_sedan", _car_size * 0.95, color)
 	if not player.is_empty():
 		var pos: Vector2 = _car_pos(player)
 		var pulse: float = 1.0 + 0.08 * sin(_time * 4.0)
-		draw_arc(pos, _car_size * 0.85 * pulse, 0, TAU, 32, Color(PLAYER_RING, 0.7), 4.0)
+		_cars_layer.draw_arc(pos, _car_size * 0.85 * pulse, 0, TAU, 32, Color(PLAYER_RING, 0.7), 4.0)
 		var scale_up: float = 1.25 + 0.25 * _bounce
-		CarArt.draw_car(self, pos + Vector2(0, -10.0 * _bounce), _car_angle(player), player_model, _car_size * scale_up, Color(0, 0, 0, 0), player_dirt, player_broken)
+		CarArt.draw_car(_cars_layer, pos + Vector2(0, -10.0 * _bounce), _car_angle(player), player_model, _car_size * scale_up, Color(0, 0, 0, 0), player_dirt, player_broken)
 		if player_broken:
 			_draw_smoke(pos)
 		var font: Font = get_theme_default_font()
-		draw_string_outline(font, pos + Vector2(-60, -_car_size * 1.05), "ВЫ", HORIZONTAL_ALIGNMENT_CENTER, 120, 28, 8, Color.WHITE)
-		draw_string(font, pos + Vector2(-60, -_car_size * 1.05), "ВЫ", HORIZONTAL_ALIGNMENT_CENTER, 120, 28, PLAYER_RING)
+		_cars_layer.draw_string_outline(font, pos + Vector2(-60, -_car_size * 1.05), "ВЫ", HORIZONTAL_ALIGNMENT_CENTER, 120, 28, 8, Color.WHITE)
+		_cars_layer.draw_string(font, pos + Vector2(-60, -_car_size * 1.05), "ВЫ", HORIZONTAL_ALIGNMENT_CENTER, 120, 28, PLAYER_RING)
 
 
 func _draw_blocks() -> void:
 	for block: Dictionary in _blocks:
 		var rect: Rect2 = block["rect"]
-		draw_rect(rect, SIDEWALK)
+		_static_layer.draw_rect(rect, SIDEWALK)
 		var inner: Rect2 = rect.grow(-_road * 0.12)
 		if block["park"]:
-			draw_rect(inner, PARK)
-			draw_circle(inner.get_center(), minf(inner.size.x, inner.size.y) * 0.22, POND)
-			draw_circle(inner.get_center() + Vector2(-6, -6), minf(inner.size.x, inner.size.y) * 0.08, Color(1, 1, 1, 0.15))
+			_static_layer.draw_rect(inner, PARK)
+			_static_layer.draw_circle(inner.get_center(), minf(inner.size.x, inner.size.y) * 0.22, POND)
+			_static_layer.draw_circle(inner.get_center() + Vector2(-6, -6), minf(inner.size.x, inner.size.y) * 0.08, Color(1, 1, 1, 0.15))
 		for house: Dictionary in block["houses"]:
 			var r: Rect2 = house["rect"]
 			# Двускатная крыша сверху: тень, кромка, светлый и тёмный скат, конёк.
 			var roof: Color = house["roof"]
-			draw_rect(Rect2(r.position + Vector2(5, 7), r.size), Color(0, 0, 0, 0.22))
-			draw_rect(r, roof.darkened(0.3))
+			_static_layer.draw_rect(Rect2(r.position + Vector2(5, 7), r.size), Color(0, 0, 0, 0.22))
+			_static_layer.draw_rect(r, roof.darkened(0.3))
 			var inner_roof: Rect2 = r.grow(-3)
 			var half_h: float = inner_roof.size.y / 2.0
-			draw_rect(Rect2(inner_roof.position, Vector2(inner_roof.size.x, half_h)), roof.lightened(0.12))
-			draw_rect(Rect2(inner_roof.position + Vector2(0, half_h), Vector2(inner_roof.size.x, half_h)), roof)
-			draw_line(inner_roof.position + Vector2(0, half_h), inner_roof.position + Vector2(inner_roof.size.x, half_h), roof.darkened(0.25), 3.0)
+			_static_layer.draw_rect(Rect2(inner_roof.position, Vector2(inner_roof.size.x, half_h)), roof.lightened(0.12))
+			_static_layer.draw_rect(Rect2(inner_roof.position + Vector2(0, half_h), Vector2(inner_roof.size.x, half_h)), roof)
+			_static_layer.draw_line(inner_roof.position + Vector2(0, half_h), inner_roof.position + Vector2(inner_roof.size.x, half_h), roof.darkened(0.25), 3.0)
 			if house["ac"]:
 				var dormer := Rect2(inner_roof.position + Vector2(inner_roof.size.x * 0.62, half_h * 0.35), Vector2(inner_roof.size.x * 0.2, half_h * 0.45))
-				draw_rect(dormer, Color("5bc0eb").darkened(0.2))
-				draw_rect(dormer.grow(-2), Color("bde7ff"))
+				_static_layer.draw_rect(dormer, Color("5bc0eb").darkened(0.2))
+				_static_layer.draw_rect(dormer.grow(-2), Color("bde7ff"))
 		for tree: Vector2 in block["trees"]:
-			draw_circle(tree + Vector2(3, 4), _road * 0.28, Color(0, 0, 0, 0.25))
-			draw_circle(tree, _road * 0.28, TREE_DARK)
-			draw_circle(tree + Vector2(-3, -3), _road * 0.2, TREE)
+			_static_layer.draw_circle(tree + Vector2(3, 4), _road * 0.28, Color(0, 0, 0, 0.25))
+			_static_layer.draw_circle(tree, _road * 0.28, TREE_DARK)
+			_static_layer.draw_circle(tree + Vector2(-3, -3), _road * 0.2, TREE)
 
 
 func _draw_roads() -> void:
 	var half: float = _road / 2.0
 	for x: float in _xs:
-		draw_rect(Rect2(Vector2(x - half, 0), Vector2(_road, size.y)), ROAD)
+		_static_layer.draw_rect(Rect2(Vector2(x - half, 0), Vector2(_road, size.y)), ROAD)
 	for y: float in _ys:
-		draw_rect(Rect2(Vector2(0, y - half), Vector2(size.x, _road)), ROAD)
+		_static_layer.draw_rect(Rect2(Vector2(0, y - half), Vector2(size.x, _road)), ROAD)
 	for x: float in _xs:
-		draw_dashed_line(Vector2(x, 0), Vector2(x, size.y), MARK, 2.0, 14.0)
+		_static_layer.draw_dashed_line(Vector2(x, 0), Vector2(x, size.y), MARK, 2.0, 14.0)
 	for y: float in _ys:
-		draw_dashed_line(Vector2(0, y), Vector2(size.x, y), MARK, 2.0, 14.0)
+		_static_layer.draw_dashed_line(Vector2(0, y), Vector2(size.x, y), MARK, 2.0, 14.0)
 	# Зебры у перекрёстков.
 	for x: float in _xs:
 		for y: float in _ys:
-			draw_rect(Rect2(Vector2(x - half, y - half), Vector2(_road, _road)), ROAD)
+			_static_layer.draw_rect(Rect2(Vector2(x - half, y - half), Vector2(_road, _road)), ROAD)
 			for stripe in 4:
 				var offset: float = -half + _road * (0.12 + stripe * 0.22)
-				draw_rect(Rect2(Vector2(x + offset, y - half - 10), Vector2(_road * 0.1, 8)), MARK)
-				draw_rect(Rect2(Vector2(x + offset, y + half + 2), Vector2(_road * 0.1, 8)), MARK)
+				_static_layer.draw_rect(Rect2(Vector2(x + offset, y - half - 10), Vector2(_road * 0.1, 8)), MARK)
+				_static_layer.draw_rect(Rect2(Vector2(x + offset, y + half + 2), Vector2(_road * 0.1, 8)), MARK)
 
 
 func _draw_smoke(at: Vector2) -> void:
 	for index in 3:
 		var phase: float = fmod(_time * 0.7 + index * 0.33, 1.0)
 		var puff: Vector2 = at + Vector2(sin(phase * 6.0 + index) * 6.0, -phase * _car_size * 1.2)
-		draw_circle(puff, _car_size * (0.15 + phase * 0.25), Color(0.75, 0.75, 0.78, 0.55 * (1.0 - phase)))
+		_cars_layer.draw_circle(puff, _car_size * (0.15 + phase * 0.25), Color(0.75, 0.75, 0.78, 0.55 * (1.0 - phase)))
 
 
 ## Касание на телефоне Godot сам превращает в нажатие мыши — слушаем только его,

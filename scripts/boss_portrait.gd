@@ -6,30 +6,69 @@ extends Control
 
 const OUTLINE := Color("1c2b4d")
 
+const BAKE_SIZE := 200
+
+## Готовые картинки портретов: внешность -> текстура. Молчащий портрет рисуется одной
+## картинкой вместо сорока фигур — это сильно разгружает телефон в длинных списках.
+static var _baked: Dictionary = {}
+
 var look: Dictionary = {}
+## true — это «художник» внутри запекания: всегда рисует фигурами.
+var bake_mode: bool = false
 var _talk_left: float = 0.0
 var _time: float = 0.0
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Портрет неподвижен и не перерисовывается каждый кадр — только пока говорит.
+	set_process(false)
+	if not bake_mode:
+		_request_bake()
 
 
 func set_look(new_look: Dictionary) -> void:
 	look = new_look
+	if is_inside_tree() and not bake_mode:
+		_request_bake()
 	queue_redraw()
+
+
+func _bake_key() -> String:
+	return JSON.stringify(look)
+
+
+## Запекаем портрет этой внешности один раз на всю игру (SubViewport в корне сцены).
+func _request_bake() -> void:
+	if look.is_empty() or _baked.has(_bake_key()):
+		return
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(BAKE_SIZE, BAKE_SIZE)
+	viewport.transparent_bg = true
+	viewport.disable_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+	var painter: Control = load("res://scripts/boss_portrait.gd").new()
+	painter.bake_mode = true
+	painter.look = look
+	painter.size = Vector2(BAKE_SIZE, BAKE_SIZE)
+	viewport.add_child(painter)
+	get_tree().root.add_child.call_deferred(viewport)
+	_baked[_bake_key()] = viewport.get_texture()
 
 
 func talk(seconds: float = 2.0) -> void:
 	_talk_left = seconds
+	set_process(true)
 
 
 func _process(delta: float) -> void:
-	if not is_visible_in_tree():
-		return
 	_time += delta
 	_talk_left = maxf(0.0, _talk_left - delta)
-	queue_redraw()
+	if _talk_left <= 0.0:
+		set_process(false)
+		_talk_left = 0.0
+	if is_visible_in_tree():
+		queue_redraw()
 
 
 func _c(key: String, fallback: String) -> Color:
@@ -37,10 +76,14 @@ func _c(key: String, fallback: String) -> Color:
 
 
 func _draw() -> void:
+	if not bake_mode and _talk_left <= 0.0 and _baked.has(_bake_key()):
+		var side: float = minf(size.x, size.y)
+		draw_texture_rect(_baked[_bake_key()], Rect2((size - Vector2(side, side)) / 2.0, Vector2(side, side)), false)
+		return
 	var s: float = minf(size.x, size.y)
 	var c: Vector2 = size / 2.0
 	var u: float = s / 100.0
-	var breath: float = sin(_time * 2.0) * 0.5 * u
+	var breath: float = 0.0
 	var skin: Color = _c("skin", "e3a96f")
 	var skin_dark: Color = skin.darkened(0.18)
 	var hair_color: Color = _c("hair_color", "2b2b2b")
@@ -349,7 +392,7 @@ func _draw_extra(face: Vector2, c: Vector2, u: float) -> void:
 				pass
 			"zzz":
 				var font: Font = get_theme_default_font()
-				var bob: float = sin(_time * 1.5) * 2 * u
+				var bob: float = 0.0
 				draw_string(font, face + Vector2(18, -26) * u + Vector2(0, bob), "z", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), OUTLINE)
 				draw_string(font, face + Vector2(25, -33) * u + Vector2(0, bob), "z", HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), OUTLINE)
 			"star":
