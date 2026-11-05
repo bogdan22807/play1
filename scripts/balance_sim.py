@@ -53,6 +53,16 @@ class Player:
         balance = load("balance.json")
         self.tap_from_income = float(balance.get("tap_from_income", 0.01))
         self.rent_share = float(balance.get("car_rent_share", 0.3))
+        # Игрок вовремя моет и чинит: это доля выручки, которая уходит на сервис.
+        wear = balance.get("wear", {})
+        self.tap_upkeep = (
+            float(wear.get("player_wash_taps", 20)) * float(wear.get("tap_clean", 0.0015))
+            + float(wear.get("player_repair_taps", 80)) * float(wear.get("tap_health", 0.0003))
+        )
+        self.fleet_upkeep = (
+            float(wear.get("fleet_wash_seconds", 20)) * float(wear.get("fleet_clean_per_second", 0.0016667))
+            + float(wear.get("fleet_repair_seconds", 150)) * float(wear.get("fleet_health_per_second", 0.00033333))
+        )
         self.cars = load("cars.json")
         # Индекс машины, на которой ездим, и арендована ли она.
         self.car = 0
@@ -96,7 +106,7 @@ class Player:
         return float(self.cars[index].get("driver_income", 0))
 
     def driver_net(self, index):
-        return self.car_income(index) * DRIVER_POWER * (1.0 - DRIVER_SALARY)
+        return self.car_income(index) * DRIVER_POWER * (1.0 - DRIVER_SALARY - self.fleet_upkeep)
 
     def staffed(self):
         return sorted(self.garage, key=self.car_income, reverse=True)[: self.team]
@@ -123,7 +133,7 @@ class Player:
         return mult * ((1.0 - self.rent_share) if rented else 1.0)
 
     def tap_power(self):
-        ride = self.flat_tap() * self.car_factor() * self.multiplier()
+        ride = self.flat_tap() * self.car_factor() * self.multiplier() * (1.0 - self.tap_upkeep)
         return ride + self.passive() * self.tap_from_income
 
     def reputation(self):

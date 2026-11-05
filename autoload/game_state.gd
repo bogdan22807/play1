@@ -12,6 +12,8 @@ signal upgrades_changed
 signal drivers_changed
 ## Изменился гараж: купили машину, обменяли или расширили.
 signal garage_changed
+## Изменились чистота или состояние машин.
+signal wear_changed
 ## Изменился пассивный доход в секунду.
 signal income_changed(income: float)
 ## Пора показать окно «Пока вас не было».
@@ -69,7 +71,7 @@ var _upgrade_defs: Array = []
 var _upgrade_levels: Dictionary = {}
 ## Настройки водителей из data/drivers.json: имена, звёзды, черты.
 var _staff: Dictionary = {}
-## Машины в гараже для водителей — список id моделей.
+## Машины в гараже для водителей: {"model", "clean", "health"}. clean и health — от 0 до 1.
 var _garage: Array = []
 ## Сколько раз расширяли гараж.
 var _garage_level: int = 0
@@ -86,6 +88,13 @@ var _fleet_growth: float = 1.15
 var _trade_in_share: float = 0.5
 var _garage_start: int = 5
 var _garage_expansions: Array = []
+## Чистота и состояние своей машины, от 0 до 1.
+var _my_clean: float = 1.0
+var _my_health: float = 1.0
+## Настройки износа из balance.json.
+var _wear: Dictionary = {}
+## Износ парка считаем раз в секунду, а не каждый кадр.
+var _wear_left: float = 1.0
 var _city_defs: Array = []
 ## id района -> 1, если район уже открыт.
 var _opened_districts: Dictionary = {}
@@ -178,6 +187,7 @@ func _process(delta: float) -> void:
 		_gain_coins(_income_per_second * step)
 		_note_progress()
 		coins_changed.emit(coins)
+	_tick_fleet_wear(minf(delta, MAX_INCOME_STEP))
 	_autosave_left -= delta
 	if _autosave_left <= 0.0:
 		_autosave_left = AUTOSAVE_SECONDS
@@ -211,6 +221,7 @@ func _notification(what: int) -> void:
 func tap() -> float:
 	var gained: float = get_tap_power()
 	_gain_coins(gained)
+	_wear_my_car()
 	run_taps += 1
 	_sync_reputation()
 	_note_progress()
@@ -233,8 +244,13 @@ func get_flat_tap() -> float:
 
 ## Сила тапа: улучшения × машина (минус аренда) × множители плюс доля дохода в секунду.
 func get_tap_power() -> float:
-	var ride: float = get_flat_tap() * get_car_tap_mult() * (1.0 - get_rent_share())
-	return ride * get_income_multiplier() + get_income_per_second() * _tap_from_income
+	var ride: float = get_ride_value() * get_my_condition_mult()
+	return ride + get_income_per_second() * _tap_from_income
+
+
+## Сколько приносит поездка на исправной чистой машине (после аренды и множителей).
+func get_ride_value() -> float:
+	return get_flat_tap() * get_car_tap_mult() * (1.0 - get_rent_share()) * get_income_multiplier()
 
 
 # --- Машина игрока ---------------------------------------------------------
@@ -331,13 +347,16 @@ func buy_car(car_id: String) -> bool:
 func _park_current_car() -> void:
 	if _car_rented or _car_id == _start_car_id() or not is_car_owned(_car_id):
 		return
-	_garage.append(_car_id)
+	_garage.append({"model": _car_id, "clean": _my_clean, "health": _my_health})
 	_recalc_income()
 	garage_changed.emit()
 	drivers_changed.emit()
 
 
 func _after_car_change() -> void:
+	_my_clean = 1.0
+	_my_health = 1.0
+	wear_changed.emit()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
 	car_changed.emit()
@@ -362,6 +381,8 @@ func _car_index(car_id: String) -> int:
 
 
 func _reset_car() -> void:
+	_my_clean = 1.0
+	_my_health = 1.0
 	_car_id = _start_car_id()
 	_car_rented = false
 	_owned_cars.clear()
@@ -426,11 +447,11 @@ func buy_upgrade(upgrade_id: String) -> bool:
 
 # --- Гараж -----------------------------------------------------------------
 
-## Машины в гараже, от лучшей к худшей.
+## Машины в гараже, от лучшей модели к худшей. Карточки те же, что внутри: их можно менять.
 func get_garage() -> Array:
 	var sorted: Array = _garage.duplicate()
 	sorted.sort_custom(func(a: Variant, b: Variant) -> bool:
-		return get_car_driver_income(str(a)) > get_car_driver_income(str(b)))
+		return get_car_driver_income(str(a.get("model", ""))) > get_car_driver_income(str(b.get("model", ""))))
 	return sorted
 
 
@@ -475,16 +496,25 @@ func get_car_driver_income(car_id: String) -> float:
 
 
 func get_fleet_count(car_id: String) -> int:
-	return _garage.count(car_id)
+	var count: int = 0
+	for car: Variant in _garage:
+		if str(car.get("model", "")) == car_id:
+			count += 1
+	return count
 
 
-## Самая слабая машина гаража — её отдают в обмен, когда места нет.
+## Модель самой слабой машины гаража — её отдают в обмен, когда места нет.
 func get_worst_garage_car() -> String:
-	var worst: String = ""
-	for raw: Variant in _garage:
-		var car_id := str(raw)
-		if worst == "" or get_car_driver_income(car_id) < get_car_driver_income(worst):
-			worst = car_id
+	var index: int = _worst_garage_index()
+	return "" if index < 0 else str(_garage[index].get("model", ""))
+
+
+func _worst_garage_index() -> int:
+	var worst: int = -1
+	for index in _garage.size():
+		var income: float = get_car_driver_income(str(_garage[index].get("model", "")))
+		if worst < 0 or income < get_car_driver_income(str(_garage[worst].get("model", ""))):
+			worst = index
 	return worst
 
 
@@ -518,10 +548,202 @@ func buy_fleet(car_id: String) -> bool:
 		return false
 	coins = maxf(0.0, coins - get_fleet_cost(car_id))
 	if is_garage_full():
-		_garage.erase(get_worst_garage_car())
-	_garage.append(car_id)
+		_garage.remove_at(_worst_garage_index())
+	_garage.append(_new_car(car_id))
 	_after_staff_change()
 	return true
+
+
+# --- Износ: мойка и ремонт ----------------------------------------------------
+
+func _new_car(model: String) -> Dictionary:
+	return {"model": model, "clean": 1.0, "health": 1.0}
+
+
+func _wear_value(key: String, fallback: float) -> float:
+	return float(_wear.get(key, fallback))
+
+
+func is_broken(health: float) -> bool:
+	return health < _wear_value("broken_below", 0.1)
+
+
+## Во сколько раз грязь и поломка режут доход. 1 — всё в порядке.
+## Грязь: ниже 50% доход плавно падает до dirty_min_mult.
+## Состояние: ниже 50% падает до worn_min_mult, а ниже broken_below машина сломана.
+func get_condition_mult(clean: float, health: float, broken_mult: float) -> float:
+	var clean_mult: float = 1.0
+	if clean < 0.5:
+		clean_mult = lerpf(_wear_value("dirty_min_mult", 0.75), 1.0, clampf(clean / 0.5, 0.0, 1.0))
+	var health_mult: float = 1.0
+	var broken: float = _wear_value("broken_below", 0.1)
+	if is_broken(health):
+		health_mult = broken_mult
+	elif health < 0.5:
+		health_mult = lerpf(_wear_value("worn_min_mult", 0.6), 1.0, (health - broken) / (0.5 - broken))
+	return clean_mult * health_mult
+
+
+## Сломанная машина водителя стоит и ничего не приносит.
+func get_fleet_condition_mult(car: Dictionary) -> float:
+	if car.is_empty():
+		return 0.0
+	return get_condition_mult(float(car.get("clean", 1)), float(car.get("health", 1)), 0.0)
+
+
+## Своя сломанная машина всё равно едет, хоть и еле-еле: игрок не застрянет без денег.
+func get_my_condition_mult() -> float:
+	return get_condition_mult(_my_clean, _my_health, _wear_value("player_broken_mult", 0.3))
+
+
+func get_my_clean() -> float:
+	return _my_clean
+
+
+func get_my_health() -> float:
+	return _my_health
+
+
+## Мойка своей машины: столько тапов исправной машины, сколько стоит полная мойка, по доле грязи.
+func get_my_wash_cost() -> float:
+	return _service_cost(get_ride_value() * _wear_value("player_wash_taps", 20), 1.0 - _my_clean)
+
+
+func get_my_repair_cost() -> float:
+	return _service_cost(get_ride_value() * _wear_value("player_repair_taps", 80), 1.0 - _my_health)
+
+
+func can_wash_my_car() -> bool:
+	return _my_clean < 0.999 and coins + 0.001 >= get_my_wash_cost()
+
+
+func can_repair_my_car() -> bool:
+	return _my_health < 0.999 and coins + 0.001 >= get_my_repair_cost()
+
+
+func wash_my_car() -> bool:
+	if not can_wash_my_car():
+		return false
+	coins = maxf(0.0, coins - get_my_wash_cost())
+	_my_clean = 1.0
+	_after_service()
+	return true
+
+
+func repair_my_car() -> bool:
+	if not can_repair_my_car():
+		return false
+	coins = maxf(0.0, coins - get_my_repair_cost())
+	_my_health = 1.0
+	_after_service()
+	return true
+
+
+## Мойка всего парка: у каждой машины своя цена — по её выручке и грязи.
+func get_fleet_wash_cost() -> float:
+	var total: float = 0.0
+	for car: Variant in _garage:
+		var full: float = get_car_driver_income(str(car.get("model", ""))) * _wear_value("fleet_wash_seconds", 20)
+		total += _service_cost(full, 1.0 - float(car.get("clean", 1)), 0.0)
+	return ceilf(total)
+
+
+func get_fleet_repair_cost() -> float:
+	var total: float = 0.0
+	for car: Variant in _garage:
+		var full: float = get_car_driver_income(str(car.get("model", ""))) * _wear_value("fleet_repair_seconds", 150)
+		total += _service_cost(full, 1.0 - float(car.get("health", 1)), 0.0)
+	return ceilf(total)
+
+
+func can_wash_fleet() -> bool:
+	var cost: float = get_fleet_wash_cost()
+	return cost > 0.0 and coins + 0.001 >= cost
+
+
+func can_repair_fleet() -> bool:
+	var cost: float = get_fleet_repair_cost()
+	return cost > 0.0 and coins + 0.001 >= cost
+
+
+func wash_fleet() -> bool:
+	if not can_wash_fleet():
+		return false
+	coins = maxf(0.0, coins - get_fleet_wash_cost())
+	for car: Variant in _garage:
+		car["clean"] = 1.0
+	_recalc_income()
+	_after_service()
+	return true
+
+
+func repair_fleet() -> bool:
+	if not can_repair_fleet():
+		return false
+	coins = maxf(0.0, coins - get_fleet_repair_cost())
+	for car: Variant in _garage:
+		car["health"] = 1.0
+	_recalc_income()
+	_after_service()
+	return true
+
+
+## Средние чистота и состояние парка, для шапки вкладки. Пустой гараж — 1.
+func get_fleet_average(key: String) -> float:
+	if _garage.is_empty():
+		return 1.0
+	var total: float = 0.0
+	for car: Variant in _garage:
+		total += float(car.get(key, 1))
+	return total / float(_garage.size())
+
+
+func get_broken_count() -> int:
+	var count: int = 0
+	for car: Variant in _garage:
+		if is_broken(float(car.get("health", 1))):
+			count += 1
+	return count
+
+
+## Цена услуги по доле работы. Совсем чистое и целое ничего не стоит.
+func _service_cost(full_cost: float, share: float, minimum: float = 1.0) -> float:
+	if share <= 0.001:
+		return 0.0
+	return maxf(minimum, ceilf(full_cost * clampf(share, 0.0, 1.0)))
+
+
+func _after_service() -> void:
+	coins_changed.emit(coins)
+	tap_power_changed.emit(get_tap_power())
+	wear_changed.emit()
+	save_game()
+
+
+func _wear_my_car() -> void:
+	_my_clean = maxf(0.0, _my_clean - _wear_value("tap_clean", 0.0015))
+	_my_health = maxf(0.0, _my_health - _wear_value("tap_health", 0.0003))
+	tap_power_changed.emit(get_tap_power())
+	wear_changed.emit()
+
+
+## Машины с водителем пачкаются и ломаются, пока работают. Только пока игра открыта.
+func _tick_fleet_wear(step: float) -> void:
+	if _team.is_empty():
+		return
+	_wear_left -= step
+	if _wear_left > 0.0:
+		return
+	var seconds: float = 1.0 - _wear_left
+	_wear_left = 1.0
+	var clean_rate: float = _wear_value("fleet_clean_per_second", 0.0016667)
+	var health_rate: float = _wear_value("fleet_health_per_second", 0.00033333)
+	for car: Variant in get_assignments().values():
+		car["clean"] = maxf(0.0, float(car.get("clean", 1)) - clean_rate * seconds)
+		car["health"] = maxf(0.0, float(car.get("health", 1)) - health_rate * seconds)
+	_recalc_income()
+	tap_power_changed.emit(get_tap_power())
+	wear_changed.emit()
 
 
 # --- Водители ----------------------------------------------------------------
@@ -567,9 +789,11 @@ func get_driver_power(person: Dictionary) -> float:
 
 ## Машины без водителя, от лучшей к худшей.
 func get_free_garage_cars() -> Array:
-	var free: Array = get_garage()
-	for car_id: Variant in get_assignments().values():
-		free.erase(car_id)
+	var busy: Array = get_assignments().values()
+	var free: Array = []
+	for car: Variant in get_garage():
+		if not busy.any(func(other: Variant) -> bool: return is_same(other, car)):
+			free.append(car)
 	return free
 
 
@@ -624,7 +848,7 @@ func refresh_candidates() -> bool:
 
 
 ## Кто на какой машине: сильнейшим водителям — лучшие машины.
-## Возвращает uid -> id машины.
+## Возвращает uid -> карточку машины из гаража.
 func get_assignments() -> Dictionary:
 	var people: Array = _team.duplicate()
 	people.sort_custom(func(a: Variant, b: Variant) -> bool:
@@ -632,14 +856,20 @@ func get_assignments() -> Dictionary:
 	var cars: Array = get_garage()
 	var result: Dictionary = {}
 	for index in mini(people.size(), cars.size()):
-		result[int(people[index].get("uid", 0))] = str(cars[index])
+		result[int(people[index].get("uid", 0))] = cars[index]
 	return result
 
 
-## Чистый доход водителя в секунду, уже после зарплаты и всех множителей.
+## Чистый доход водителя в секунду на исправной чистой машине этой модели.
 func get_driver_net(person: Dictionary, car_id: String) -> float:
 	var gross: float = get_car_driver_income(car_id) * get_driver_power(person)
 	return gross * (1.0 - get_salary_share(person)) * get_income_multiplier()
+
+
+## То же, но с учётом грязи и поломок конкретной машины.
+func get_driver_net_on(person: Dictionary, car: Dictionary) -> float:
+	var model: String = str(car.get("model", ""))
+	return get_driver_net(person, model) * get_fleet_condition_mult(car)
 
 
 ## Сколько в секунду уходит на зарплаты.
@@ -648,8 +878,9 @@ func get_salary_per_second() -> float:
 	var cars: Dictionary = get_assignments()
 	for raw: Variant in _team:
 		var person: Dictionary = raw
-		var car_id: String = str(cars.get(int(person.get("uid", 0)), ""))
-		total += get_car_driver_income(car_id) * get_driver_power(person) * get_salary_share(person)
+		var car: Dictionary = cars.get(int(person.get("uid", 0)), {})
+		var gross: float = get_car_driver_income(str(car.get("model", ""))) * get_driver_power(person)
+		total += gross * get_salary_share(person) * get_fleet_condition_mult(car)
 	return total * get_income_multiplier()
 
 
@@ -1098,7 +1329,9 @@ func _sum_income() -> float:
 	var cars: Dictionary = get_assignments()
 	for raw: Variant in _team:
 		var person: Dictionary = raw
-		total += get_driver_net(person, str(cars.get(int(person.get("uid", 0)), "")))
+		var car: Dictionary = cars.get(int(person.get("uid", 0)), {})
+		if not car.is_empty():
+			total += get_driver_net_on(person, car)
 	return total
 
 
@@ -1172,7 +1405,9 @@ func save_game() -> void:
 	var data := {
 		"coins": coins,
 		"upgrades": _upgrade_levels.duplicate(),
-		"garage": _garage.duplicate(),
+		"garage": _garage.duplicate(true),
+		"my_clean": _my_clean,
+		"my_health": _my_health,
 		"garage_level": _garage_level,
 		"team": _team.duplicate(true),
 		"candidates": _candidates.duplicate(true),
@@ -1231,6 +1466,8 @@ func load_game() -> void:
 	_done_achievements = _read_id_set(data.get("achievements", []))
 	_last_daily_day = maxi(0, int(data.get("last_daily_day", 0)))
 	_load_car(data)
+	_my_clean = clampf(float(data.get("my_clean", 1.0)), 0.0, 1.0)
+	_my_health = clampf(float(data.get("my_health", 1.0)), 0.0, 1.0)
 	_load_staff(data)
 	company_name = str(data.get("company_name", "")).strip_edges().substr(0, COMPANY_NAME_MAX)
 	_sync_reputation()
@@ -1255,8 +1492,18 @@ func _load_staff(data: Dictionary) -> void:
 	var raw_garage: Variant = data.get("garage", [])
 	if typeof(raw_garage) == TYPE_ARRAY:
 		for item: Variant in raw_garage:
-			if _car_index(str(item)) > 0:
-				_garage.append(str(item))
+			# До этапа 3 в гараже лежали просто id моделей.
+			if typeof(item) == TYPE_STRING:
+				if _car_index(str(item)) > 0:
+					_garage.append(_new_car(str(item)))
+				continue
+			if typeof(item) != TYPE_DICTIONARY or _car_index(str(item.get("model", ""))) <= 0:
+				continue
+			_garage.append({
+				"model": str(item.get("model", "")),
+				"clean": clampf(float(item.get("clean", 1)), 0.0, 1.0),
+				"health": clampf(float(item.get("health", 1)), 0.0, 1.0),
+			})
 	_garage_level = clampi(int(data.get("garage_level", 0)), 0, _garage_expansions.size())
 	_team = _read_people(data.get("team", []), true)
 	_candidates = _read_people(data.get("candidates", []), false)
@@ -1513,6 +1760,8 @@ func _read_balance() -> void:
 	_fleet_growth = maxf(1.0, float(data.get("fleet_growth", _fleet_growth)))
 	_trade_in_share = clampf(float(data.get("trade_in_share", _trade_in_share)), 0.0, 1.0)
 	_garage_start = maxi(1, int(data.get("garage_start", _garage_start)))
+	var wear: Variant = data.get("wear", {})
+	_wear = wear if typeof(wear) == TYPE_DICTIONARY else {}
 	var expansions: Variant = data.get("garage_expansions", [])
 	_garage_expansions = expansions if typeof(expansions) == TYPE_ARRAY else []
 

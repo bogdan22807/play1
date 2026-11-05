@@ -62,6 +62,17 @@ var _refresh_button: Button
 var _fleet_rows: Dictionary = {}
 ## Кнопки, которые зависят от денег: [кнопка, Callable проверки].
 var _staff_buttons: Array = []
+## uid водителя -> [Label, карточка водителя, карточка машины]: строки, которые обновляются от износа.
+var _team_wear_rows: Dictionary = {}
+var _fleet_wear_label: Label
+var _wash_fleet_button: Button
+var _repair_fleet_button: Button
+var _my_clean_bar: ProgressBar
+var _my_health_bar: ProgressBar
+var _my_clean_label: Label
+var _my_health_label: Label
+var _wash_me_button: Button
+var _repair_me_button: Button
 var _district_rows: Dictionary = {}
 var _region_rows: Dictionary = {}
 var _competitor_rows: Dictionary = {}
@@ -112,6 +123,7 @@ func _ready() -> void:
 	GameState.offline_reward_ready.connect(_show_offline_popup)
 	GameState.car_changed.connect(_on_car_changed)
 	GameState.garage_changed.connect(_on_drivers_changed)
+	GameState.wear_changed.connect(_on_wear_changed)
 	GameState.company_changed.connect(_on_company_changed)
 	# Сигнал из автозагрузки мог прийти раньше, чем экран подписался. Берём числа ещё раз.
 	_on_coins_changed(GameState.coins)
@@ -128,6 +140,7 @@ func _ready() -> void:
 	_refresh_achievements()
 	_on_car_changed()
 	_on_company_changed(GameState.company_name)
+	_on_wear_changed()
 	for item: Variant in GameState.take_fresh_achievements():
 		if typeof(item) == TYPE_DICTIONARY:
 			var info: Dictionary = item
@@ -312,6 +325,15 @@ func _build_header() -> HBoxContainer:
 
 func _build_tap_page() -> Control:
 	var page := Control.new()
+	var column := VBoxContainer.new()
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.add_theme_constant_override("separation", 16)
+	page.add_child(column)
+	var taxi_holder := Control.new()
+	taxi_holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(taxi_holder)
+	column.add_child(_build_my_car_panel())
+
 	_taxi_button = Button.new()
 	_taxi_button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 	_taxi_button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -319,7 +341,7 @@ func _build_tap_page() -> Control:
 	_style_taxi_button(_taxi_button)
 	_taxi_button.pressed.connect(_on_taxi_pressed)
 	_taxi_button.resized.connect(_on_taxi_resized)
-	page.add_child(_taxi_button)
+	taxi_holder.add_child(_taxi_button)
 	_build_taxi_face(_taxi_button)
 
 	_float_layer = Control.new()
@@ -327,6 +349,150 @@ func _build_tap_page() -> Control:
 	_float_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	page.add_child(_float_layer)
 	return page
+
+
+## Под такси: чистота и состояние своей машины, кнопки мойки и ремонта.
+func _build_my_car_panel() -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	panel.add_child(row)
+	var bars := VBoxContainer.new()
+	bars.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bars.add_theme_constant_override("separation", 6)
+	row.add_child(bars)
+	_my_clean_label = _add_label(bars, "", 26, COLOR_MUTED)
+	_my_clean_bar = _make_bar(Color("4fc3f7"))
+	bars.add_child(_my_clean_bar)
+	_my_health_label = _add_label(bars, "", 26, COLOR_MUTED)
+	_my_health_bar = _make_bar(COLOR_INCOME)
+	bars.add_child(_my_health_bar)
+	var buttons := VBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 10)
+	row.add_child(buttons)
+	_wash_me_button = _make_service_button(_on_wash_me)
+	buttons.add_child(_wash_me_button)
+	_repair_me_button = _make_service_button(_on_repair_me)
+	buttons.add_child(_repair_me_button)
+	return panel
+
+
+func _make_bar(fill_color: Color) -> ProgressBar:
+	var bar := ProgressBar.new()
+	bar.min_value = 0.0
+	bar.max_value = 1.0
+	bar.step = 0.001
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(0, 18)
+	var back := StyleBoxFlat.new()
+	back.bg_color = COLOR_BG
+	back.set_corner_radius_all(9)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = fill_color
+	fill.set_corner_radius_all(9)
+	bar.add_theme_stylebox_override("background", back)
+	bar.add_theme_stylebox_override("fill", fill)
+	return bar
+
+
+func _make_service_button(callback: Callable) -> Button:
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(250, 86)
+	button.focus_mode = Control.FOCUS_NONE
+	_style_buy_button(button)
+	button.add_theme_font_size_override("font_size", 24)
+	button.pressed.connect(callback)
+	return button
+
+
+## Цвет полоски: зелёная — всё хорошо, жёлтая — пора, красная — уже теряем деньги.
+func _wear_color(value: float) -> Color:
+	if value < 0.1:
+		return COLOR_DANGER
+	if value < 0.5:
+		return COLOR_GOLD
+	return COLOR_MUTED
+
+
+func _percent(value: float) -> String:
+	return "%d%%" % int(floorf(value * 100.0 + 0.0001))
+
+
+func _on_wear_changed() -> void:
+	if _my_clean_bar != null:
+		var clean: float = GameState.get_my_clean()
+		var health: float = GameState.get_my_health()
+		_my_clean_bar.value = clean
+		_my_health_bar.value = health
+		_my_clean_label.text = "Чистота %s%s" % [_percent(clean), "  ·  пассажиры морщатся" if clean < 0.5 else ""]
+		_my_clean_label.add_theme_color_override("font_color", _wear_color(clean))
+		var health_note: String = ""
+		if GameState.is_broken(health):
+			health_note = "  ·  сломана, еле едет!"
+		elif health < 0.5:
+			health_note = "  ·  дребезжит"
+		_my_health_label.text = "Состояние %s%s" % [_percent(health), health_note]
+		_my_health_label.add_theme_color_override("font_color", _wear_color(health))
+		var wash: float = GameState.get_my_wash_cost()
+		_wash_me_button.text = "Помыть %s" % GameState.format_money(wash) if wash > 0.0 else "Чистая"
+		_wash_me_button.disabled = not GameState.can_wash_my_car()
+		var repair: float = GameState.get_my_repair_cost()
+		_repair_me_button.text = "Починить %s" % GameState.format_money(repair) if repair > 0.0 else "Целая"
+		_repair_me_button.disabled = not GameState.can_repair_my_car()
+	if _fleet_wear_label != null:
+		var broken: int = GameState.get_broken_count()
+		_fleet_wear_label.text = "Парк: чистота %s  ·  состояние %s%s" % [
+			_percent(GameState.get_fleet_average("clean")),
+			_percent(GameState.get_fleet_average("health")),
+			"  ·  сломано: %d" % broken if broken > 0 else "",
+		]
+		_fleet_wear_label.add_theme_color_override("font_color", COLOR_DANGER if broken > 0 else COLOR_MUTED)
+		var wash_fleet: float = GameState.get_fleet_wash_cost()
+		_wash_fleet_button.text = "Помыть парк\n%s" % GameState.format_money(wash_fleet) if wash_fleet > 0.0 else "Парк\nчистый"
+		_wash_fleet_button.disabled = not GameState.can_wash_fleet()
+		var repair_fleet: float = GameState.get_fleet_repair_cost()
+		_repair_fleet_button.text = "Починить парк\n%s" % GameState.format_money(repair_fleet) if repair_fleet > 0.0 else "Парк\nцелый"
+		_repair_fleet_button.disabled = not GameState.can_repair_fleet()
+		_staff_summary.text = "Команда приносит %s/с  ·  зарплаты %s/с" % [
+			GameState.format_money(GameState.get_income_per_second()),
+			GameState.format_money(GameState.get_salary_per_second()),
+		]
+	for uid: Variant in _team_wear_rows.keys():
+		var entry: Array = _team_wear_rows[uid]
+		var label: Label = entry[0]
+		if is_instance_valid(label):
+			label.text = _team_car_text(entry[1], entry[2])
+			var car: Dictionary = entry[2]
+			label.add_theme_color_override("font_color", COLOR_DANGER if GameState.is_broken(float(car.get("health", 1))) else COLOR_INCOME)
+
+
+func _team_car_text(person: Dictionary, car: Dictionary) -> String:
+	var text: String = "%s  ·  %s/с  ·  зарплата %d%%" % [
+		_car_name(str(car.get("model", ""))),
+		GameState.format_money(GameState.get_driver_net_on(person, car)),
+		int(roundf(GameState.get_salary_share(person) * 100.0)),
+	]
+	var health: float = float(car.get("health", 1))
+	if GameState.is_broken(health):
+		return text + "\nМашина сломана и стоит — почините парк!"
+	return text + "\nЧистота %s  ·  состояние %s" % [_percent(float(car.get("clean", 1))), _percent(health)]
+
+
+func _on_wash_me() -> void:
+	GameState.wash_my_car()
+
+
+func _on_repair_me() -> void:
+	GameState.repair_my_car()
+
+
+func _on_wash_fleet() -> void:
+	GameState.wash_fleet()
+
+
+func _on_repair_fleet() -> void:
+	GameState.repair_fleet()
 
 
 func _build_scroll_page() -> Control:
@@ -1277,6 +1443,25 @@ func _build_driver_rows() -> void:
 	_expand_button = _make_row_button(_on_expand_garage)
 	summary_row.add_child(_expand_button)
 
+	var service := PanelContainer.new()
+	service.add_theme_stylebox_override("panel", _panel_style())
+	_driver_list.add_child(service)
+	var service_box := VBoxContainer.new()
+	service_box.add_theme_constant_override("separation", 10)
+	service.add_child(service_box)
+	_fleet_wear_label = _add_label(service_box, "", 26, COLOR_MUTED)
+	var service_row := HBoxContainer.new()
+	service_row.add_theme_constant_override("separation", 12)
+	service_box.add_child(service_row)
+	_wash_fleet_button = _make_row_button(_on_wash_fleet)
+	_wash_fleet_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_wash_fleet_button.custom_minimum_size = Vector2(0, 100)
+	service_row.add_child(_wash_fleet_button)
+	_repair_fleet_button = _make_row_button(_on_repair_fleet)
+	_repair_fleet_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_repair_fleet_button.custom_minimum_size = Vector2(0, 100)
+	service_row.add_child(_repair_fleet_button)
+
 	_driver_list.add_child(_make_section_title("Команда"))
 	_team_box = VBoxContainer.new()
 	_team_box.add_theme_constant_override("separation", 16)
@@ -1385,6 +1570,7 @@ func _rebuild_staff() -> void:
 	if _team_box == null:
 		return
 	_staff_buttons.clear()
+	_team_wear_rows.clear()
 	for child in _team_box.get_children():
 		child.queue_free()
 	for child in _candidate_box.get_children():
@@ -1401,15 +1587,12 @@ func _rebuild_staff() -> void:
 		var text_box := _make_text_box(row)
 		_add_label(text_box, str(person.get("name", "")), 34)
 		_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
-		var car_id: String = str(cars.get(uid, ""))
-		if car_id == "":
+		var car: Dictionary = cars.get(uid, {})
+		if car.is_empty():
 			_add_label(text_box, "Без машины — купите ещё одну в парк", 26, COLOR_DANGER)
 		else:
-			_add_label(text_box, "%s  ·  %s/с  ·  зарплата %d%%" % [
-				_car_name(car_id),
-				GameState.format_money(GameState.get_driver_net(person, car_id)),
-				int(roundf(GameState.get_salary_share(person) * 100.0)),
-			], 26, COLOR_INCOME)
+			var car_label := _add_label(text_box, "", 26, COLOR_INCOME)
+			_team_wear_rows[uid] = [car_label, person, car]
 		var fire_button := Button.new()
 		fire_button.text = "Уволить"
 		fire_button.custom_minimum_size = Vector2(200, 90)
@@ -1434,9 +1617,10 @@ func _rebuild_staff() -> void:
 		if free_cars.is_empty():
 			_add_label(text_box, "Нет свободной машины в гараже", 26, COLOR_DANGER)
 		else:
+			var free_model: String = str(free_cars[0].get("model", ""))
 			_add_label(text_box, "На «%s» ≈ %s/с  ·  зарплата %d%%" % [
-				_car_name(str(free_cars[0])),
-				GameState.format_money(GameState.get_driver_net(person, str(free_cars[0]))),
+				_car_name(free_model),
+				GameState.format_money(GameState.get_driver_net(person, free_model)),
 				int(roundf(GameState.get_salary_share(person) * 100.0)),
 			], 26, COLOR_INCOME)
 		var hire_button := _make_row_button(_on_hire.bind(index))
@@ -1445,6 +1629,7 @@ func _rebuild_staff() -> void:
 		_staff_buttons.append([hire_button, GameState.can_hire.bind(index)])
 		_candidate_box.add_child(parts[0])
 	_refresh_staff_money()
+	_on_wear_changed()
 
 
 ## Только то, что зависит от денег: доступность кнопок и цены.
@@ -2029,6 +2214,7 @@ func _on_coins_changed(value: float) -> void:
 	_refresh_competitors()
 	_refresh_sell()
 	_refresh_cars()
+	_on_wear_changed()
 
 
 func _on_tap_power_changed(_value: float) -> void:

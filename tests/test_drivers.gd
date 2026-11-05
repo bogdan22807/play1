@@ -45,7 +45,7 @@ func _init() -> void:
 	for p: Variant in gs.get_team():
 		if gs.get_driver_power(p) > gs.get_driver_power(strongest):
 			strongest = p
-	check(cars[int(strongest["uid"])] == "comfort", "сильнейшему — комфорт")
+	check(cars[int(strongest["uid"])]["model"] == "comfort", "сильнейшему — комфорт")
 
 	# Полный гараж: обмен худшей машины.
 	while not gs.is_garage_full():
