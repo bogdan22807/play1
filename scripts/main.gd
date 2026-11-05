@@ -142,6 +142,7 @@ const IslandMap := preload("res://scripts/island_map.gd")
 const BossPortrait := preload("res://scripts/boss_portrait.gd")
 const DuelRope := preload("res://scripts/duel_rope.gd")
 const BattleCity := preload("res://scripts/battle_city.gd")
+const ItemIcon := preload("res://scripts/item_icon.gd")
 var _island_map: Control
 var _selected_island: String = ""
 var _world_progress: Label
@@ -1131,6 +1132,7 @@ func _make_helper_row(info: Dictionary) -> PanelContainer:
 	var helper_id: String = str(info.get("id", ""))
 	var parts: Array = _make_row_panel()
 	var row: HBoxContainer = parts[1]
+	row.add_child(_make_item_icon(helper_id))
 	var text_box := _make_text_box(row)
 	_add_label(text_box, str(info.get("name", helper_id)), 34)
 	_add_label(text_box, str(info.get("description", "")), 26, COLOR_MUTED)
@@ -1367,6 +1369,7 @@ func _make_ad_row(info: Dictionary) -> PanelContainer:
 	var ad_id: String = str(info.get("id", ""))
 	var parts: Array = _make_row_panel()
 	var row: HBoxContainer = parts[1]
+	row.add_child(_make_item_icon(ad_id))
 	var text_box := _make_text_box(row)
 	_add_label(text_box, str(info.get("name", ad_id)), 34)
 	_add_label(text_box, str(info.get("description", "")), 26, COLOR_MUTED)
@@ -2620,6 +2623,7 @@ func _build_garage_rows(list: VBoxContainer) -> void:
 	var summary_row := HBoxContainer.new()
 	summary_row.add_theme_constant_override("separation", 16)
 	summary.add_child(summary_row)
+	summary_row.add_child(_make_item_icon("garage"))
 	var summary_text := VBoxContainer.new()
 	summary_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	summary_row.add_child(summary_text)
@@ -2661,6 +2665,80 @@ func _build_garage_rows(list: VBoxContainer) -> void:
 		var car_id: String = str(info.get("id", ""))
 		if car_id != "":
 			list.add_child(_make_fleet_row(car_id, info))
+
+
+func _make_item_icon(kind: String) -> Control:
+	var icon: Control = ItemIcon.new()
+	icon.kind = kind
+	icon.custom_minimum_size = Vector2(110, 110)
+	return icon
+
+
+## Портрет водителя: внешность выбирается по имени — у одного человека всегда одно лицо.
+## Черты характера видны: соня зевает, гонщик в очках, караоке поёт, жадный с золотым зубом.
+func _make_driver_face(person: Dictionary) -> Control:
+	var face: Control = BossPortrait.new()
+	face.custom_minimum_size = Vector2(110, 110)
+	face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	face.set_look(_driver_look(person))
+	return face
+
+
+const DRIVER_SKINS := ["c98a5a", "b47a4c", "e0b48f", "a8774e", "d9a06b", "8d5a36", "f1c9a0"]
+const DRIVER_HAIR := ["1e1e1e", "2b1a10", "3b2a20", "4e342e", "141414"]
+const DRIVER_BACKS := ["bfe6ff", "c8f0d0", "e6e0ff", "ffd9e3", "d7f2f5", "e8f6e0"]
+const DRIVER_SHIRTS := ["3fa3f5", "2fbf5f", "8b7cf0", "e8434f", "26a69a", "5c6bc0"]
+const FEMALE_HINTS := ["Бабушка", "Тётя", "Пим", "Нок", "Мэй", "Тара"]
+const OLD_HINTS := ["Бабушка", "Дядя", "Дед", "Тётя"]
+
+
+func _driver_look(person: Dictionary) -> Dictionary:
+	var name_text: String = str(person.get("name", ""))
+	var seed_value: int = absi(name_text.hash())
+	var pick := func(list: Array, shift: int) -> String:
+		return str(list[(seed_value >> shift) % list.size()])
+	var female: bool = FEMALE_HINTS.any(func(hint: String) -> bool: return name_text.begins_with(hint))
+	var old: bool = OLD_HINTS.any(func(hint: String) -> bool: return name_text.begins_with(hint))
+	var look: Dictionary = {
+		"bg": pick.call(DRIVER_BACKS, 0),
+		"skin": pick.call(DRIVER_SKINS, 3),
+		"hair_color": "e8e8e8" if old else pick.call(DRIVER_HAIR, 6),
+		"cloth": pick.call(DRIVER_SHIRTS, 9),
+		"collar": "shirt",
+		"mouth": "smile",
+		"female": female,
+	}
+	if female:
+		look["hair"] = "bun" if old else ["long", "bob", "curly_long"][(seed_value >> 12) % 3]
+		look["eyes"] = "lashes"
+		look["lips"] = "c2185b"
+	else:
+		look["hair"] = "bald_sides" if old else ["short", "slick", "messy", "curly"][(seed_value >> 12) % 4]
+		if (seed_value >> 15) % 3 == 0:
+			look["beard"] = "walrus" if old else ["mustache", "stubble"][(seed_value >> 17) % 2]
+		# Половина водителей — в таксистской кепке.
+		if (seed_value >> 19) % 2 == 0:
+			look["hat"] = "cap"
+			look["hat_color"] = "2a2a48"
+	if old:
+		look["glasses"] = "round"
+	match str(person.get("trait", "")):
+		"sleepy":
+			look["eyes"] = "sleepy"
+			look["extra"] = ["zzz"]
+		"racer":
+			look["glasses"] = "goggles"
+			look["mouth"] = "grin"
+		"karaoke":
+			look["mouth"] = "shout"
+		"greedy":
+			look["mouth"] = "grin"
+			look["gold_tooth"] = true
+		"talker":
+			look["mouth"] = "grin"
+		"honest":
+			look["eyes"] = "happy"
+	return look
 
 
 func _make_row_button(callback: Callable) -> Button:
@@ -2760,6 +2838,7 @@ func _rebuild_staff() -> void:
 		var uid: int = int(person.get("uid", 0))
 		var parts: Array = _make_row_panel()
 		var row: HBoxContainer = parts[1]
+		row.add_child(_make_driver_face(person))
 		var text_box := _make_text_box(row)
 		_add_label(text_box, str(person.get("name", "")), 34)
 		_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
@@ -2803,6 +2882,7 @@ func _rebuild_staff() -> void:
 		var person: Dictionary = candidates[index]
 		var parts: Array = _make_row_panel()
 		var row: HBoxContainer = parts[1]
+		row.add_child(_make_driver_face(person))
 		var text_box := _make_text_box(row)
 		_add_label(text_box, str(person.get("name", "")), 34)
 		_add_label(text_box, _person_line(person), 26, COLOR_GOLD)
@@ -2956,6 +3036,7 @@ func _make_upgrade_row(upgrade_id: String, info: Dictionary) -> PanelContainer:
 	row.add_theme_constant_override("separation", 16)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(row)
+	row.add_child(_make_item_icon(upgrade_id))
 
 	var text_box := VBoxContainer.new()
 	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
