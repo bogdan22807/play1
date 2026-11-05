@@ -4,7 +4,7 @@
 // Incrementing CACHE_VERSION will kick off the install event and force
 // previously cached resources to be updated from the network.
 /** @type {string} */
-const CACHE_VERSION = '1793879992|6635983';
+const CACHE_VERSION = '1793880483|6700726';
 /** @type {string} */
 const CACHE_PREFIX = 'Такси Кликер-sw-cache-';
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
