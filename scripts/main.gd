@@ -136,6 +136,8 @@ var _my_health_label: Label
 var _wash_me_button: Button
 var _repair_me_button: Button
 var _district_rows: Dictionary = {}
+## Строка «Ур. 2/5 · доход +12%» у каждого района.
+var _district_levels: Dictionary = {}
 var _region_rows: Dictionary = {}
 var _competitor_rows: Dictionary = {}
 ## Шапка вкладки «Рынок»: сколько конкурентов города выкуплено.
@@ -748,6 +750,11 @@ func _refresh_tap_line() -> void:
 	if next_car != "":
 		gain += " · %s" % _car_name(next_car)
 	var text: String = "Нажмите: %s" % gain if ready else "%s / %s · %s" % [GameState.format_money(GameState.coins), GameState.format_money(cost), gain]
+	var lock: String = GameState.get_tap_level_lock()
+	if lock != "":
+		text = "%s откроется вместе с островом «%s»" % [_car_name(next_car), str(GameState.get_island_info(lock).get("name", ""))]
+		_tap_line_fill.anchor_right = 0.0
+		_tap_line_fill.offset_right = 0.0
 	# Текст и цвет трогаем, только если что-то поменялось: иначе лишняя перерисовка.
 	if text != _tap_line_text:
 		_tap_line_text = text
@@ -952,10 +959,10 @@ func _next_goal() -> Array:
 	var rival: String = GameState.get_active_rival()
 	if rival != "":
 		var boss: String = str(GameState.get_boss(rival).get("name", _rival_name(rival)))
-		var progress: float = GameState.get_duel_progress()
-		if progress < 0.5:
-			return ["Догоните %s: нужно сильнее в %s" % [boss, _ratio_text(1.0 / maxf(progress, 0.0001))], PAGE_MARKET]
-		return ["Догоните %s: вы на %d%% его силы" % [boss, int(progress * 100.0)], PAGE_MARKET]
+		var ratio: float = GameState.get_duel_ratio()
+		if ratio < 1.0:
+			return ["%s сильнее в %s — станьте сильнее, чтобы тянуть канат" % [boss, _ratio_text(1.0 / maxf(ratio, 0.0001))], PAGE_MARKET]
+		return ["Тяните канат с %s: %d%%" % [boss, int(GameState.get_duel_progress() * 100.0)], PAGE_MARKET]
 	if GameState.get_front_island() == "":
 		return ["Все острова ваши — откройте новый на «Карте»", PAGE_CITY]
 	return ["Тапайте по городу и копите на машины получше", -1]
@@ -1447,7 +1454,7 @@ func _build_market_rows() -> void:
 	ladder_box.add_child(_battle_city)
 	_market_status = _add_label(ladder_box, "", 30, COLOR_TEXT)
 	_market_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_add_label(ladder_box, "Бьёмся по очереди: догоните текущего по силе — он сдастся и предложит выкуп.", 24, COLOR_MUTED)
+	_add_label(ladder_box, "Бьёмся по очереди: перетяните канат у текущего (тянется, пока вы в игре и сильнее) — он сдастся и предложит выкуп.", 24, COLOR_MUTED)
 
 	for raw: Variant in GameState.get_competitors():
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
@@ -1965,21 +1972,26 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 			return
 	var mine: float = GameState.get_player_power()
 	var theirs: float = GameState.get_competitor_power(id)
+	var ratio: float = mine / maxf(theirs, 0.001)
+	var rope: int = int(GameState.get_duel_progress() * 100.0)
 	_col(status, COLOR_TEXT)
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	if theirs <= 0.0 or mine >= theirs:
-		status.text = "Вы догнали! Сейчас сдадутся"
-	elif theirs / maxf(mine, 0.001) >= 1.5:
-		status.text = "Нужно стать сильнее в %s" % _ratio_text(theirs / maxf(mine, 0.001))
+	if ratio < 1.0:
+		status.text = "Канат %d%% · они сильнее в %s, канат ползёт к ним" % [rope, _ratio_text(1.0 / maxf(ratio, 0.0001))]
+		_col(status, COLOR_DANGER)
 	else:
-		status.text = "Осталось +%d%% силы!" % maxi(1, int(ceilf((theirs / maxf(mine, 0.001) - 1.0) * 100.0)))
-	bar.set("ratio", mine / maxf(theirs, 0.001))
+		var eta: int = GameState.get_rope_eta()
+		status.text = "Канат %d%% · победа через %s игры" % [rope, _wait_text(eta)] if eta >= 0 else "Канат %d%%" % rope
+		if ratio < 2.0:
+			status.text += "\nСтаньте сильнее вдвое — потянете в полную силу"
+	bar.set("ratio", ratio)
+	bar.set("progress", GameState.get_duel_progress())
 	bar.set("player_model", GameState.get_car_id())
 	powers.text = "Вы %s/с  —  %s %s/с" % [GameState.format_money(mine), short_name, GameState.format_money(theirs)]
 	var tips: PackedStringArray = PackedStringArray()
-	tips.append("Сила — это доход в секунду плюс заказы с тапов.")
+	tips.append("Канат тянется, только пока вы в игре: чем вы сильнее, тем быстрее (вдвое сильнее — полная скорость). Сила — доход в секунду плюс заказы с тапов.")
 	if GameState.get_active_ad().is_empty():
-		tips.append("Рекламная кампания поднимает доход, а с ним и силу — обгоните на ней, и победа засчитается.")
+		tips.append("Рекламная кампания поднимает силу — канат пойдёт быстрее.")
 	tips.append("Пакости ослабляют соперника, но могут поймать.")
 	hint.text = " ".join(tips)
 	var notes: PackedStringArray = PackedStringArray()
@@ -2034,9 +2046,12 @@ func _ad_duel_hint(ad_id: String) -> String:
 		if str(raw.get("id", "")) == ad_id:
 			boost = float(raw.get("boost", 0))
 	var short_name: String = _rival_name(rival_id).replace("Таксопарк ", "")
-	if GameState.get_player_power() * (1.0 + boost) >= GameState.get_competitor_power(rival_id):
-		return "С ней вы обгоните %s — он сдастся!" % short_name
-	return "Обогнать %s пока не хватит, но доход вырастет." % short_name
+	var with_ad: float = GameState.get_player_power() * (1.0 + boost) / maxf(0.001, GameState.get_competitor_power(rival_id))
+	if GameState.get_duel_ratio() < 1.0 and with_ad >= 1.0:
+		return "С ней вы сильнее %s — канат пойдёт к вам!" % short_name
+	if with_ad >= 1.0:
+		return "С ней канат с %s пойдёт быстрее." % short_name
+	return "Перетянуть %s пока не хватит, но доход вырастет." % short_name
 
 
 func _rival_name(competitor_id: String) -> String:
@@ -2537,10 +2552,9 @@ func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer
 	_col(description, COLOR_MUTED)
 	text_box.add_child(description)
 
-	var bonus: float = float(info.get("income_bonus", 0))
 	var bonus_label := Label.new()
-	bonus_label.text = "Доход +%s%%" % GameState.format_number(bonus * 100.0)
 	bonus_label.add_theme_font_size_override("font_size", 26)
+	_district_levels[district_id] = bonus_label
 	_col(bonus_label, COLOR_INCOME)
 	text_box.add_child(bonus_label)
 
@@ -2631,12 +2645,21 @@ func _refresh_districts() -> void:
 	for district_id: Variant in _district_rows.keys():
 		var open_button: Button = _district_rows[district_id]
 		var id := str(district_id)
-		if GameState.is_district_open(id):
-			open_button.text = "Открыт"
+		var level: int = GameState.get_district_level(id)
+		var max_level: int = GameState.get_district_max_level(id)
+		var step: int = int(roundf(float(GameState._find_district(id).get("income_pct", 0)) * 100.0))
+		var level_label: Label = _district_levels.get(id)
+		if level_label != null:
+			if level == 0:
+				level_label.text = "Каждый уровень: доход +%d%%" % step
+			else:
+				level_label.text = "Ур. %d/%d · доход +%d%%" % [level, max_level, int(roundf(GameState.get_district_bonus(id) * 100.0))]
+		if GameState.is_district_maxed(id):
+			open_button.text = "Максимум"
 			open_button.disabled = true
 		else:
 			var cost: float = GameState.get_district_cost(id)
-			open_button.text = "Открыть\n%s" % GameState.format_money(cost)
+			open_button.text = "%s\n+%d%% · %s" % ["Открыть" if level == 0 else "Ур. %d" % (level + 1), step, GameState.format_money(cost)]
 			open_button.disabled = not GameState.can_open_district(id)
 
 
@@ -3281,6 +3304,11 @@ func _refresh_staff_money() -> void:
 		else:
 			button.text = "В парк\n%s" % price
 			note.text = ""
+		var lock: String = GameState.get_car_lock(id)
+		if lock != "":
+			var island: Dictionary = GameState.get_island_info(lock)
+			button.text = "Закрыто"
+			note.text = "Откроется вместе с островом «%s» (%s) — откройте его на «Карте»" % [str(island.get("name", "")), str(island.get("city", ""))]
 		button.disabled = not GameState.can_buy_fleet(id)
 	_refresh_candidate_timer()
 
@@ -4242,13 +4270,26 @@ func _on_reputation_changed(_value: int) -> void:
 	_refresh_achievements()
 
 
+func _find_upgrade(upgrade_id: String) -> Dictionary:
+	for raw: Variant in GameState.get_upgrades():
+		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) == upgrade_id:
+			return raw
+	return {}
+
+
 func _refresh_upgrades() -> void:
 	for upgrade_id: Variant in _upgrade_rows.keys():
 		var row: Dictionary = _upgrade_rows[upgrade_id]
 		var level_label: Label = row["level"]
 		var buy_button: Button = row["button"]
 		var id := str(upgrade_id)
-		level_label.text = "Уровень: %d" % GameState.get_upgrade_level(id)
-		var cost: float = GameState.get_upgrade_cost(id)
-		buy_button.text = "Купить\n%s" % GameState.format_money(cost)
-		buy_button.disabled = not GameState.can_buy_upgrade(id)
+		var level: int = GameState.get_upgrade_level(id)
+		var step: int = int(roundf(float(_find_upgrade(id).get("tap_pct", 0)) * 100.0))
+		level_label.text = "Ур. %d/%d · тап +%d%%" % [level, GameState.get_upgrade_max_level(id), level * step]
+		if GameState.is_upgrade_maxed(id):
+			buy_button.text = "Максимум"
+			buy_button.disabled = true
+		else:
+			var cost: float = GameState.get_upgrade_cost(id)
+			buy_button.text = "+%d%% тапа\n%s" % [step, GameState.format_money(cost)]
+			buy_button.disabled = not GameState.can_buy_upgrade(id)

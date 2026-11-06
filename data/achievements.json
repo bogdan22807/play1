@@ -282,28 +282,28 @@
     "id": "known_name",
     "name": "Имя на слуху",
     "kind": "reputation",
-    "need": 10,
+    "need": 100,
     "reward_coins": 150,
     "reward_reputation": 0,
-    "description": "Наберите 10 репутации"
+    "description": "Наберите 100 репутации"
   },
   {
     "id": "famous",
     "name": "Звезда района",
     "kind": "reputation",
-    "need": 500,
+    "need": 5000,
     "reward_coins": 20000,
     "reward_reputation": 0,
-    "description": "Наберите 500 репутации"
+    "description": "Наберите 5 000 репутации"
   },
   {
     "id": "legend",
     "name": "Легенда города",
     "kind": "reputation",
-    "need": 2000,
+    "need": 50000,
     "reward_coins": 5000000.0,
     "reward_reputation": 0,
-    "description": "Наберите 2 000 репутации"
+    "description": "Наберите 50 000 репутации"
   },
   {
     "id": "five_upgrades",
@@ -318,10 +318,10 @@
     "id": "thirty_upgrades",
     "name": "Тюнинг-ателье",
     "kind": "upgrades",
-    "need": 30,
+    "need": 25,
     "reward_coins": 50000,
     "reward_reputation": 0,
-    "description": "Купите 30 уровней тюнинга"
+    "description": "Купите все 25 уровней тюнинга"
   },
   {
     "id": "boss",
@@ -354,18 +354,18 @@
     "id": "franchise_ten",
     "name": "Сеть франшиз",
     "kind": "franchise",
-    "need": 10,
+    "need": 3,
     "reward_coins": 100000000.0,
     "reward_reputation": 0,
-    "description": "Доведите франшизу до ×10"
+    "description": "Доведите франшизу до ×3"
   },
   {
     "id": "franchise_fifty",
     "name": "Империя",
     "kind": "franchise",
-    "need": 50,
+    "need": 5,
     "reward_coins": 1000000000000.0,
     "reward_reputation": 0,
-    "description": "Доведите франшизу до ×50"
+    "description": "Доведите франшизу до ×5"
   }
 ]

@@ -143,6 +143,9 @@ var _trick_ready: Dictionary = {}
 var _surrendered: Dictionary = {}
 ## id конкурента -> сколько секунд игры с ним идёт дуэль (от этого он растёт).
 var _rival_age: Dictionary = {}
+## Канат дуэли: id соперника -> 0..1. 1 — перетянули, соперник сдаётся.
+## Двигается только пока игра открыта: дуэль выигрывают игрой, а не ночью.
+var _rope: Dictionary = {}
 ## С кем шла дуэль в прошлую секунду: сменился соперник — заводим таймер его первого хода.
 var _duel_rival: String = ""
 ## Секунд игры до следующего ответного хода соперника.
@@ -302,23 +305,32 @@ func tap() -> float:
 	return gained
 
 
-## Плоская часть тапа из улучшений. Множители районов на неё ещё не надеты.
-func get_flat_tap() -> float:
-	var power: float = BASE_TAP_POWER
+## Тюнинг: каждый уровень любой детали даёт одинаковые +tap_pct к тапу (обычно +10%).
+## Одинаковый бонус за уровень — значит, цена честно показывает, что выгоднее.
+func get_tuning_mult() -> float:
+	var bonus: float = 0.0
 	for raw: Variant in _upgrade_defs:
 		if typeof(raw) != TYPE_DICTIONARY:
 			continue
 		var info: Dictionary = raw
-		var upgrade_id: String = str(info.get("id", ""))
-		var bonus: float = float(info.get("tap_bonus", 0))
-		power += bonus * float(get_upgrade_level(upgrade_id))
-	return power
+		bonus += float(info.get("tap_pct", 0)) * float(get_upgrade_level(str(info.get("id", ""))))
+	return 1.0 + bonus
+
+
+## Тап без множителей дохода: база × тюнинг.
+func get_flat_tap() -> float:
+	return BASE_TAP_POWER * get_tuning_mult()
+
+
+## Часть тапа от дохода (tap_from_income) тоже растёт от тюнинга: иначе к середине игры тюнинг бесполезен.
+func _tap_income_part() -> float:
+	return get_income_per_second() * _tap_from_income * get_tuning_mult()
 
 
 ## Сила тапа: улучшения × машина (минус аренда) × множители плюс доля дохода в секунду.
 func get_tap_power() -> float:
 	var ride: float = get_ride_value() * get_my_condition_mult()
-	return ride + get_income_per_second() * _tap_from_income
+	return ride + _tap_income_part()
 
 
 ## Сколько приносит поездка на исправной чистой машине (после аренды и множителей).
@@ -418,7 +430,26 @@ func get_next_level_car() -> String:
 
 
 func can_buy_tap_level() -> bool:
-	return coins + 0.001 >= get_tap_level_cost()
+	return get_tap_level_lock() == "" and coins + 0.001 >= get_tap_level_cost()
+
+
+## Остров, который нужно открыть ради следующего уровня (его машина там продаётся). Пусто — можно.
+func get_tap_level_lock() -> String:
+	var car: Dictionary = _car_defs[_car_index_for_level(_tap_level + 1)]
+	return get_car_lock(str(car.get("id", "")))
+
+
+## Машины новых классов продаются только на своих островах: бизнес — в Париже, электро — в Найроби…
+## Возвращает id острова, который ещё закрыт; пусто — машина доступна.
+func get_car_lock(car_id: String) -> String:
+	var island: String = str(_find_def(_car_defs, car_id).get("unlock_island", ""))
+	if island == "" or is_region_open(island):
+		return ""
+	return island
+
+
+func is_car_unlocked(car_id: String) -> bool:
+	return get_car_lock(car_id) == ""
 
 
 func buy_tap_level() -> bool:
@@ -507,6 +538,14 @@ func get_upgrade_level(upgrade_id: String) -> int:
 	return int(_upgrade_levels.get(upgrade_id, 0))
 
 
+func get_upgrade_max_level(upgrade_id: String) -> int:
+	return int(_find_def(_upgrade_defs, upgrade_id).get("max_level", 5))
+
+
+func is_upgrade_maxed(upgrade_id: String) -> bool:
+	return get_upgrade_level(upgrade_id) >= get_upgrade_max_level(upgrade_id)
+
+
 ## Цена следующего уровня. Каждый уровень дороже предыдущего примерно в 1.15 раза.
 func get_upgrade_cost(upgrade_id: String) -> float:
 	var info: Dictionary = _find_def(_upgrade_defs, upgrade_id)
@@ -518,6 +557,8 @@ func get_upgrade_cost(upgrade_id: String) -> float:
 
 
 func can_buy_upgrade(upgrade_id: String) -> bool:
+	if is_upgrade_maxed(upgrade_id):
+		return false
 	var cost: float = get_upgrade_cost(upgrade_id)
 	return cost > 0.0 and coins + 0.001 >= cost
 
@@ -673,7 +714,7 @@ func get_fleet_cost(car_id: String) -> float:
 
 
 func can_buy_fleet(car_id: String) -> bool:
-	if _car_index(car_id) <= 0:
+	if _car_index(car_id) <= 0 or not is_car_unlocked(car_id):
 		return false
 	if is_garage_full():
 		var worst: String = get_worst_garage_car()
@@ -1485,16 +1526,36 @@ func get_cities() -> Array:
 
 
 func is_district_open(district_id: String) -> bool:
-	return int(_opened_districts.get(district_id, 0)) > 0
+	return get_district_level(district_id) > 0
 
 
+## Районы растут уровнями: каждый уровень — одинаковые +income_pct к доходу (обычно +6%).
+func get_district_level(district_id: String) -> int:
+	return int(_opened_districts.get(district_id, 0))
+
+
+func get_district_max_level(district_id: String) -> int:
+	return int(_find_district(district_id).get("max_level", 5))
+
+
+func is_district_maxed(district_id: String) -> bool:
+	return get_district_level(district_id) >= get_district_max_level(district_id)
+
+
+func get_district_bonus(district_id: String) -> float:
+	return float(_find_district(district_id).get("income_pct", 0)) * float(get_district_level(district_id))
+
+
+## Цена следующего уровня района.
 func get_district_cost(district_id: String) -> float:
 	var info: Dictionary = _find_district(district_id)
-	return maxf(0.0, float(info.get("cost", 0)))
+	if info.is_empty():
+		return 0.0
+	return _scaled_cost(float(info.get("base_cost", 1)), float(info.get("cost_growth", 3)), get_district_level(district_id))
 
 
 func can_open_district(district_id: String) -> bool:
-	if is_district_open(district_id) or _find_district(district_id).is_empty():
+	if _find_district(district_id).is_empty() or is_district_maxed(district_id):
 		return false
 	return coins + 0.001 >= get_district_cost(district_id)
 
@@ -1505,7 +1566,7 @@ func open_district(district_id: String) -> bool:
 	coins -= get_district_cost(district_id)
 	if coins < 0.0:
 		coins = 0.0
-	_opened_districts[district_id] = 1
+	_opened_districts[district_id] = get_district_level(district_id) + 1
 	_recalc_income()
 	coins_changed.emit(coins)
 	tap_power_changed.emit(get_tap_power())
@@ -1528,9 +1589,7 @@ func _district_multiplier() -> float:
 			if typeof(item) != TYPE_DICTIONARY:
 				continue
 			var info: Dictionary = item
-			var district_id: String = str(info.get("id", ""))
-			if is_district_open(district_id):
-				bonus += float(info.get("income_bonus", 0))
+			bonus += get_district_bonus(str(info.get("id", "")))
 	return 1.0 + bonus
 
 
@@ -1808,15 +1867,40 @@ func get_rival_growth_cap() -> float:
 	return float(_duel_value("growth_cap", 1.6))
 
 
-## Прогресс дуэли 0..1: ваша сила относительно силы соперника. 1 — догнали, он сдаётся.
+## Прогресс дуэли 0..1 — где канат. 1 — перетянули, соперник сдаётся.
 func get_duel_progress() -> float:
 	var rival_id: String = get_active_rival()
 	if rival_id == "":
 		return 1.0
+	return clampf(float(_rope.get(rival_id, 0.0)), 0.0, 1.0)
+
+
+## Во сколько раз вы сильнее активного соперника (меньше 1 — слабее).
+func get_duel_ratio() -> float:
+	var rival_id: String = get_active_rival()
+	if rival_id == "":
+		return 0.0
 	var rival_power: float = get_competitor_power(rival_id)
-	if rival_power <= 0.0:
-		return 1.0
-	return clampf(get_player_power() / rival_power, 0.0, 1.0)
+	return 1000.0 if rival_power <= 0.0 else get_player_power() / rival_power
+
+
+## Скорость каната: доля в секунду. Сильнее вдвое и больше — полная скорость (весь канат
+## за rope_seconds). Чуть сильнее — медленно. Слабее — канат ползёт обратно.
+func get_rope_speed(ratio: float = -1.0) -> float:
+	if ratio < 0.0:
+		ratio = get_duel_ratio()
+	var full: float = 1.0 / maxf(1.0, float(_duel_value("rope_seconds", 720)))
+	if ratio >= 1.0:
+		return full * minf(1.0, 3.0 * (ratio - 1.0) / (ratio + 1.0))
+	return -1.0 / maxf(1.0, float(_duel_value("rope_back_seconds", 1800)))
+
+
+## Сколько секунд игры осталось до победы при нынешней силе. -1 — не тянется.
+func get_rope_eta() -> int:
+	var speed: float = get_rope_speed()
+	if speed <= 0.0:
+		return -1
+	return ceili((1.0 - get_duel_progress()) / speed)
 
 
 ## Сколько конкурентов города уже выкуплено.
@@ -1968,6 +2052,7 @@ func _tick_duel(seconds: float) -> void:
 		_duel_rival = rival_id
 		_reset_attack_timer(true)
 	_rival_age[rival_id] = float(_rival_age.get(rival_id, 0.0)) + seconds
+	_rope[rival_id] = clampf(float(_rope.get(rival_id, 0.0)) + get_rope_speed() * seconds, 0.0, 1.0)
 	if _check_surrender():
 		return
 	_tick_story(rival_id)
@@ -1980,7 +2065,7 @@ func _tick_duel(seconds: float) -> void:
 ## Догнали соперника — он сдаётся и ждёт выкупа. Дуэль переходит к следующему.
 func _check_surrender() -> bool:
 	var rival_id: String = get_active_rival()
-	if rival_id == "" or get_player_power() < get_competitor_power(rival_id):
+	if rival_id == "" or float(_rope.get(rival_id, 0.0)) < 1.0:
 		return false
 	_surrendered[rival_id] = _surrender_price(rival_id)
 	# Временные эффекты на сдавшемся больше не нужны.
@@ -2259,6 +2344,7 @@ func _reset_market() -> void:
 	_trick_ready.clear()
 	_surrendered.clear()
 	_rival_age.clear()
+	_rope.clear()
 	_duel_rival = ""
 	_rival_attack_in = 0.0
 	_ad = {}
@@ -2563,6 +2649,7 @@ func save_game() -> void:
 		"trick_ready": _trick_ready.duplicate(),
 		"surrendered": _surrendered.duplicate(),
 		"rival_age": _rival_age.duplicate(),
+		"rope": _rope.duplicate(),
 		"duel_rival": _duel_rival,
 		"rival_attack_in": _rival_attack_in,
 		"story_seen": _story_seen.duplicate(true),
@@ -2602,6 +2689,9 @@ func load_game() -> void:
 	var data: Dictionary = parsed
 	coins = maxf(0.0, float(data.get("coins", 0)))
 	_upgrade_levels = _read_count_dict(data.get("upgrades", {}))
+	# Старые сохранения: раньше уровни тюнинга были без потолка, теперь максимум 5.
+	for upgrade_id: Variant in _upgrade_levels.keys():
+		_upgrade_levels[upgrade_id] = mini(int(_upgrade_levels[upgrade_id]), get_upgrade_max_level(str(upgrade_id)))
 	_opened_districts = _read_count_dict(data.get("districts", {}))
 	_opened_regions = _read_count_dict(data.get("regions", {}))
 	_owned_competitors = _read_count_dict(data.get("competitors", {}))
@@ -2659,6 +2749,7 @@ func _load_market(data: Dictionary) -> void:
 	_trick_ready = _read_unix_dict(data.get("trick_ready", {}))
 	_surrendered = _read_float_dict(data.get("surrendered", {}))
 	_rival_age = _read_float_dict(data.get("rival_age", {}))
+	_rope = _read_float_dict(data.get("rope", {}))
 	_duel_rival = str(data.get("duel_rival", ""))
 	_rival_attack_in = maxf(0.0, float(data.get("rival_attack_in", 0.0)))
 	_story_seen = {}

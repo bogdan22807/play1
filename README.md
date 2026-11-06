@@ -51,4 +51,4 @@ Branch: `gh-pages`, папка `/ (root)` → Save**. Через минуту с
 
 ## Тесты
 
-См. `tests/README.md`. Баланс: `python3 scripts/balance_sim.py`.
+См. `tests/README.md`. Баланс: `python3 scripts/economy_sim.py` — обычный игрок, 4 захода в день.

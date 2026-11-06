@@ -1,7 +1,7 @@
 extends Control
-## Канат противостояния: вы слева, босс справа. Узел каната ползёт к центру,
-## когда вы догоняете соперника; в центре — финишный флажок, там соперник сдаётся.
-## Шкала логарифмическая, поэтому видно движение даже при отставании в сто раз.
+## Канат противостояния: вы слева, босс справа. Узел стартует в центре и ползёт к вам,
+## пока вы тянете (сильнее соперника); у вашего края — финишный флажок, там соперник сдаётся.
+## Без progress (старый режим) узел показывает соотношение сил по логарифмической шкале.
 
 const Portrait := preload("res://scripts/boss_portrait.gd")
 const CarArt := preload("res://scripts/car_art.gd")
@@ -16,6 +16,8 @@ var player_model: String = "old_sedan"
 var rival_color: Color = Color("a0aec8")
 ## Ваша сила / сила соперника (0..1 и больше).
 var ratio: float = 0.0
+## Где канат: 0 — в центре, 1 — перетянули к себе. Меньше 0 — берём по соотношению сил.
+var progress: float = -1.0
 var _shown: float = 0.0
 var _time: float = 0.0
 var _portrait: Control
@@ -37,6 +39,8 @@ func set_rival(look: Dictionary, color: Color) -> void:
 
 ## Узел: 0 — у вас (далеко), 0.5 — центр (догнали).
 func _target() -> float:
+	if progress >= 0.0:
+		return 0.5 - 0.5 * clampf(progress, 0.0, 1.0)
 	if ratio <= 0.0:
 		return 0.0
 	return 0.5 * (1.0 + clampf(log(ratio) / log(10.0) / 2.0, -1.0, 0.0))
@@ -83,8 +87,8 @@ func _draw() -> void:
 	while x < rope_right:
 		draw_line(Vector2(x, y + sag - side * 0.04), Vector2(x + step * 0.5, y + sag + side * 0.04), ROPE_DARK, 2.0)
 		x += step
-	# Финишный флажок в центре.
-	var flag_x: float = middle
+	# Финишный флажок: у вашего края в режиме каната, иначе в центре.
+	var flag_x: float = rope_left + side * 0.05 if progress >= 0.0 else middle
 	draw_line(Vector2(flag_x, y - side * 0.42), Vector2(flag_x, y + side * 0.3), Color("1c2b4d"), 3.0)
 	for row in 2:
 		for col in 3:

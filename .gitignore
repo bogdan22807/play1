@@ -8,3 +8,4 @@ Thumbs.db
 # Собранные игры (APK, exe, веб). .gdignore оставляем: Godot не должен импортировать сборки.
 build/*
 !build/.gdignore
+__pycache__/

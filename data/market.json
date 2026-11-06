@@ -32,7 +32,7 @@
       "id": "flyers",
       "name": "Листовки на рынке",
       "description": "Бабушка Ним раздаёт листовки вместе с манго.",
-      "price_seconds": 60,
+      "price_seconds": 75,
       "min_price": 50,
       "boost": 0.5,
       "duration": 300,
@@ -93,9 +93,9 @@
     }
   ],
   "duel": {
-    "growth_per_hour": 0.25,
-    "growth_cap": 1.6,
-    "price_seconds": 180,
+    "growth_per_hour": 0.0,
+    "growth_cap": 1.0,
+    "price_seconds": 900,
     "first_attack": 300,
     "attack_min": 360,
     "attack_max": 600,
@@ -114,6 +114,8 @@
       "cunning": "{rival} шепнул блогерам, что у «{company}» водители путают право и лево.",
       "family": "{rival} устроил семейную акцию: «Каждому пассажиру — бабушкин суп».",
       "default": "{rival} отвечает ударом."
-    }
+    },
+    "rope_seconds": 720,
+    "rope_back_seconds": 1800
   }
 }

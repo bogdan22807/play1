@@ -8,36 +8,46 @@
         "id": "center",
         "name": "Центр",
         "description": "Короткие поездки и чаевые у кафе.",
-        "cost": 120,
-        "income_bonus": 0.1
+        "base_cost": 100,
+        "cost_growth": 2.5,
+        "income_pct": 0.05,
+        "max_level": 5
       },
       {
         "id": "station",
         "name": "Вокзал",
         "description": "Люди с чемоданами не торгуются.",
-        "cost": 900,
-        "income_bonus": 0.15
+        "base_cost": 20000,
+        "cost_growth": 2.5,
+        "income_pct": 0.08,
+        "max_level": 5
       },
       {
         "id": "airport",
         "name": "Аэропорт",
         "description": "Дальние рейсы и ночные доплаты.",
-        "cost": 7000,
-        "income_bonus": 0.25
+        "base_cost": 400000,
+        "cost_growth": 2.5,
+        "income_pct": 0.12,
+        "max_level": 5
       },
       {
         "id": "sleep",
         "name": "Спальный район",
         "description": "Утром все едут на работу разом.",
-        "cost": 42000,
-        "income_bonus": 0.4
+        "base_cost": 5000000,
+        "cost_growth": 2.5,
+        "income_pct": 0.18,
+        "max_level": 5
       },
       {
         "id": "business",
         "name": "Деловой квартал",
         "description": "Корпоративные счета без сдачи.",
-        "cost": 210000,
-        "income_bonus": 0.75
+        "base_cost": 60000000,
+        "cost_growth": 2.5,
+        "income_pct": 0.25,
+        "max_level": 5
       }
     ]
   }

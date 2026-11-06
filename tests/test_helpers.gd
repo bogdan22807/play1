@@ -25,7 +25,7 @@ func _init() -> void:
 	gs.buy_fleet("old_sedan")
 	gs.hire(0)
 	gs.hire(0)
-	check(is_equal_approx(gs.get_offline_rate(), 0.8), "без диспетчера офлайн 80%")
+	check(is_equal_approx(gs.get_offline_rate(), 0.42), "без диспетчера офлайн 42%%: %s" % gs.get_offline_rate())
 	var base: float = gs.get_income_per_second()
 
 	check(gs.hire_helper("washer") and gs.is_helper_on("washer"), "наняли мойщика")
@@ -63,7 +63,7 @@ func _init() -> void:
 		person["hours"] = 9.0
 	gs._run_helpers(1.0)
 	check(gs.get_tired_count() == 0, "диспетчер сменил уставших")
-	check(is_equal_approx(gs.get_offline_rate(), 1.0), "с диспетчером офлайн 100%")
+	check(is_equal_approx(gs.get_offline_rate(), 0.52), "с диспетчером офлайн 52%%: %s" % gs.get_offline_rate())
 	check(is_equal_approx(gs.get_helper_fee_share(), 0.15), "все трое берут 15%")
 	check(gs.is_achievement_done("boss"), "достижение «Сам себе начальник»")
 
