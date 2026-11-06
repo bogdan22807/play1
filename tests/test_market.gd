@@ -48,26 +48,27 @@ func _init() -> void:
 	gs._tick_market(0.0)
 	gs._tick_market(0.0)
 	check(scenes == ["wolf:intro"], "знакомство с Волком один раз: %s" % str(scenes))
-	# Ослабляем Волка так, чтобы игрок был на 60% его силы (двумя «пакостями» — каждая не больше 95%).
-	var factor: float = gs.get_player_power() / (gs.get_competitor_power("wolf") * 0.6)
-	var cut: float = 1.0 - sqrt(factor)
-	gs._rival_cuts["wolf"] = [
-		{"cut": cut, "until": gs._now() + 100, "source": "a"},
-		{"cut": cut, "until": gs._now() + 100, "source": "b"},
-	]
-	gs._tick_market(0.0)
-	check(scenes.has("wolf:half"), "на половине пути Волк нервничает: %s, прогресс %s" % [str(scenes), gs.get_duel_progress()])
+	# Канат: слабее — не тянется и ползёт назад; сильнее — тянется, вдвое сильнее — в полную силу.
+	check(gs.get_rope_speed(0.5) < 0.0, "слабее — канат ползёт назад")
+	check(gs.get_rope_speed(1.0) == 0.0, "на равных — стоит")
+	check(gs.get_rope_speed(1.5) > 0.0 and gs.get_rope_speed(1.5) < gs.get_rope_speed(2.0), "чуть сильнее — медленнее")
+	check(is_equal_approx(gs.get_rope_speed(2.0), gs.get_rope_speed(10.0)), "вдвое и больше — полная скорость")
+	var full_time: float = 1.0 / gs.get_rope_speed(5.0)
+	check(full_time >= 600.0, "даже при огромном перевесе на соперника — минимум 10 минут игры: %s" % full_time)
+	# Делаем игрока втрое сильнее Волка и тянем.
+	gs._rival_cuts["wolf"] = [{"cut": 0.95, "until": gs._now() + 100000, "source": "a"}]
+	var cut_ok: bool = gs.get_duel_ratio() >= 2.0
+	if not cut_ok:
+		gs._rival_perm["wolf"] = gs.get_player_power() / (gs.get_competitor_power("wolf") * 3.0)
+	check(gs.get_duel_ratio() >= 2.0, "игрок вдвое сильнее Волка: %s" % gs.get_duel_ratio())
+	gs._tick_market(full_time * 0.55)
+	check(scenes.has("wolf:half"), "на половине каната Волк нервничает: %s, канат %s" % [str(scenes), gs.get_duel_progress()])
+	check(gs.get_rival_state("wolf") == "active", "на половине ещё не сдался")
+	check(gs.get_rope_eta() > 0, "видно, сколько ещё тянуть")
 	gs._rival_cuts.clear()
 	gs._rival_perm.clear()
+	gs._rope.clear()
 	gs._surrendered.clear()
-
-	# Соперник растёт, пока идёт дуэль, но не бесконечно.
-	var wolf_start: float = gs.get_competitor_power("wolf")
-	gs._tick_market(3600.0)
-	check(gs.get_competitor_power("wolf") > wolf_start * 1.2, "за час дуэли Волк вырос")
-	check(is_equal_approx(gs.get_competitor_power("lotus"), float(gs._find_def(gs._competitor_defs, "lotus")["power"])), "ждущий не растёт")
-	gs._tick_market(100.0 * 3600.0)
-	check(is_equal_approx(gs.get_rival_growth("wolf"), gs.get_rival_growth_cap()), "рост упирается в потолок")
 	gs._rival_age.clear()
 
 	# Реклама добавляет силы, одна кампания за раз.
@@ -172,6 +173,8 @@ func _init() -> void:
 	gs._rival_perm["wolf"] = 0.00001
 	gs.coins = 0.0
 	gs._tick_market()
+	check(gs.get_rival_state("wolf") == "active", "сила есть, но канат ещё не перетянут — не сдаётся сразу")
+	gs._tick_market(3600.0)
 	check(gs.get_rival_state("wolf") == "surrendered", "Волк сдался")
 	check(surrenders.size() == 1 and str(surrenders[0][1]).contains("Выкуп"), "сообщение о сдаче с ценой")
 	check(gs.get_active_rival() == "lotus", "дуэль перешла к Лотосу")
@@ -188,11 +191,13 @@ func _init() -> void:
 
 	# Сохранение посреди дуэли.
 	gs._rival_age["lotus"] = 1800.0
+	gs._rope["lotus"] = 0.4
 	gs._surrendered["elephant"] = 12345.0
 	gs.save_game()
 	var gs3 := _make_state()
 	await process_frame
 	check(is_equal_approx(float(gs3._rival_age.get("lotus", 0)), 1800.0), "возраст дуэли сохранился")
+	check(is_equal_approx(gs3.get_duel_progress(), 0.4), "канат сохранился")
 	check(gs3.is_rival_surrendered("elephant") and is_equal_approx(gs3.get_competitor_cost("elephant"), 12345.0), "сдавшийся сохранился")
 	gs3.queue_free()
 	gs._surrendered.clear()

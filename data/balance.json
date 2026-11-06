@@ -1,11 +1,11 @@
 {
   "tap_from_income": 0.008,
   "world_market_size": 600000000,
-  "offline_income_rate": 0.8,
+  "offline_income_rate": 0.42,
   "reviews_per_hour": 25,
   "tap_level_first_cost": 40,
   "tap_after_last_mult": 1.6,
-  "fleet_growth": 1.15,
+  "fleet_growth": 1.08,
   "trade_in_share": 0.5,
   "garage_start": 5,
   "garage_expansions": [
@@ -14,15 +14,15 @@
       "add": 5
     },
     {
-      "cost": 400000,
+      "cost": 50000,
       "add": 5
     },
     {
-      "cost": 40000000,
+      "cost": 600000,
       "add": 5
     }
   ],
-  "garage_expansion_growth": 100,
+  "garage_expansion_growth": 12,
   "wear": {
     "fleet_clean_per_second": 0.0016667,
     "fleet_health_per_second": 0.00033333,
@@ -53,6 +53,6 @@
     "mult_per_star": 0.15,
     "ease_per_second": 0.02
   },
-  "franchise_reference": 200000000000.0,
+  "franchise_reference": 50000000000000.0,
   "franchise_weight": 0.5
 }

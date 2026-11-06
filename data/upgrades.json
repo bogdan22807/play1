@@ -2,41 +2,46 @@
   {
     "id": "tires",
     "name": "Новые шины",
-    "description": "Машина лучше держит дорогу. +$0.15 за тап.",
-    "base_cost": 15,
-    "cost_growth": 1.8,
-    "tap_bonus": 0.15
+    "description": "Машина лучше держит дорогу.",
+    "base_cost": 50,
+    "cost_growth": 3,
+    "tap_pct": 0.1,
+    "max_level": 5
   },
   {
     "id": "horn",
     "name": "Громкий сигнал",
-    "description": "Клиенты замечают вас быстрее. +$0.35 за тап.",
-    "base_cost": 100,
-    "cost_growth": 1.8,
-    "tap_bonus": 0.35
+    "description": "Клиенты замечают вас быстрее.",
+    "base_cost": 500,
+    "cost_growth": 3,
+    "tap_pct": 0.1,
+    "max_level": 5
   },
   {
     "id": "seats",
     "name": "Мягкие сиденья",
-    "description": "Пассажиры довольны и дают чаевые. +$0.7 за тап.",
-    "base_cost": 800,
-    "cost_growth": 1.8,
-    "tap_bonus": 0.7
+    "description": "Пассажиры довольны и дают чаевые.",
+    "base_cost": 5000,
+    "cost_growth": 3,
+    "tap_pct": 0.1,
+    "max_level": 5
   },
   {
     "id": "meter",
     "name": "Точный таксометр",
-    "description": "Ни один цент не теряется. +$1.4 за тап.",
-    "base_cost": 7500,
-    "cost_growth": 1.8,
-    "tap_bonus": 1.4
+    "description": "Ни один цент не теряется.",
+    "base_cost": 30000,
+    "cost_growth": 3,
+    "tap_pct": 0.1,
+    "max_level": 5
   },
   {
     "id": "wrap",
     "name": "Яркая оклейка",
-    "description": "Ваше такси видно за квартал. +$3 за тап.",
-    "base_cost": 80000,
-    "cost_growth": 1.8,
-    "tap_bonus": 3
+    "description": "Ваше такси видно за квартал.",
+    "base_cost": 200000,
+    "cost_growth": 3,
+    "tap_pct": 0.1,
+    "max_level": 5
   }
 ]

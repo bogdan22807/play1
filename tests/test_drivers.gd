@@ -54,7 +54,13 @@ func _init() -> void:
 	check(not gs.can_buy_fleet("old_sedan"), "в полный гараж не меняем на такую же")
 	gs.coins = 1e8
 	var before: int = gs.get_fleet_count("old_sedan")
+	check(not gs.can_buy_fleet("business"), "бизнес продаётся только в Париже")
+	check(gs.get_car_lock("business") == "europe", "бизнес ждёт Европу")
+	# Открытая Европа добавила бы гаражу места — для проверки обмена просто снимаем замок.
+	var business_def: Dictionary = gs._find_def(gs._car_defs, "business")
+	business_def["unlock_island"] = ""
 	check(gs.buy_fleet("business"), "обмен на бизнес")
+	business_def["unlock_island"] = "europe"
 	check(gs.get_fleet_count("old_sedan") == before - 1 and gs.get_garage().size() == 5, "седан ушёл в обмен")
 	check(gs.expand_garage() and gs.get_garage_capacity() == 10, "расширили гараж")
 
@@ -84,7 +90,7 @@ func _init() -> void:
 	for step in 10:
 		check(gs2.expand_garage(), "расширение №%d" % (step + 2))
 	check(gs2.get_garage_capacity() == 60, "гараж на 60 мест: %d" % gs2.get_garage_capacity())
-	check(not gs2.get_next_expansion().is_empty() and float(gs2.get_next_expansion()["cost"]) > 1e20, "следующее есть и стоит дорого")
+	check(not gs2.get_next_expansion().is_empty() and float(gs2.get_next_expansion()["cost"]) > 1e12, "следующее есть и стоит дорого")
 	check(is_equal_approx(gs2.get_income_per_second(), gs.get_income_per_second()), "доход после загрузки тот же")
 
 	# Старое сохранение: 3 стажёра и 1 водитель -> деньги назад.
