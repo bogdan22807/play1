@@ -3085,7 +3085,7 @@ func _add_label(box: Container, text: String, font_size: int, color: Color = COL
 
 
 func _stars_text(stars: int) -> String:
-	return "★".repeat(stars) + "☆".repeat(maxi(0, 3 - stars))
+	return "★".repeat(stars) + "☆".repeat(maxi(0, 5 - stars))
 
 
 ## Плюсы и минусы водителя словами: [плюсы, минусы]. Звёзды — опыт, черта — характер.
@@ -3096,40 +3096,21 @@ func _person_effects(person: Dictionary) -> Array:
 	var trait_info: Dictionary = GameState.get_trait_info(str(person.get("trait", "")))
 	var income: float = GameState.get_driver_power(person) - 1.0
 	var rating_delta: float = float(star.get("rating_bonus", 0)) + float(trait_info.get("rating_bonus", 0))
-	var salary: int = int(roundf(GameState.get_salary_share(person) * 100.0))
-	var base_salary: int = int(roundf(float(GameState.get_star_info(1).get("salary", 0.2)) * 100.0))
 	if income > 0.005:
-		pros.append("доход +%d%%" % int(roundf(income * 100.0)))
+		pros.append("доход +%d%% на любой машине" % int(roundf(income * 100.0)))
 	elif income < -0.005:
 		cons.append("доход −%d%%" % int(roundf(-income * 100.0)))
 	if rating_delta > 0.005:
 		pros.append("рейтинг +%s★" % _short_float(rating_delta))
 	elif rating_delta < -0.005:
 		cons.append("рейтинг −%s★" % _short_float(-rating_delta))
-	if salary < base_salary:
-		pros.append("зарплата всего %d%%" % salary)
-	elif salary > base_salary:
-		cons.append("зарплата %d%% выручки" % salary)
 	if pros.is_empty() and cons.is_empty():
-		pros.append("надёжный середнячок, зарплата %d%%" % salary)
+		pros.append("надёжный середнячок")
 	return [pros, cons]
 
 
 func _short_float(value: float) -> String:
 	return ("%.2f" % value).rstrip("0").rstrip(".").replace(".", ",")
-
-
-## Лучшая машина гаража (на ней и считаем пользу кандидата, если свободной нет).
-func _best_garage_model() -> String:
-	var best: String = "old_sedan"
-	var best_income: float = -1.0
-	for car: Variant in GameState.get_garage():
-		var model: String = str(car.get("model", ""))
-		var value: float = GameState.get_car_driver_income(model)
-		if value > best_income:
-			best_income = value
-			best = model
-	return best
 
 
 func _person_line(person: Dictionary) -> String:
@@ -3286,12 +3267,11 @@ func _make_candidate_row(person: Dictionary, index: int, free_model: String) -> 
 		_add_label(text_box, "Плюсы: " + ", ".join(effects[0]), 26, COLOR_INCOME)
 	if not effects[1].is_empty():
 		_add_label(text_box, "Минусы: " + ", ".join(effects[1]), 26, COLOR_DANGER)
-	# Сколько принесёт: на свободной машине, а если её нет — на лучшей машине гаража.
-	var model: String = free_model if free_model != "" else _best_garage_model()
-	var earn: String = "≈ %s/с на «%s»" % [GameState.format_money(GameState.get_driver_net(person, model)), _car_name(model)]
+	# Зарплата — доля выручки, одинаковая на любой машине.
+	var pay: String = "Зарплата: %d%% выручки" % int(roundf(GameState.get_salary_share(person) * 100.0))
 	if free_model == "":
-		earn += " — нужна свободная машина в гараже"
-	_add_label(text_box, earn, 26, COLOR_TEXT if free_model != "" else COLOR_MUTED)
+		pay += " · нужна свободная машина в гараже"
+	_add_label(text_box, pay, 26, COLOR_TEXT if free_model != "" else COLOR_MUTED)
 	var hire_button := _make_row_button(_on_hire.bind(index))
 	hire_button.text = "Нанять\n%s" % GameState.format_money(GameState.get_hire_cost(person))
 	row.add_child(hire_button)

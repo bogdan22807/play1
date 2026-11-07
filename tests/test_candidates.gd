@@ -54,5 +54,13 @@ func _init() -> void:
 	gs.load_game()
 	check(gs.get_candidates().size() == 3 and str(gs.get_candidates()[0]["name"]) != "Новичок", "старые «Новички» заменены")
 	check(genders(gs) == [false, false, true], "и снова двое и одна")
+	# Звёзды 1–5: потолок +40% к доходу и 10% зарплаты, чем выше — тем реже.
+	var best: Dictionary = {"name": "Тест", "stars": 5, "trait": "racer"}
+	check(gs.get_driver_power(best) <= 1.4001 and gs.get_driver_power(best) >= 1.39, "5★ гонщик — ровно +40%%: %s" % gs.get_driver_power(best))
+	check(gs.get_salary_share({"stars": 5, "trait": "greedy"}) <= 0.1001, "зарплата не выше 10%%")
+	var chances: Array = gs._staff["stars"].map(func(s: Variant) -> float: return float(s["chance"]))
+	check(chances.size() == 5, "пять звёзд")
+	for i in range(1, chances.size()):
+		check(chances[i] < chances[i - 1], "чем выше звёзды, тем реже")
 	print("RESULT ", "PASS" if ok else "FAIL")
 	quit()

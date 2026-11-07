@@ -17,7 +17,7 @@
     "tap_mult": 2.5,
     "rent_cost": 60,
     "buy_cost": 1200,
-    "driver_income": 5
+    "driver_income": 4.3
   },
   {
     "id": "city_taxi",
@@ -27,7 +27,7 @@
     "tap_mult": 6,
     "rent_cost": 900,
     "buy_cost": 15000,
-    "driver_income": 25
+    "driver_income": 22
   },
   {
     "id": "comfort",
@@ -37,7 +37,7 @@
     "tap_mult": 15,
     "rent_cost": 12000,
     "buy_cost": 200000,
-    "driver_income": 133
+    "driver_income": 120
   },
   {
     "id": "business",
@@ -47,7 +47,7 @@
     "tap_mult": 40,
     "rent_cost": 150000,
     "buy_cost": 2500000,
-    "driver_income": 833,
+    "driver_income": 720,
     "unlock_island": "europe"
   },
   {
@@ -58,7 +58,7 @@
     "tap_mult": 100,
     "rent_cost": 2000000,
     "buy_cost": 30000000,
-    "driver_income": 5556,
+    "driver_income": 4800,
     "unlock_island": "africa"
   },
   {
@@ -69,7 +69,7 @@
     "tap_mult": 250,
     "rent_cost": 25000000,
     "buy_cost": 400000000,
-    "driver_income": 44444,
+    "driver_income": 39000,
     "unlock_island": "south_america"
   },
   {
@@ -80,7 +80,7 @@
     "tap_mult": 700,
     "rent_cost": 300000000,
     "buy_cost": 5000000000,
-    "driver_income": 347222,
+    "driver_income": 300000,
     "unlock_island": "north_america"
   }
 ]
