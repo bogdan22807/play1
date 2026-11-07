@@ -49,7 +49,7 @@ func _input(event: InputEvent) -> void:
 		if button.pressed:
 			if is_blocked.is_valid() and is_blocked.call():
 				return
-			if scroll.get_global_rect().has_point(button.position):
+			if scroll.get_global_rect().has_point(button.position) and not _on_slider(button.position):
 				_tracking = true
 				_dragging = false
 				_start = button.position
@@ -84,6 +84,15 @@ func _input(event: InputEvent) -> void:
 			_last_time = now
 			_scroll_by(-dy)
 			get_viewport().set_input_as_handled()
+
+
+## Касание, начатое на ползунке (группа no_touch_scroll), отдаём ползунку — иначе его не потянуть.
+func _on_slider(at: Vector2) -> bool:
+	for node: Node in get_tree().get_nodes_in_group("no_touch_scroll"):
+		var control := node as Control
+		if control != null and control.is_visible_in_tree() and control.get_global_rect().grow(10.0).has_point(at):
+			return true
+	return false
 
 
 func _process(delta: float) -> void:
