@@ -47,6 +47,11 @@ var _reputation_label: Label
 var _rep_label: Label
 var _share_label: Label
 const CityView := preload("res://scripts/city_view.gd")
+const MoneyBill := preload("res://scripts/money_bill.gd")
+## Сколько купюр может лететь одновременно — чтобы быстрые тапы не перегружали телефон.
+const MAX_BILLS := 24
+## Каждый N-й тап подряд — касса «ка-чинг» вместо монетки.
+const CASH_EVERY := 12
 const CarIcon := preload("res://scripts/car_icon.gd")
 var _city: Control
 const TouchScroll := preload("res://scripts/touch_scroll.gd")
@@ -70,6 +75,12 @@ var _mentor_tips_button: Button
 var _tap_hint: Label
 var _sfx_tap: AudioStreamPlayer
 var _sfx_buy: AudioStreamPlayer
+var _sfx_cash: AudioStreamPlayer
+var _bills_alive: int = 0
+var _fx_layer: Control
+var _tap_streak: int = 0
+var _last_tap_ms: int = 0
+var _coins_pulse: Tween
 var _sound_on: bool = true
 var _sound_button: Button
 var _music: AudioStreamPlayer
@@ -372,6 +383,11 @@ func _build_ui() -> void:
 	_build_market_rows()
 
 	column.add_child(_build_tab_bar())
+	# Слой эффектов денег: поверх шапки и карточек, но под всплывающими окнами.
+	_fx_layer = Control.new()
+	_fx_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_fx_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_fx_layer)
 	_show_page(PAGE_TAP)
 	_build_mentor()
 	_build_settings_popup()
@@ -3846,35 +3862,92 @@ func _on_collect_offline() -> void:
 	_mentor.on_event("welcome_back")
 
 
-## Над такси всплывает «+N» и тает.
+## Над точкой тапа «выпрыгивает» крупная зелёная сумма, а из неё вылетают купюры
+## и летят в счётчик денег наверху.
 func _spawn_floating_gain(amount: float, at_global: Vector2) -> void:
 	var label := Label.new()
 	label.text = "+%s" % GameState.format_money(amount)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.add_theme_font_size_override("font_size", 56)
-	_col(label, COLOR_GOLD)
-	label.add_theme_constant_override("outline_size", 10)
-	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	label.custom_minimum_size = Vector2(320, 80)
-	_float_layer.add_child(label)
+	label.add_theme_font_size_override("font_size", 68)
+	label.add_theme_color_override("font_color", COLOR_MONEY)
+	label.add_theme_constant_override("outline_size", 16)
+	label.add_theme_color_override("font_outline_color", Color.WHITE)
+	label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.35))
+	label.add_theme_constant_override("shadow_offset_y", 4)
+	label.custom_minimum_size = Vector2(360, 90)
+	label.size = label.custom_minimum_size
+	label.pivot_offset = label.size / 2.0
+	_fx_layer.add_child(label)
 
-	var local: Vector2 = _float_layer.get_global_transform().affine_inverse() * at_global
-	label.position = Vector2(local.x - 160.0 + randf_range(-30.0, 30.0), local.y - 110.0)
+	var local: Vector2 = _fx_layer.get_global_transform().affine_inverse() * at_global
+	# Быстрые тапы раскладываем лесенкой, чтобы цифры не наползали друг на друга.
+	var step: int = _tap_streak % 3
+	label.position = Vector2(local.x - 180.0 + float(step - 1) * 70.0, local.y - 130.0 - float(step) * 46.0)
+	label.scale = Vector2(0.4, 0.4)
 
-	var float_tween := create_tween()
-	float_tween.set_parallel(true)
-	float_tween.tween_property(label, "position:y", label.position.y - 160.0, 0.7) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	float_tween.tween_property(label, "modulate:a", 0.0, 0.7)
-	float_tween.chain().tween_callback(label.queue_free)
+	# Выпрыгнуть, чуть подержаться на виду, уплыть вверх и растаять.
+	var pop := create_tween()
+	pop.tween_property(label, "scale", Vector2(1.18, 1.18), 0.09).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	pop.tween_property(label, "scale", Vector2.ONE, 0.1)
+	var drift := create_tween()
+	drift.set_parallel(true)
+	drift.tween_property(label, "position:y", label.position.y - 150.0, 1.0).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	drift.tween_property(label, "modulate:a", 0.0, 0.35).set_delay(0.65)
+	drift.chain().tween_callback(label.queue_free)
+
+	for index in 3:
+		_spawn_bill(local)
+
+
+## Купюра: разлетается из точки тапа, кружится и летит в счётчик денег.
+func _spawn_bill(from_local: Vector2) -> void:
+	if _bills_alive >= MAX_BILLS or _coins_label == null:
+		return
+	_bills_alive += 1
+	var bill: Control = MoneyBill.new()
+	bill.shade = randf()
+	_fx_layer.add_child(bill)
+	bill.position = from_local - bill.size / 2.0
+	bill.rotation = randf_range(-0.6, 0.6)
+	var burst: Vector2 = Vector2.from_angle(randf_range(-PI * 0.95, -PI * 0.05)) * randf_range(70.0, 140.0)
+	var target_global: Vector2 = _coins_label.get_global_rect().get_center()
+	var target: Vector2 = _fx_layer.get_global_transform().affine_inverse() * target_global - bill.size / 2.0
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(bill, "position", bill.position + burst, 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(bill, "rotation", bill.rotation + randf_range(-2.5, 2.5), 0.7)
+	tween.chain().tween_property(bill, "position", target, randf_range(0.38, 0.5)).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(bill, "scale", Vector2(0.55, 0.55), 0.45)
+	tween.chain().tween_callback(func() -> void:
+		_bills_alive -= 1
+		bill.queue_free()
+		_pulse_coins())
+
+
+## Счётчик денег подпрыгивает, когда в него «влетают» купюры.
+func _pulse_coins() -> void:
+	if _coins_label == null or (_coins_pulse != null and _coins_pulse.is_running()):
+		return
+	_coins_label.pivot_offset = _coins_label.size / 2.0
+	_coins_pulse = create_tween()
+	_coins_pulse.tween_property(_coins_label, "scale", Vector2(1.12, 1.12), 0.06)
+	_coins_pulse.tween_property(_coins_label, "scale", Vector2.ONE, 0.12)
 
 
 func _on_city_tapped(at: Vector2) -> void:
 	var gained: float = GameState.tap()
 	_city.bounce()
+	var now: int = Time.get_ticks_msec()
+	_tap_streak = _tap_streak + 1 if now - _last_tap_ms < 1500 else 1
+	_last_tap_ms = now
 	_spawn_floating_gain(gained, _city.get_global_transform() * at)
-	_play(_sfx_tap, randf_range(0.92, 1.12))
+	# Звук денег: монетка, а на каждом 12-м тапе подряд — касса «ка-чинг».
+	if _tap_streak % CASH_EVERY == 0:
+		_play(_sfx_cash)
+	else:
+		_play(_sfx_tap, randf_range(0.97, 1.05))
 	# Лёгкий отклик в руке. Вместе со звуком выключается в «Ещё».
 	if _sound_on and OS.has_feature("mobile"):
 		Input.vibrate_handheld(12)
@@ -3909,12 +3982,25 @@ func _sync_city() -> void:
 
 # --- Звук ---------------------------------------------------------------------
 
-## Звуки синтезируем сами: короткий «дзынь» тапа и двойной «чинг» покупки. Файлов не нужно.
+## Звуки денег (tools/make_sfx.py): монетка на тап — три варианта вперемешку — и касса.
+## Покупка — синтезированный двойной «чинг».
 func _build_sounds() -> void:
 	_sfx_tap = AudioStreamPlayer.new()
-	_sfx_tap.stream = _make_tone([[780.0, 1180.0, 0.07]], 0.35)
+	var coins := AudioStreamRandomizer.new()
+	for index in 3:
+		var clip: AudioStream = load("res://assets/sfx/coin_%d.wav" % (index + 1))
+		if clip != null:
+			coins.add_stream(-1, clip)
+	coins.random_pitch = 1.0
+	_sfx_tap.stream = coins if coins.streams_count > 0 else _make_tone([[780.0, 1180.0, 0.07]], 0.35)
+	_sfx_tap.volume_db = -4.0
 	_sfx_tap.max_polyphony = 6
 	add_child(_sfx_tap)
+	_sfx_cash = AudioStreamPlayer.new()
+	_sfx_cash.stream = load("res://assets/sfx/cash.wav")
+	_sfx_cash.volume_db = -3.0
+	_sfx_cash.max_polyphony = 2
+	add_child(_sfx_cash)
 	_sfx_buy = AudioStreamPlayer.new()
 	_sfx_buy.stream = _make_tone([[988.0, 988.0, 0.08], [1318.0, 1318.0, 0.16]], 0.3)
 	_sfx_buy.max_polyphony = 3
