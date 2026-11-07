@@ -1332,14 +1332,15 @@ func get_hire_cost(person: Dictionary) -> float:
 func get_salary_share(person: Dictionary) -> float:
 	var share: float = float(get_star_info(int(person.get("stars", 1))).get("salary", 0.2))
 	share += float(get_trait_info(str(person.get("trait", ""))).get("salary_bonus", 0))
-	return clampf(share, 0.0, 0.9)
+	return clampf(share, 0.0, float(_staff.get("max_salary", 0.10)))
 
 
 ## Насколько водитель лучше обычного: звёзды и черта характера.
 func get_driver_power(person: Dictionary) -> float:
 	var mult: float = float(get_star_info(int(person.get("stars", 1))).get("income_mult", 1))
 	mult *= 1.0 + float(get_trait_info(str(person.get("trait", ""))).get("income_bonus", 0))
-	return maxf(0.0, mult)
+	# Бонус водителя одинаковый на любой машине; максимум +40% (5 звёзд и лучшая черта).
+	return clampf(mult, 0.0, 1.0 + float(_staff.get("max_income_bonus", 0.4)))
 
 
 ## Машины без водителя, от лучшей к худшей.
@@ -2877,7 +2878,7 @@ func _read_people(raw: Variant, need_uid: bool) -> Array:
 			continue
 		var person: Dictionary = {
 			"name": str(item.get("name", "Водитель")),
-			"stars": clampi(int(item.get("stars", 1)), 1, 3),
+			"stars": clampi(int(item.get("stars", 1)), 1, 5),
 			"trait": str(item.get("trait", "none")),
 		}
 		if item.has("female"):

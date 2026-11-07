@@ -33,7 +33,7 @@ func _init() -> void:
 	check(not gs.can_hire(0), "второй не влезет — нет машины")
 
 	var person: Dictionary = gs.get_team()[0]
-	var expect: float = 5.0 * gs.get_driver_power(person) * (1.0 - gs.get_salary_share(person)) * gs.get_income_multiplier()
+	var expect: float = float(gs._find_def(gs._car_defs, "old_sedan")["driver_income"]) * gs.get_driver_power(person) * (1.0 - gs.get_salary_share(person)) * gs.get_income_multiplier()
 	check(is_equal_approx(gs.get_income_per_second(), expect), "доход = машина × сила × (1 − зарплата)")
 	check(gs.get_salary_per_second() > 0.0, "зарплата считается")
 
