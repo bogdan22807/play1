@@ -50,7 +50,7 @@ const CityView := preload("res://scripts/city_view.gd")
 const MoneyBill := preload("res://scripts/money_bill.gd")
 ## Сколько купюр может лететь одновременно — чтобы быстрые тапы не перегружали телефон.
 const MAX_BILLS := 24
-## Каждый N-й тап подряд — касса «ка-чинг» вместо монетки.
+## Каждый N-й тап подряд — пересчёт пачки вместо одного шелеста.
 const CASH_EVERY := 12
 const CarIcon := preload("res://scripts/car_icon.gd")
 var _city: Control
@@ -3943,7 +3943,7 @@ func _on_city_tapped(at: Vector2) -> void:
 	_tap_streak = _tap_streak + 1 if now - _last_tap_ms < 1500 else 1
 	_last_tap_ms = now
 	_spawn_floating_gain(gained, _city.get_global_transform() * at)
-	# Звук денег: монетка, а на каждом 12-м тапе подряд — касса «ка-чинг».
+	# Звук денег: шелест купюры, а на каждом 12-м тапе подряд — пересчёт пачки «фррррт».
 	if _tap_streak % CASH_EVERY == 0:
 		_play(_sfx_cash)
 	else:
@@ -3982,13 +3982,14 @@ func _sync_city() -> void:
 
 # --- Звук ---------------------------------------------------------------------
 
-## Звуки денег (tools/make_sfx.py): монетка на тап — три варианта вперемешку — и касса.
+## Звуки денег (tools/make_sfx.py): шелест купюры на тап — четыре варианта вперемешку —
+## и пересчёт пачки.
 ## Покупка — синтезированный двойной «чинг».
 func _build_sounds() -> void:
 	_sfx_tap = AudioStreamPlayer.new()
 	var coins := AudioStreamRandomizer.new()
-	for index in 3:
-		var clip: AudioStream = load("res://assets/sfx/coin_%d.wav" % (index + 1))
+	for index in 4:
+		var clip: AudioStream = load("res://assets/sfx/bill_%d.wav" % (index + 1))
 		if clip != null:
 			coins.add_stream(-1, clip)
 	coins.random_pitch = 1.0
@@ -3997,7 +3998,7 @@ func _build_sounds() -> void:
 	_sfx_tap.max_polyphony = 6
 	add_child(_sfx_tap)
 	_sfx_cash = AudioStreamPlayer.new()
-	_sfx_cash.stream = load("res://assets/sfx/cash.wav")
+	_sfx_cash.stream = load("res://assets/sfx/count.wav")
 	_sfx_cash.volume_db = -3.0
 	_sfx_cash.max_polyphony = 2
 	add_child(_sfx_cash)
