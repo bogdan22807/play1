@@ -4010,9 +4010,9 @@ func _build_sounds() -> void:
 	if config.load(SETTINGS_PATH) == OK:
 		_sound_on = bool(config.get_value("audio", "sound", true))
 		_music_on = bool(config.get_value("audio", "music", true))
-	# Фоновая мелодия «Бангкокский бриз» (tools/make_music.py), тихо и по кругу.
+	# Фоновая мелодия «Тихий вечер» (tools/make_music.py): нежная, 2 минуты без повторов, по кругу.
 	_music = AudioStreamPlayer.new()
-	var track: AudioStreamOggVorbis = load("res://assets/music/bangkok_breeze.ogg")
+	var track: AudioStreamOggVorbis = load("res://assets/music/quiet_evening.ogg")
 	if track != null:
 		track.loop = true
 		_music.stream = track
