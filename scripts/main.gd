@@ -4117,16 +4117,18 @@ func _build_sounds() -> void:
 		_music_on = bool(config.get_value("audio", "music", true))
 		_music_volume = clampf(float(config.get_value("audio", "music_volume", 0.8)), 0.0, 1.0)
 		_sound_volume = clampf(float(config.get_value("audio", "sound_volume", 0.8)), 0.0, 1.0)
-	# Отдельные шины, чтобы ползунок менял громкость всех звуков разом.
-	var music_bus: int = _ensure_bus("Music")
-	var sfx_bus: int = _ensure_bus("SFX")
+	# Отдельные шины (default_bus_layout.tres), чтобы ползунок менял громкость всех звуков разом.
+	# Шины заданы в файле проекта, а не создаются в игре: в веб-версии шины, созданные на ходу,
+	# не доходят до звука — из-за этого пропадала музыка.
+	var music_bus: int = AudioServer.get_bus_index("Music")
+	var sfx_bus: int = AudioServer.get_bus_index("SFX")
 	for player: AudioStreamPlayer in [_sfx_tap, _sfx_cash, _sfx_buy]:
-		player.bus = "SFX"
+		player.bus = "SFX" if sfx_bus != -1 else "Master"
 	_apply_volume(music_bus, _music_volume)
 	_apply_volume(sfx_bus, _sound_volume)
 	# Фоновая мелодия «Бангкокский бриз» (tools/make_music.py), тихо и по кругу.
 	_music = AudioStreamPlayer.new()
-	_music.bus = "Music"
+	_music.bus = "Music" if music_bus != -1 else "Master"
 	var track: AudioStreamOggVorbis = load("res://assets/music/bangkok_breeze.ogg")
 	if track != null:
 		track.loop = true
@@ -4168,18 +4170,14 @@ func _play(player: AudioStreamPlayer, pitch: float = 1.0) -> void:
 	player.play()
 
 
-func _ensure_bus(bus_name: String) -> int:
-	var index: int = AudioServer.get_bus_index(bus_name)
-	if index == -1:
-		AudioServer.add_bus()
-		index = AudioServer.bus_count - 1
-		AudioServer.set_bus_name(index, bus_name)
-		AudioServer.set_bus_send(index, "Master")
-	return index
-
-
 ## Громкость 0..1 по слуху: квадрат делает середину ползунка «вполовину тише».
+## Нет шины (старая раскладка) — громкость ставим прямо плеерам.
 func _apply_volume(bus: int, volume: float) -> void:
+	if bus == -1:
+		var db: float = linear_to_db(maxf(volume * volume, 0.0001))
+		if _music != null and _music.bus == "Master":
+			_music.volume_db = -9.0 + db
+		return
 	AudioServer.set_bus_mute(bus, volume <= 0.001)
 	AudioServer.set_bus_volume_db(bus, linear_to_db(maxf(volume * volume, 0.0001)))
 
