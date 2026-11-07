@@ -85,6 +85,13 @@ var _sound_on: bool = true
 var _sound_button: Button
 var _music: AudioStreamPlayer
 var _music_on: bool = true
+## Громкость 0..1 — ползунки в «Ещё». Работают через шины «Music» и «SFX».
+var _music_volume: float = 0.8
+var _sound_volume: float = 0.8
+var _music_slider: HSlider
+var _sound_slider: HSlider
+var _music_percent: Label
+var _sound_percent: Label
 var _music_button: Button
 var _last_coins: float = -1.0
 const SETTINGS_PATH := "user://settings.cfg"
@@ -2403,8 +2410,17 @@ func _build_more_rows() -> void:
 		_more_tiles[tile[0]] = _make_stat_tile(grid, str(tile[1]), str(tile[2]))
 
 	_more_list.add_child(_make_section_title("Настройки"))
-	_music_button = _make_setting_row("music", "Музыка", "Спокойная мелодия на фоне", _toggle_music)
-	_sound_button = _make_setting_row("sound", "Звук и вибрация", "Звон тапов и покупок", _toggle_sound)
+	var music_parts: Array = _make_volume_row("music", "Музыка", "Мелодия на фоне", _toggle_music, _on_music_volume)
+	_music_button = music_parts[0]
+	_music_slider = music_parts[1]
+	_music_percent = music_parts[2]
+	var sound_parts: Array = _make_volume_row("sound", "Звук и вибрация", "Шелест денег и покупки", _toggle_sound, _on_sound_volume)
+	_sound_button = sound_parts[0]
+	_sound_slider = sound_parts[1]
+	_sound_percent = sound_parts[2]
+	_sound_slider.drag_ended.connect(func(_changed: bool) -> void: _play(_sfx_tap))
+	_music_slider.set_value_no_signal(_music_volume * 100.0)
+	_sound_slider.set_value_no_signal(_sound_volume * 100.0)
 	_refresh_sound_button()
 	_mentor_tips_button = _make_setting_row("", "Советы дяди Буна", "Шутки и подсказки деда", _toggle_mentor_tips)
 
@@ -2439,6 +2455,95 @@ func _make_setting_row(icon_kind: String, title: String, hint: String, callback:
 	row.add_child(toggle)
 	_more_list.add_child(parts[0])
 	return toggle
+
+
+## Строка громкости: картинка, название, проценты, «Вкл/Выкл» и ползунок во всю ширину.
+## Возвращает [переключатель, ползунок, подпись с процентами].
+func _make_volume_row(icon_kind: String, title: String, hint: String, toggle_cb: Callable, volume_cb: Callable) -> Array:
+	var parts: Array = _make_row_panel()
+	var row: HBoxContainer = parts[1]
+	# Ползунок — под строкой: переносим строку в столбик.
+	var holder: Container = row.get_parent()
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	holder.remove_child(row)
+	holder.add_child(column)
+	column.add_child(row)
+	row.add_child(_make_item_icon(icon_kind))
+	var text_box := _make_text_box(row)
+	var title_line := HBoxContainer.new()
+	title_line.add_theme_constant_override("separation", 12)
+	text_box.add_child(title_line)
+	var title_label := Label.new()
+	title_label.text = title
+	title_label.add_theme_font_size_override("font_size", 32)
+	_col(title_label, COLOR_TEXT)
+	title_line.add_child(title_label)
+	var percent := Label.new()
+	percent.add_theme_font_size_override("font_size", 28)
+	_col(percent, COLOR_MONEY)
+	title_line.add_child(percent)
+	_add_label(text_box, hint, 24, COLOR_MUTED)
+	var toggle := Button.new()
+	toggle.custom_minimum_size = Vector2(170, 84)
+	toggle.focus_mode = Control.FOCUS_NONE
+	toggle.add_theme_font_size_override("font_size", 28)
+	toggle.pressed.connect(toggle_cb)
+	row.add_child(toggle)
+	var slider := _make_game_slider()
+	slider.value_changed.connect(volume_cb)
+	column.add_child(slider)
+	_more_list.add_child(parts[0])
+	return [toggle, slider, percent]
+
+
+## Ползунок в стиле игры: толстая закруглённая дорожка, зелёная заливка, круглая ручка.
+func _make_game_slider() -> HSlider:
+	var slider := HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = 100.0
+	slider.step = 1.0
+	slider.custom_minimum_size = Vector2(0, 64)
+	slider.focus_mode = Control.FOCUS_NONE
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.add_to_group("no_touch_scroll")
+	var track := StyleBoxFlat.new()
+	track.bg_color = COLOR_DISABLED
+	track.set_corner_radius_all(14)
+	track.content_margin_top = 14
+	track.content_margin_bottom = 14
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = COLOR_BUY
+	fill.set_corner_radius_all(14)
+	fill.content_margin_top = 14
+	fill.content_margin_bottom = 14
+	var fill_hot := fill.duplicate()
+	fill_hot.bg_color = COLOR_BUY.lightened(0.12)
+	slider.add_theme_stylebox_override("slider", track)
+	slider.add_theme_stylebox_override("grabber_area", fill)
+	slider.add_theme_stylebox_override("grabber_area_highlight", fill_hot)
+	slider.add_theme_icon_override("grabber", _make_knob(false))
+	slider.add_theme_icon_override("grabber_highlight", _make_knob(true))
+	return slider
+
+
+## Ручка ползунка: белый кружок с зелёной обводкой и мягкой тенью (сглаженные края).
+func _make_knob(hot: bool) -> Texture2D:
+	var size: int = 56
+	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var center := Vector2(size / 2.0 - 0.5, size / 2.0 - 2.0)
+	var ring: Color = COLOR_BUY.lightened(0.1) if hot else COLOR_BUY.darkened(0.1)
+	for y in size:
+		for x in size:
+			var point := Vector2(x, y)
+			var color := Color(0, 0, 0, 0)
+			var shadow: float = point.distance_to(center + Vector2(0, 3))
+			color = Color(0, 0, 0, 0.2 * clampf(24.0 - shadow, 0.0, 1.0))
+			var d: float = point.distance_to(center)
+			color = color.lerp(ring, clampf(24.0 - d, 0.0, 1.0))
+			color = color.lerp(Color.WHITE, clampf(16.0 - d, 0.0, 1.0))
+			image.set_pixel(x, y, color)
+	return ImageTexture.create_from_image(image)
 
 
 func _make_action_row(icon_kind: String, title: String, hint: String, button_text: String, color: Color, callback: Callable) -> void:
@@ -4010,9 +4115,19 @@ func _build_sounds() -> void:
 	if config.load(SETTINGS_PATH) == OK:
 		_sound_on = bool(config.get_value("audio", "sound", true))
 		_music_on = bool(config.get_value("audio", "music", true))
-	# Фоновая мелодия «Тихий вечер» (tools/make_music.py): нежная, 2 минуты без повторов, по кругу.
+		_music_volume = clampf(float(config.get_value("audio", "music_volume", 0.8)), 0.0, 1.0)
+		_sound_volume = clampf(float(config.get_value("audio", "sound_volume", 0.8)), 0.0, 1.0)
+	# Отдельные шины, чтобы ползунок менял громкость всех звуков разом.
+	var music_bus: int = _ensure_bus("Music")
+	var sfx_bus: int = _ensure_bus("SFX")
+	for player: AudioStreamPlayer in [_sfx_tap, _sfx_cash, _sfx_buy]:
+		player.bus = "SFX"
+	_apply_volume(music_bus, _music_volume)
+	_apply_volume(sfx_bus, _sound_volume)
+	# Фоновая мелодия «Бангкокский бриз» (tools/make_music.py), тихо и по кругу.
 	_music = AudioStreamPlayer.new()
-	var track: AudioStreamOggVorbis = load("res://assets/music/quiet_evening.ogg")
+	_music.bus = "Music"
+	var track: AudioStreamOggVorbis = load("res://assets/music/bangkok_breeze.ogg")
 	if track != null:
 		track.loop = true
 		_music.stream = track
@@ -4053,6 +4168,49 @@ func _play(player: AudioStreamPlayer, pitch: float = 1.0) -> void:
 	player.play()
 
 
+func _ensure_bus(bus_name: String) -> int:
+	var index: int = AudioServer.get_bus_index(bus_name)
+	if index == -1:
+		AudioServer.add_bus()
+		index = AudioServer.bus_count - 1
+		AudioServer.set_bus_name(index, bus_name)
+		AudioServer.set_bus_send(index, "Master")
+	return index
+
+
+## Громкость 0..1 по слуху: квадрат делает середину ползунка «вполовину тише».
+func _apply_volume(bus: int, volume: float) -> void:
+	AudioServer.set_bus_mute(bus, volume <= 0.001)
+	AudioServer.set_bus_volume_db(bus, linear_to_db(maxf(volume * volume, 0.0001)))
+
+
+func _on_music_volume(value: float) -> void:
+	_music_volume = value / 100.0
+	_apply_volume(AudioServer.get_bus_index("Music"), _music_volume)
+	if _music_volume > 0.0 and not _music_on:
+		_toggle_music()
+	_save_volumes()
+	_refresh_sound_button()
+
+
+func _on_sound_volume(value: float) -> void:
+	_sound_volume = value / 100.0
+	_apply_volume(AudioServer.get_bus_index("SFX"), _sound_volume)
+	if _sound_volume > 0.0 and not _sound_on:
+		_sound_on = true
+	_save_volumes()
+	_refresh_sound_button()
+
+
+func _save_volumes() -> void:
+	var config := ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("audio", "music_volume", _music_volume)
+	config.set_value("audio", "sound_volume", _sound_volume)
+	config.set_value("audio", "sound", _sound_on)
+	config.save(SETTINGS_PATH)
+
+
 func _toggle_sound() -> void:
 	_sound_on = not _sound_on
 	var config := ConfigFile.new()
@@ -4079,6 +4237,11 @@ func _toggle_music() -> void:
 func _refresh_sound_button() -> void:
 	_set_toggle(_music_button, _music_on)
 	_set_toggle(_sound_button, _sound_on)
+	if _music_percent != null:
+		_music_percent.text = "%d%%" % int(roundf(_music_volume * 100.0)) if _music_on else "выкл"
+		_sound_percent.text = "%d%%" % int(roundf(_sound_volume * 100.0)) if _sound_on else "выкл"
+		_music_slider.modulate.a = 1.0 if _music_on else 0.45
+		_sound_slider.modulate.a = 1.0 if _sound_on else 0.45
 
 
 func _show_page(page: int) -> void:
