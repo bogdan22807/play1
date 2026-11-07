@@ -1371,7 +1371,7 @@ func hire(index: int) -> bool:
 	person["hours"] = 0.0
 	_next_uid += 1
 	_team.append(person)
-	_candidates[index] = _make_candidate()
+	_candidates[index] = _make_candidate(_slot_female(index))
 	_after_staff_change()
 	return true
 
@@ -1460,21 +1460,44 @@ func _after_staff_change() -> void:
 func _fill_candidates() -> void:
 	var wanted: int = maxi(1, int(_staff.get("candidates", 3)))
 	while _candidates.size() < wanted:
-		_candidates.append(_make_candidate())
+		_candidates.append(_make_candidate(_slot_female(_candidates.size())))
 
 
-## Случайный человек: имя без повторов, звёзды по шансам, случайная черта.
-func _make_candidate() -> Dictionary:
+## Кандидаты всегда разные: по умолчанию два парня и девушка (candidate_genders).
+func _slot_female(index: int) -> bool:
+	var genders: Array = _staff.get("candidate_genders", ["male", "male", "female"])
+	if genders.is_empty():
+		return false
+	return str(genders[index % genders.size()]) == "female"
+
+
+## Имя без повторов: «Имя «Прозвище»» или «Дядя Имя». Сотни сочетаний — хватит на любую команду.
+func _make_name(female: bool, taken: Dictionary) -> String:
+	var firsts: Array = _staff.get("female_names" if female else "male_names", [])
+	var nicks: Array = _staff.get("nicknames", [])
+	var titles: Array = _staff.get("old_titles", {}).get("female" if female else "male", [])
+	if firsts.is_empty():
+		return "Новичок"
+	for attempt in 60:
+		var first: String = str(firsts[randi() % firsts.size()])
+		var candidate: String
+		if not titles.is_empty() and randf() < float(_staff.get("old_chance", 0.15)):
+			candidate = "%s %s" % [titles[randi() % titles.size()], first]
+		elif not nicks.is_empty():
+			candidate = "%s «%s»" % [first, nicks[randi() % nicks.size()]]
+		else:
+			candidate = first
+		if not taken.has(candidate):
+			return candidate
+	return "%s %d" % [str(firsts[randi() % firsts.size()]), _team.size() + 1]
+
+
+## Случайный человек: имя без повторов, пол, звёзды по шансам, случайная черта.
+func _make_candidate(female: bool = false) -> Dictionary:
 	var taken: Dictionary = {}
 	for raw: Variant in _team + _candidates:
 		taken[str(raw.get("name", ""))] = true
-	var free_names: Array = []
-	for raw: Variant in _staff.get("names", []):
-		if not taken.has(str(raw)):
-			free_names.append(str(raw))
-	var person_name: String = "Новичок"
-	if not free_names.is_empty():
-		person_name = free_names[randi() % free_names.size()]
+	var person_name: String = _make_name(female, taken)
 	var stars: int = 1
 	var roll: float = randf()
 	for raw: Variant in _staff.get("stars", []):
@@ -1488,7 +1511,7 @@ func _make_candidate() -> Dictionary:
 	var trait_id: String = "none"
 	if not traits.is_empty():
 		trait_id = str(traits[randi() % traits.size()].get("id", "none"))
-	return {"name": person_name, "stars": stars, "trait": trait_id}
+	return {"name": person_name, "stars": stars, "trait": trait_id, "female": female}
 
 
 func _reset_staff() -> void:
@@ -2820,6 +2843,13 @@ func _load_staff(data: Dictionary) -> void:
 	_team = _read_people(data.get("team", []), true)
 	_staff_touched()
 	_candidates = _read_people(data.get("candidates", []), false)
+	# Старые сохранения: кандидаты без пола или одинаковые «Новички» — зовём новых.
+	var names: Dictionary = {}
+	for person: Variant in _candidates:
+		names[str(person.get("name", ""))] = true
+	if names.size() < _candidates.size() or names.has("Новичок") or _candidates.any(func(p: Variant) -> bool: return not p.has("female")):
+		_candidates.clear()
+		_fill_candidates()
 	_next_uid = maxi(1, int(data.get("next_uid", 1)))
 	for person: Variant in _team:
 		_next_uid = maxi(_next_uid, int(person.get("uid", 0)) + 1)
@@ -2850,6 +2880,8 @@ func _read_people(raw: Variant, need_uid: bool) -> Array:
 			"stars": clampi(int(item.get("stars", 1)), 1, 3),
 			"trait": str(item.get("trait", "none")),
 		}
+		if item.has("female"):
+			person["female"] = bool(item.get("female"))
 		if need_uid:
 			var uid: int = int(item.get("uid", 0))
 			if uid <= 0:
