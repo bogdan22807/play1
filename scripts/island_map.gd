@@ -8,6 +8,8 @@ extends Control
 
 signal island_pressed(island_id: String)
 
+const CarArt := preload("res://scripts/car_art.gd")
+
 # >>> PALETTE
 const OCEAN := Color("45a7f5")
 const OCEAN_DEEP := Color("368fe0")
@@ -126,6 +128,12 @@ func _draw_art() -> void:
 		var wave_pos := Vector2(fmod(index * 173.0, size.x), fmod(index * 97.0 + 40.0, size.y))
 		c.draw_arc(wave_pos, 14.0, PI * 1.1, PI * 1.9, 8, WAVE, 3.0)
 		c.draw_arc(wave_pos + Vector2(26, 0), 14.0, PI * 1.1, PI * 1.9, 8, WAVE, 3.0)
+	# Блики солнца на воде и пара корабликов.
+	for index in 40:
+		var glint := Vector2(fmod(index * 211.0 + 30.0, size.x), fmod(index * 131.0 + 70.0, size.y))
+		c.draw_line(glint, glint + Vector2(8, 0), Color(1, 1, 1, 0.35), 2.0)
+	for boat in [Vector2(0.48, 0.12), Vector2(0.08, 0.86), Vector2(0.78, 0.9)]:
+		_draw_boat(c, Vector2(boat.x * size.x, boat.y * size.y), minf(size.x, size.y) * 0.03)
 
 	for index in range(1, islands.size()):
 		c.draw_dashed_line(_center(islands[index - 1]), _center(islands[index]), ROUTE, 5.0, 18.0)
@@ -166,16 +174,32 @@ func _draw_island(c: CanvasItem, id: String, center: Vector2, r: float, color: C
 	if state == "available":
 		land = color.darkened(0.15)
 	var blobs: Array = _blobs(id, r)
-	# Мелководье, песок, суша — три слоя.
+	# Тень острова в глубине, мелководье, пена прибоя, песок, суша.
+	for blob: Variant in blobs:
+		c.draw_circle(center + blob[0] * r + Vector2(r * 0.06, r * 0.1), r * blob[1] * 1.14, Color(OCEAN_DEEP.darkened(0.2), 0.5))
+	for blob: Variant in blobs:
+		c.draw_circle(center + blob[0] * r, r * blob[1] * 1.22, Color("7fd3f7"))
 	for blob: Variant in blobs:
 		c.draw_circle(center + blob[0] * r, r * blob[1] * 1.12, Color(1, 1, 1, 0.25))
+	for blob: Variant in blobs:
+		c.draw_arc(center + blob[0] * r, r * blob[1] * 1.06, PI * 0.2, PI * 0.9, 16, Color(1, 1, 1, 0.7), maxf(1.5, r * 0.025))
 	for blob: Variant in blobs:
 		c.draw_circle(center + blob[0] * r, r * blob[1], SAND)
 	for blob: Variant in blobs:
 		c.draw_circle(center + blob[0] * r, r * blob[1] * 0.84, land)
-	# Светлые и тёмные пятна на суше — рельеф.
+	# Песок темнее у воды снизу, суша с тенью снизу-справа и светом сверху-слева.
+	for blob: Variant in blobs:
+		c.draw_circle(center + blob[0] * r + Vector2(0.08, 0.1) * r * blob[1], r * blob[1] * 0.8, land.darkened(0.12))
+	for blob: Variant in blobs:
+		c.draw_circle(center + blob[0] * r + Vector2(-0.05, -0.06) * r * blob[1], r * blob[1] * 0.74, land)
 	for blob: Variant in blobs:
 		c.draw_circle(center + blob[0] * r + Vector2(-0.15, -0.15) * r * blob[1], r * blob[1] * 0.35, land.lightened(0.12))
+	# Травка-штрихи.
+	for k in 14:
+		var b: Variant = blobs[k % blobs.size()]
+		var ang: float = k * 2.4
+		var at: Vector2 = center + b[0] * r + Vector2(cos(ang), sin(ang)) * r * b[1] * 0.5
+		c.draw_line(at, at + Vector2(r * 0.03, -r * 0.05), land.darkened(0.2), maxf(1.0, r * 0.015))
 	_draw_mountains(c, center + Vector2(-0.45, -0.35) * r, r * 0.5, land)
 	_draw_palms(c, id, center, r)
 	_draw_town(c, center + Vector2(0.25, 0.25) * r, r * 0.55)
@@ -190,11 +214,7 @@ func _draw_island(c: CanvasItem, id: String, center: Vector2, r: float, color: C
 		_draw_flag(c, center + Vector2(0.55, -0.55) * r, r * 0.5)
 	elif state == "front":
 		# Маленькое такси на острове, где идёт борьба.
-		var car := Rect2(center + Vector2(-r * 0.75, r * 0.45), Vector2(r * 0.42, r * 0.22))
-		c.draw_rect(car, TAXI)
-		c.draw_rect(Rect2(car.position + Vector2(car.size.x * 0.3, -r * 0.06), Vector2(car.size.x * 0.4, r * 0.06)), INK)
-		c.draw_circle(car.position + Vector2(r * 0.09, r * 0.23), r * 0.055, INK)
-		c.draw_circle(car.position + Vector2(r * 0.33, r * 0.23), r * 0.055, INK)
+		CarArt.draw_car(c, center + Vector2(-r * 0.55, r * 0.55), -0.3, "city_taxi", r * 0.5)
 
 
 func _draw_mountains(c: CanvasItem, at: Vector2, size_r: float, land: Color) -> void:
@@ -202,8 +222,12 @@ func _draw_mountains(c: CanvasItem, at: Vector2, size_r: float, land: Color) -> 
 		var base: Vector2 = at + peak[0] * size_r
 		var h: float = size_r * 0.9 * peak[1]
 		var w: float = size_r * 0.7 * peak[1]
-		c.draw_colored_polygon(PackedVector2Array([base + Vector2(-w, h * 0.4), base + Vector2(0, -h * 0.6), base + Vector2(w, h * 0.4)]), ROCK.lerp(land, 0.25))
-		c.draw_colored_polygon(PackedVector2Array([base + Vector2(-w * 0.3, -h * 0.28), base + Vector2(0, -h * 0.6), base + Vector2(w * 0.3, -h * 0.28)]), SNOW)
+		var rock: Color = ROCK.lerp(land, 0.25)
+		c.draw_colored_polygon(PackedVector2Array([base + Vector2(-w, h * 0.4), base + Vector2(0, -h * 0.6), base + Vector2(w, h * 0.4)]), rock.lightened(0.08))
+		# Теневой склон справа.
+		c.draw_colored_polygon(PackedVector2Array([base + Vector2(0, -h * 0.6), base + Vector2(w, h * 0.4), base + Vector2(w * 0.1, h * 0.4)]), rock.darkened(0.2))
+		c.draw_colored_polygon(PackedVector2Array([base + Vector2(-w * 0.3, -h * 0.28), base + Vector2(0, -h * 0.6), base + Vector2(w * 0.3, -h * 0.28), base + Vector2(w * 0.1, -h * 0.34), base + Vector2(-w * 0.08, -h * 0.24)]), SNOW)
+		c.draw_colored_polygon(PackedVector2Array([base + Vector2(0, -h * 0.6), base + Vector2(w * 0.3, -h * 0.28), base + Vector2(w * 0.1, -h * 0.34)]), Color("dfe7f2"))
 
 
 func _draw_palms(c: CanvasItem, id: String, center: Vector2, r: float) -> void:
@@ -219,11 +243,15 @@ func _draw_palms(c: CanvasItem, id: String, center: Vector2, r: float) -> void:
 		return
 	for spot: Vector2 in spots:
 		var base: Vector2 = center + spot * r
+		c.draw_colored_polygon(_ellipse(base + Vector2(r * 0.08, r * 0.02), r * 0.14, r * 0.04), Color(0, 0, 0, 0.18))
 		c.draw_line(base, base + Vector2(r * 0.04, -r * 0.28), TRUNK, maxf(2.0, r * 0.05))
 		var top: Vector2 = base + Vector2(r * 0.04, -r * 0.28)
 		for angle in [-2.6, -1.9, -1.2, -0.5]:
 			var dir := Vector2(cos(angle), sin(angle))
 			c.draw_line(top, top + dir * r * 0.2, PALM, maxf(2.0, r * 0.06))
+			c.draw_line(top, top + dir * r * 0.16, PALM.lightened(0.2), maxf(1.0, r * 0.02))
+		c.draw_circle(top + Vector2(-r * 0.02, r * 0.03), r * 0.03, Color("8d6e63"))
+		c.draw_circle(top + Vector2(r * 0.03, r * 0.03), r * 0.03, Color("795548"))
 
 
 func _draw_town(c: CanvasItem, at: Vector2, size_r: float) -> void:
@@ -232,7 +260,10 @@ func _draw_town(c: CanvasItem, at: Vector2, size_r: float) -> void:
 	for index in heights.size():
 		var h: float = size_r * float(heights[index])
 		var rect := Rect2(at + Vector2(index * w * 1.05 - w * 2.5, -h), Vector2(w, h))
+		c.draw_rect(Rect2(rect.position + Vector2(w * 0.25, w * 0.15), rect.size), Color(0, 0, 0, 0.15))
 		c.draw_rect(rect, Color("e8ecf3") if index % 2 == 0 else Color("c9d2de"))
+		c.draw_rect(Rect2(rect.position + Vector2(w * 0.7, 0), Vector2(w * 0.3, h)), Color(0, 0, 0, 0.08))
+		c.draw_rect(Rect2(rect.position - Vector2(w * 0.05, w * 0.08), Vector2(w * 1.1, w * 0.12)), Color("90a4ae"))
 		for row in int(h / (w * 0.6)):
 			c.draw_rect(Rect2(rect.position + Vector2(w * 0.3, w * 0.25 + row * w * 0.6), Vector2(w * 0.4, w * 0.25)), WINDOW)
 
@@ -276,6 +307,14 @@ func _draw_landmark(c: CanvasItem, id: String, at: Vector2, s: float) -> void:
 				var base: Vector2 = at + Vector2(-s * 0.35 + index * s * 0.32, 0)
 				c.draw_colored_polygon(PackedVector2Array([base, base + Vector2(s * 0.12, -s * (0.55 - index * 0.1)), base + Vector2(s * 0.34, 0)]), Color.WHITE)
 			c.draw_rect(Rect2(at + Vector2(-s * 0.45, 0), Vector2(s * 1.1, s * 0.08)), Color("c9d2de"))
+
+
+func _draw_boat(c: CanvasItem, at: Vector2, s: float) -> void:
+	# Кораблик с парусом и следом на воде.
+	c.draw_line(at + Vector2(-s * 3.0, s * 0.3), at + Vector2(-s * 1.2, s * 0.3), Color(1, 1, 1, 0.5), 2.0)
+	c.draw_colored_polygon(PackedVector2Array([at + Vector2(-s, 0), at + Vector2(s, 0), at + Vector2(s * 0.7, s * 0.45), at + Vector2(-s * 0.7, s * 0.45)]), Color("e8434f"))
+	c.draw_line(at, at + Vector2(0, -s * 1.5), INK, 2.0)
+	c.draw_colored_polygon(PackedVector2Array([at + Vector2(0, -s * 1.5), at + Vector2(s * 0.9, -s * 0.15), at + Vector2(0, -s * 0.15)]), Color.WHITE)
 
 
 func _draw_flag(c: CanvasItem, at: Vector2, s: float) -> void:
