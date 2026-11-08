@@ -23,7 +23,7 @@
     "x": 0.47,
     "y": 0.17,
     "color": "64b5f6",
-    "cost": 210000000000,
+    "cost": 380000000000,
     "reputation": 2500,
     "income_bonus": 0.1,
     "garage_slots": 20
@@ -37,7 +37,7 @@
     "x": 0.5,
     "y": 0.55,
     "color": "7986cb",
-    "cost": 2300000000000,
+    "cost": 3400000000000,
     "reputation": 7000,
     "income_bonus": 0.1,
     "garage_slots": 20
@@ -51,7 +51,7 @@
     "x": 0.27,
     "y": 0.78,
     "color": "81c784",
-    "cost": 4100000000000,
+    "cost": 6700000000000,
     "reputation": 13000,
     "income_bonus": 0.1,
     "garage_slots": 20
@@ -65,7 +65,7 @@
     "x": 0.2,
     "y": 0.32,
     "color": "4db6ac",
-    "cost": 6700000000000,
+    "cost": 10000000000000,
     "reputation": 19000,
     "income_bonus": 0.1,
     "garage_slots": 20
@@ -79,7 +79,7 @@
     "x": 0.8,
     "y": 0.8,
     "color": "4dd0e1",
-    "cost": 11000000000000,
+    "cost": 15000000000000,
     "reputation": 26000,
     "income_bonus": 0.1,
     "garage_slots": 20

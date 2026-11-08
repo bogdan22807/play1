@@ -428,8 +428,8 @@ func get_tap_level_cost() -> float:
 		# Первые шаги до первой машины: от tap_level_first_cost до её цены.
 		var target: float = _car_value(1, "buy_cost")
 		var part: float = float(next - 1) / float(TAP_STEPS - 1)
-		return ceilf(_tap_level_first_cost * pow(target / _tap_level_first_cost, part))
-	return ceilf(_level_curve(next, "buy_cost"))
+		return round_price(_tap_level_first_cost * pow(target / _tap_level_first_cost, part))
+	return round_price(_level_curve(next, "buy_cost"))
 
 
 ## Машина, в которую пересядем на следующем уровне. Пусто — машина та же.
@@ -642,7 +642,10 @@ func is_garage_full() -> bool:
 ## Следующее расширение гаража. Лимита нет: после расширений из balance.json
 ## каждое следующее даёт столько же мест и стоит в garage_expansion_growth раз дороже.
 func get_next_expansion() -> Dictionary:
-	return _expansion_at(_garage_level)
+	var step: Dictionary = _expansion_at(_garage_level).duplicate()
+	if step.has("cost"):
+		step["cost"] = round_price(float(step["cost"]))
+	return step
 
 
 func _expansion_at(index: int) -> Dictionary:
@@ -710,7 +713,7 @@ func _worst_garage_index() -> int:
 
 
 func get_trade_in_value(car_id: String) -> float:
-	return floorf(maxf(0.0, float(_find_def(_car_defs, car_id).get("buy_cost", 0))) * _trade_in_share)
+	return round_income(maxf(0.0, float(_find_def(_car_defs, car_id).get("buy_cost", 0))) * _trade_in_share)
 
 
 ## Цена машины в парк. Каждая следующая такая же — дороже.
@@ -720,7 +723,7 @@ func get_fleet_cost(car_id: String) -> float:
 	var price: float = _scaled_cost(float(info.get("buy_cost", 0)), _fleet_growth, get_fleet_count(car_id))
 	if is_garage_full():
 		price = maxf(1.0, price - get_trade_in_value(get_worst_garage_car()))
-	return price
+	return round_price(price)
 
 
 func can_buy_fleet(car_id: String) -> bool:
@@ -876,7 +879,7 @@ func get_fleet_wash_cost() -> float:
 	for car: Variant in _garage:
 		var full: float = get_car_driver_income(str(car.get("model", ""))) * _wear_value("fleet_wash_seconds", 20)
 		total += _service_cost(full, 1.0 - float(car.get("clean", 1)), 0.0)
-	return ceilf(total)
+	return round_price(total)
 
 
 func get_fleet_repair_cost() -> float:
@@ -884,7 +887,7 @@ func get_fleet_repair_cost() -> float:
 	for car: Variant in _garage:
 		var full: float = get_car_driver_income(str(car.get("model", ""))) * _wear_value("fleet_repair_seconds", 150)
 		total += _service_cost(full, 1.0 - float(car.get("health", 1)), 0.0)
-	return ceilf(total)
+	return round_price(total)
 
 
 func can_wash_fleet() -> bool:
@@ -941,7 +944,7 @@ func get_broken_count() -> int:
 func _service_cost(full_cost: float, share: float, minimum: float = 1.0) -> float:
 	if share <= 0.001:
 		return 0.0
-	return maxf(minimum, ceilf(full_cost * clampf(share, 0.0, 1.0)))
+	return round_price(maxf(minimum, full_cost * clampf(share, 0.0, 1.0)))
 
 
 func _after_service() -> void:
@@ -1205,7 +1208,7 @@ func is_helper_on(helper_id: String) -> bool:
 
 
 func get_helper_cost(helper_id: String) -> float:
-	return maxf(0.0, float(_find_def(_helper_defs, helper_id).get("cost", 0)))
+	return round_price(maxf(0.0, float(_find_def(_helper_defs, helper_id).get("cost", 0))))
 
 
 func get_hired_helper_count() -> int:
@@ -1756,7 +1759,7 @@ func get_captured_count() -> int:
 
 func get_region_cost(region_id: String) -> float:
 	var info: Dictionary = _find_def(_region_defs, region_id)
-	return maxf(0.0, float(info.get("cost", 0)))
+	return round_price(maxf(0.0, float(info.get("cost", 0))))
 
 
 func get_region_reputation(region_id: String) -> int:
@@ -2046,7 +2049,7 @@ func get_share_price(competitor_id: String) -> float:
 	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
 	var power: float = float(info.get("power", 0)) * get_buyout_factor(competitor_id)
 	var base: float = power * float(_duel_value("share_seconds", 40))
-	return ceilf(base * pow(float(_duel_value("share_growth", 1.08)), float(get_boss_shares(competitor_id))))
+	return round_price(base * pow(float(_duel_value("share_growth", 1.08)), float(get_boss_shares(competitor_id))))
 
 
 ## Долю можно купить у любого невыкупленного соперника текущего острова.
@@ -2308,7 +2311,7 @@ func get_ads() -> Array:
 ## Цена растёт вместе с доходом: столько-то секунд вашего заработка (без рекламы), но не меньше минимума.
 func _price_by_seconds(info: Dictionary) -> float:
 	var by_income: float = _player_earning() / (1.0 + get_ad_boost()) * float(info.get("price_seconds", 60))
-	return ceilf(maxf(float(info.get("min_price", 100)), by_income))
+	return round_price(maxf(float(info.get("min_price", 100)), by_income))
 
 
 func get_ad_price(ad_id: String) -> float:
@@ -2400,7 +2403,7 @@ func has_buyout(competitor_id: String, buyout_id: String) -> bool:
 ## зато навсегда урезает доход соперника, и все следующие доли дешевле.
 func get_buyout_price(competitor_id: String, buyout_id: String) -> float:
 	var part: Dictionary = _find_def(get_buyouts(), buyout_id)
-	return ceilf(get_share_price(competitor_id) * float(part.get("price_mult", 1.5)))
+	return round_price(get_share_price(competitor_id) * float(part.get("price_mult", 1.5)))
 
 
 func can_buy_buyout(competitor_id: String, buyout_id: String) -> bool:
@@ -2806,7 +2809,7 @@ func _scaled_cost(base_cost: float, growth: float, owned: int) -> float:
 	var price: float = floorf(base_cost * pow(factor, float(owned)) + 0.000001)
 	if price < 1.0:
 		return 1.0
-	return price
+	return round_price(price)
 
 
 func _find_def(defs: Array, entry_id: String) -> Dictionary:
@@ -3349,6 +3352,28 @@ func _read_balance() -> void:
 
 
 ## Сумма в долларах: $999, $1.5K, $-20.
+## Цена «как на кнопке»: округляем вверх до той точности, с которой число показывается
+## ($4.2K, $123.5K, $1.3M). Тогда списывается ровно та сумма, что написана, — не больше, не меньше.
+static func round_price(value: float) -> float:
+	if value <= 0.0:
+		return 0.0
+	if value < 1000.0:
+		return ceilf(value - 0.000001)
+	var step: float = pow(10.0, floorf(log(value) / log(10.0) / 3.0) * 3.0 - 1.0)
+	var result: float = ceilf(value / step - 0.000001) * step
+	return result
+
+
+## Выручка «как на кнопке»: округляем вниз — получите ровно то, что написано.
+static func round_income(value: float) -> float:
+	if value <= 0.0:
+		return 0.0
+	if value < 1000.0:
+		return floorf(value + 0.000001)
+	var step: float = pow(10.0, floorf(log(value) / log(10.0) / 3.0) * 3.0 - 1.0)
+	return floorf(value / step + 0.000001) * step
+
+
 static func format_money(value: float) -> String:
 	var text: String = format_number(value)
 	if text.begins_with("-"):
