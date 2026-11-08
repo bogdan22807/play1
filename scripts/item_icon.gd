@@ -31,14 +31,10 @@ var kind: String = "":
 		for layer: Variant in _layers:
 			layer.kind = value
 
-## Слои «наклейки»: тень и тёмный контур — это копии той же картинки, перекрашенные modulate.
-## "" — корень (плашка), "body" — сама картинка, "shadow"/"outline" — копии под ней.
+## Тень — копия той же картинки, перекрашенная modulate.
+## "" — корень (плашка), "body" — сама картинка, "shadow" — копия под ней.
 var role: String = ""
 var _layers: Array = []
-
-const OUTLINE_OFFSETS := [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1),
-	Vector2(0.7, 0.7), Vector2(-0.7, 0.7), Vector2(0.7, -0.7), Vector2(-0.7, -0.7)]
-
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -47,11 +43,8 @@ func _ready() -> void:
 	if custom_minimum_size == Vector2.ZERO:
 		custom_minimum_size = Vector2(110, 110)
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	# Тень снизу, контур вокруг, сверху сама картинка.
-	_add_layer("shadow", Vector2(0, 1), Color(0, 0, 0, 0.22), 3.2)
-	if badge:
-		for offset: Vector2 in OUTLINE_OFFSETS:
-			_add_layer("outline", offset, Color(0.1, 0.1, 0.2, 0.75), 2.0)
+	# Мягкая тень снизу и сама картинка сверху (без тёмного контура — так чище).
+	_add_layer("shadow", Vector2(0.3, 1), Color(0, 0, 0, 0.16), 3.0)
 	_add_layer("body", Vector2.ZERO, Color.WHITE, 0.0)
 	resized.connect(_place_layers)
 	_place_layers()
