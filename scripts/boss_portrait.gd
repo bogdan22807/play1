@@ -212,6 +212,11 @@ func _draw_eyes(face: Vector2, u: float) -> void:
 				draw_arc(eye, 3.5 * u, 0.1, PI - 0.1, 8, OUTLINE, 2 * u)
 			"happy":
 				draw_arc(eye + Vector2(0, 2) * u, 3.5 * u, PI + 0.2, TAU - 0.2, 8, OUTLINE, 2 * u)
+			"alien":
+				# Большие чёрные глаза-капли с бликом.
+				draw_colored_polygon(_ellipse(eye + Vector2(side * 1.5, 0) * u, 6.5 * u, 4.2 * u), OUTLINE)
+				draw_circle(eye + Vector2(side * 0.5 - 2, -1.5) * u, 1.4 * u, Color.WHITE)
+				continue
 			"lashes":
 				draw_circle(eye, 2.8 * u, OUTLINE)
 				draw_line(eye + Vector2(side * 2, -2) * u, eye + Vector2(side * 5, -5) * u, OUTLINE, 1.5 * u)
@@ -390,6 +395,13 @@ func _draw_extra(face: Vector2, c: Vector2, u: float) -> void:
 				draw_arc(face + Vector2(24, 11) * u, 4 * u, 0, TAU, 12, Color("ffd54a"), 1.8 * u)
 			"lipstick":
 				pass
+			"antennae":
+				for side in [-1.0, 1.0]:
+					var base := face + Vector2(side * 10, -22) * u
+					var tip := face + Vector2(side * 18, -40) * u
+					draw_line(base, tip, Color("3fae5a"), 2.5 * u)
+					draw_circle(tip, 4 * u, Color("b6ff6a"))
+					draw_circle(tip + Vector2(-1, -1) * u, 1.4 * u, Color.WHITE)
 			"zzz":
 				var font: Font = get_theme_default_font()
 				var bob: float = 0.0

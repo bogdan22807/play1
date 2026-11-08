@@ -32,6 +32,10 @@ HIRE_BASE = 100.0
 KEPT_RATING = 4.4
 OFFLINE_CAP = 8 * 3600.0
 DT = 2.0                             # шаг во время игры, секунд
+AD_SECONDS = 30.0                    # сколько длится рекламный ролик (в это время игрок не тапает)
+DISTRICT_ADS_PER_SESSION = 4         # сколько роликов за районы игрок смотрит за заход
+ALIENS_PER_SESSION = 2               # инопланетян за ролик (каждый на 1 час)
+USE_VIDEO_ADS = True                 # крутить ТВ за ролики весь заход
 
 
 def load(name):
@@ -82,7 +86,12 @@ class Player:
                            + float(wear.get("player_repair_taps", 80)) * float(wear.get("tap_health", 0.0003)))
         self.fleet_upkeep = (float(wear.get("fleet_wash_seconds", 20)) * float(wear.get("fleet_clean_per_second", 0.0016667))
                              + float(wear.get("fleet_repair_seconds", 150)) * float(wear.get("fleet_health_per_second", 0.00033333)))
-        self.districts = [d for city in self.cities for d in city["districts"]]
+        self.districts = [dict(d, island=city.get("island")) for city in self.cities for d in city["districts"]
+                          if not d.get("premium")]
+        alien = self.staff.get("alien", {})
+        self.alien_power = 1.0 + float(alien.get("income_bonus", 0.7))
+        self.alien_salary = float(alien.get("salary", 0.05))
+        self.alien_seconds = float(alien.get("seconds", 3600))
         self.time = 0.0
         self.active_seconds = 0.0
         self.lifetime = 0.0
@@ -99,6 +108,14 @@ class Player:
         self.expansion_level = 0
         self.garage = []
         self.team = 0
+        self.hired_total = 0
+        self.aliens = []          # время, до которого работает каждый
+        self.watch_until = 0.0
+        self.session_district_ads = 0
+        self.session_aliens = 0
+        self.shares = {}
+        self.paid_boost = 0.0
+        self.paid_until = 0.0
         self.helpers_on = set()
         self.open_regions = set(r["id"] for r in self.regions if r.get("home"))
         self.owned = set()
@@ -118,12 +135,15 @@ class Player:
     def district_mult(self):
         return 1.0 + sum(d["income_pct"] * self.district_levels[d["id"]] for d in self.districts)
 
+    def district_unlocked(self, d):
+        return not d.get("island") or d["island"] in self.open_regions
+
     def multiplier(self, with_ad=True):
         region = 1.0 + sum(r.get("income_bonus", 0) for r in self.regions if r["id"] in self.open_regions)
         rival = 1.0 + sum(c.get("income_bonus", 0) for c in self.competitors if c["id"] in self.owned)
         rival += float(self.market.get("capture_bonus", 0.25)) * len(self.captured)
         rating = 1.0 + (KEPT_RATING - 4.0) * self.rating_per_star
-        ad = (1.0 + self.ad_boost) if with_ad else 1.0
+        ad = (1.0 + self.ad_boost + self.paid_boost) if with_ad else 1.0
         return self.district_mult() * region * rival * rating * ad
 
     def capacity(self):
@@ -137,19 +157,31 @@ class Player:
     def helper_fee(self):
         return sum(h.get("fee_share", 0) for h in self.helpers if h["id"] in self.helpers_on)
 
-    def driver_net(self, i):
+    def upkeep(self):
         upkeep = self.fleet_upkeep
         if "washer" in self.helpers_on:
             upkeep *= 0.5
         if "mechanic" in self.helpers_on:
             upkeep *= 0.6
-        return self.car_income(i) * DRIVER_POWER * (1.0 - DRIVER_SALARY - upkeep)
+        return upkeep
+
+    def driver_net(self, i):
+        return self.car_income(i) * DRIVER_POWER * (1.0 - DRIVER_SALARY - self.upkeep())
+
+    def alien_net(self, i):
+        return self.car_income(i) * self.alien_power * (1.0 - self.alien_salary - self.upkeep())
+
+    def live_aliens(self):
+        return sum(1 for until in self.aliens if until > self.time)
 
     def staffed(self):
-        return sorted(self.garage, key=self.car_income, reverse=True)[: self.team]
+        return sorted(self.garage, key=self.car_income, reverse=True)[: self.team + self.live_aliens()]
 
-    def passive(self, with_ad=True):
-        base = sum(self.driver_net(i) for i in self.staffed())
+    def passive(self, with_ad=True, aliens=True):
+        cars = sorted(self.garage, key=self.car_income, reverse=True)
+        n_alien = min(self.live_aliens(), len(cars)) if aliens else 0
+        base = sum(self.alien_net(i) for i in cars[:n_alien])
+        base += sum(self.driver_net(i) for i in cars[n_alien:n_alien + self.team])
         return base * (1.0 - self.helper_fee()) * self.multiplier(with_ad)
 
     def tuning_mult(self):
@@ -186,7 +218,15 @@ class Player:
     def tap_power(self):
         return self.ride() * (1.0 - self.tap_upkeep) + self.passive() * self.tap_from_income * self.tuning_mult()
 
+    def watching(self):
+        return self.time < self.watch_until
+
     def active_dps(self):
+        if self.watching():
+            return self.passive()
+        return self.tap_power() * TAPS_PER_SECOND + self.passive()
+
+    def full_dps(self):
         return self.tap_power() * TAPS_PER_SECOND + self.passive()
 
     def reputation(self):
@@ -211,6 +251,14 @@ class Player:
             if c["id"] not in self.owned and c["id"] not in self.surrendered:
                 return c
         return None
+
+    def share_price(self, c):
+        duel = self.duel()
+        return math.ceil(float(c["power"]) * float(duel.get("share_seconds", 40))
+                         * float(duel.get("share_growth", 1.08)) ** self.shares.get(c["id"], 0))
+
+    def shares_total(self):
+        return round(100.0 / float(self.duel().get("share_percent", 5)))
 
     def duel(self):
         return self.market.get("duel", {})
@@ -240,14 +288,7 @@ class Player:
             cost = scaled_cost(u["base_cost"], u["cost_growth"], self.tuning[u["id"]])
             gain = tap_part * (u["tap_pct"] / tm)
             found.append(("tuning", u["id"], cost, gain / cost))
-        # Районы: +income_pct к доходу за уровень.
-        dm = self.district_mult()
-        for d in self.districts:
-            if self.district_levels[d["id"]] >= int(d.get("max_level", 5)):
-                continue
-            cost = scaled_cost(d["base_cost"], d["cost_growth"], self.district_levels[d["id"]])
-            gain = dps * (d["income_pct"] / dm)
-            found.append(("district", d["id"], cost, gain / cost))
+        # Районы теперь за ролики — см. watch_ads().
         cost = self.level_cost()
         next_car = min((self.tap_level + 1) // TAP_STEPS, len(self.cars) - 1)
         if not self.car_unlocked(next_car):
@@ -257,7 +298,7 @@ class Player:
         boost = self.multiplier() * (1.0 - self.helper_fee()) * (1.0 + self.tap_from_income * TAPS_PER_SECOND)
         cap = self.capacity()
         full = len(self.garage) >= cap
-        hire = scaled_cost(HIRE_BASE, float(self.staff.get("hire_growth", 1.5)), self.team)
+        hire = scaled_cost(HIRE_BASE, float(self.staff.get("hire_growth", 1.05)), self.hired_total)
         if len(self.garage) > self.team:
             free = sorted(self.garage, key=self.car_income, reverse=True)[self.team]
             found.append(("hire", free, hire, self.driver_net(free) * boost / hire))
@@ -297,6 +338,9 @@ class Player:
         for c in self.front_rivals():
             if c["id"] in self.surrendered:
                 found.append(("rival", c["id"], self.surrendered[c["id"]], 1e8))
+        rival = self.active_rival()
+        if rival is not None and rival.get("role") == "boss":
+            found.append(("share", rival["id"], self.share_price(rival), 1e8))
         return found
 
     def next_expansion(self):
@@ -313,6 +357,9 @@ class Player:
         for c in self.front_rivals():
             if c["id"] in self.surrendered:
                 return self.surrendered[c["id"]]
+        rival = self.active_rival()
+        if rival is not None and rival.get("role") == "boss":
+            return self.share_price(rival)
         rep = self.reputation()
         for idx, r in enumerate(self.regions):
             if r["id"] in self.open_regions:
@@ -336,6 +383,12 @@ class Player:
             if kind == "slot":
                 self.garage.append(eid)
             self.team += 1
+            self.hired_total += 1
+        elif kind == "share":
+            self.shares[eid] = self.shares.get(eid, 0) + 1
+            if self.shares[eid] >= self.shares_total():
+                self.owned.add(eid)
+                self.log("выкуплен босс %s" % eid)
         elif kind == "trade":
             self.garage.remove(min(self.garage, key=self.car_income))
             self.garage.append(eid)
@@ -366,7 +419,7 @@ class Player:
             # Копим на цель, если до неё меньше 2 часов активного дохода: мелочь не покупаем.
             target = self.gate_target()
             reserve = 0.0
-            if target is not None and target - self.coins < self.active_dps() * 7200:
+            if target is not None and target - self.coins < self.full_dps() * 7200:
                 reserve = target
             choices = [o for o in options if o[3] < 1e8 and o[2] <= self.coins - reserve + 1e-6]
             if not choices:
@@ -376,40 +429,71 @@ class Player:
             self.buy(o[0], o[1], o[2])
 
     # --- время -----------------------------------------------------------------
+    def watch(self):
+        self.watch_until = self.time + AD_SECONDS
+
     def ads(self):
+        """Листовки за монеты и ролики — отдельные полосы, бонусы складываются."""
         if self.time >= self.ad_until:
             self.ad_boost = 0.0
-        if self.ad_boost > 0.0:
+        if self.time >= self.paid_until:
+            self.paid_boost = 0.0
+        if self.watching():
             return
-        for a in self.market.get("ads", []):
-            if a.get("pay", "coins") == "coins":
+        ads = self.market.get("ads", [])
+        if self.paid_boost <= 0.0:
+            for a in ads:
+                if a.get("pay", "coins") != "coins":
+                    continue
                 price = math.ceil(max(float(a.get("min_price", 100)),
                                       self.passive(False) + self.ride(False) * float(self.market.get("player_tap_rate", 3)))
                                   * float(a.get("price_seconds", 60)))
-                if price > self.coins * 0.5:
-                    continue
-                self.coins -= price
-            else:
-                if self.free_ready.get(a["id"], 0.0) > self.time:
-                    continue
-                self.free_ready[a["id"]] = self.time + float(a.get("cooldown", 1800))
-            self.ad_boost = float(a["boost"])
-            self.ad_until = self.time + float(a.get("duration", 300))
+                if price <= self.coins * 0.5:
+                    self.coins -= price
+                    self.paid_boost = float(a["boost"])
+                    self.paid_until = self.time + float(a.get("duration", 300))
+                break
+        # Районы за ролик: сначала самый выгодный.
+        if self.session_district_ads < DISTRICT_ADS_PER_SESSION:
+            free = [d for d in self.districts if self.district_unlocked(d)
+                    and self.district_levels[d["id"]] < int(d.get("max_level", 5))]
+            if free:
+                d = max(free, key=lambda d: d["income_pct"])
+                self.district_levels[d["id"]] += 1
+                self.session_district_ads += 1
+                self.watch()
+                return
+        if self.session_aliens < ALIENS_PER_SESSION and self.garage:
+            self.aliens = [u for u in self.aliens if u > self.time]
+            self.aliens.append(self.time + AD_SECONDS + self.alien_seconds)
+            self.session_aliens += 1
+            self.watch()
             return
+        if USE_VIDEO_ADS and self.ad_boost <= 0.0:
+            best = max((a for a in ads if a.get("pay") == "video"),
+                       key=lambda a: float(a["boost"]) * float(a.get("duration", 300)) / (float(a.get("duration", 300)) + AD_SECONDS),
+                       default=None)
+            if best is not None:
+                self.watch()
+                self.ad_boost = float(best["boost"])
+                self.ad_until = self.watch_until + float(best.get("duration", 300))
 
     def play(self, seconds):
         end = self.time + seconds
+        self.session_district_ads = 0
+        self.session_aliens = 0
         while self.time < end:
             self.ads()
             dt = DT
             gained = self.active_dps() * dt
             self.coins += gained
             self.lifetime += gained
-            self.taps += int(TAPS_PER_SECOND * dt)
+            if not self.watching():
+                self.taps += int(TAPS_PER_SECOND * dt)
             if self.team:
                 self.reviews += self.reviews_k * math.sqrt(self.team) * dt / 3600.0
             rival = self.active_rival()
-            if rival is not None:
+            if rival is not None and rival.get("role") != "boss":
                 ratio = self.player_power() / self.rival_power(rival)
                 pos = self.rope.get(rival["id"], 0.0) + self.rope_speed(ratio) * dt
                 pos = max(0.0, pos)
@@ -428,12 +512,18 @@ class Player:
 
     def away(self, seconds):
         self.ad_boost = 0.0
+        self.paid_boost = 0.0
+        self.watch_until = 0.0
         paid = min(seconds, OFFLINE_CAP)
         rate = self.offline_rate
         if "dispatcher" in self.helpers_on:
             rate += float(next(h for h in self.helpers if h["id"] == "dispatcher").get("offline_bonus", 0))
-        self.coins += self.passive(False) * rate * paid
-        self.lifetime += self.passive(False) * rate * paid
+        # Инопланетяне дорабатывают свой час и улетают.
+        alien_left = min(paid, max([u - self.time for u in self.aliens] + [0.0]))
+        earned = self.passive(False) * rate * alien_left + self.passive(False, aliens=False) * rate * (paid - alien_left)
+        self.aliens = []
+        self.coins += earned
+        self.lifetime += earned
         if self.team:
             self.reviews += self.reviews_k * math.sqrt(self.team) * rate * paid / 3600.0
         self.time += seconds
@@ -482,7 +572,7 @@ def main():
                 night_gain = 0.0
             bought_before = len(p.bought)
             o, c = set(p.open_regions), set(p.captured)
-            hour_income = p.active_dps() * 3600.0
+            hour_income = p.full_dps() * 3600.0
             p.play(SESSION_MINUTES * 60.0)
             sessions.append((p.time, len(p.bought) - bought_before, night_gain / max(hour_income, 1.0) if hour == SESSIONS[0] else None))
             for r in p.open_regions - o:

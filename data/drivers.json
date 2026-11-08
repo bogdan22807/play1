@@ -1,7 +1,7 @@
 {
   "candidates": 3,
-  "refresh_seconds": 60,
-  "hire_growth": 1.16,
+  "refresh_seconds": 10,
+  "hire_growth": 1.05,
   "names": [
     "Сомчай «Педаль»",
     "Бабушка Ним",
@@ -247,8 +247,31 @@
       "income_bonus": 0.0,
       "salary_bonus": 0.0,
       "rating_bonus": 0.0
+    },
+    {
+      "id": "alien",
+      "name": "Пришелец",
+      "description": "Не устаёт. Улетит через час.",
+      "income_bonus": 0.0,
+      "salary_bonus": 0.0,
+      "rating_bonus": 0.1
     }
   ],
   "max_income_bonus": 0.4,
-  "max_salary": 0.1
+  "max_salary": 0.1,
+  "alien": {
+    "name": "Инопланетянин",
+    "names": [
+      "Зорг",
+      "Блип",
+      "Квазар",
+      "Ыхх",
+      "Глорп",
+      "Ксю"
+    ],
+    "income_bonus": 0.7,
+    "salary": 0.05,
+    "seconds": 3600,
+    "description": "Прилетел подработать. Водит на любой машине, не устаёт и не берёт выходных. Через час улетит домой."
+  }
 }

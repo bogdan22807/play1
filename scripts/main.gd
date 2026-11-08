@@ -78,6 +78,8 @@ var _sfx_buy: AudioStreamPlayer
 var _sfx_cash: AudioStreamPlayer
 var _bills_alive: int = 0
 var _fx_layer: Control
+var _jump_button: Button
+var _jump_check: float = 0.0
 var _tap_streak: int = 0
 var _last_tap_ms: int = 0
 var _coins_pulse: Tween
@@ -86,7 +88,7 @@ var _sound_button: Button
 var _music: AudioStreamPlayer
 var _music_on: bool = true
 ## Громкость 0..1 — ползунки в «Ещё». Работают через шины «Music» и «SFX».
-var _music_volume: float = 0.8
+var _music_volume: float = 1.0
 var _sound_volume: float = 0.8
 var _music_slider: HSlider
 var _sound_slider: HSlider
@@ -156,6 +158,8 @@ var _repair_me_button: Button
 var _district_rows: Dictionary = {}
 ## Строка «Ур. 2/5 · доход +12%» у каждого района.
 var _district_levels: Dictionary = {}
+## Заголовки городов на островах: «Париж · откроется с островом…».
+var _city_titles: Dictionary = {}
 var _region_rows: Dictionary = {}
 var _competitor_rows: Dictionary = {}
 ## Шапка вкладки «Рынок»: сколько конкурентов города выкуплено.
@@ -184,10 +188,10 @@ var _notice_layer: Control
 var _notice_queue: Array = []
 ## Окно-заглушка рекламного ролика.
 const VIDEO_STUB_SECONDS := 5.0
-## Настоящей рекламной сети пока нет. Пока false — билборд и ТВ запускаются бесплатно
-## по таймеру, без ролика (заглушки с «видео» магазины не пропускают).
-## Подключим AdMob — ставим true, и _show_rewarded покажет настоящий ролик.
-const REWARDED_ADS_ENABLED := false
+## Всё «за рекламу» (билборд, ТВ, районы, инопланетянин) показывает ролик.
+## Настоящей рекламной сети пока нет — вместо ролика окно на 5 секунд. Перед отправкой
+## в магазины его нужно заменить на AdMob: заглушку с «видео» Apple отклоняет.
+const REWARDED_ADS_ENABLED := true
 var _video_layer: Control
 var _video_label: Label
 var _video_button: Button
@@ -254,6 +258,8 @@ func _ready() -> void:
 	GameState.tap_power_changed.connect(func(_value: float) -> void: _mark("rate"))
 	GameState.upgrades_changed.connect(_on_upgrades_changed)
 	GameState.drivers_changed.connect(func() -> void: _mark("staff"); _mark("city"))
+	GameState.alien_left.connect(func(person_name: String) -> void:
+		_enqueue_toast("Инопланетянин улетел", "%s отработал час и улетел домой. Возьмите нового за рекламу в «Команде»." % person_name, 4.0))
 	GameState.income_changed.connect(func(_value: float) -> void: _mark("rate"))
 	GameState.districts_changed.connect(_on_districts_changed)
 	GameState.regions_changed.connect(_on_regions_changed)
@@ -390,6 +396,25 @@ func _build_ui() -> void:
 	_build_market_rows()
 
 	column.add_child(_build_tab_bar())
+	# Круглая кнопка «к кандидатам» во вкладке «Команда», когда список длинный.
+	_jump_button = Button.new()
+	_jump_button.text = "↓ Кандидаты"
+	_jump_button.focus_mode = Control.FOCUS_NONE
+	_jump_button.custom_minimum_size = Vector2(300, 96)
+	_jump_button.add_theme_font_size_override("font_size", 32)
+	_style_plain_button(_jump_button, COLOR_BUY)
+	# По центру над вкладками: не закрывает кнопки «Нанять» справа.
+	_jump_button.anchor_left = 0.5
+	_jump_button.anchor_right = 0.5
+	_jump_button.anchor_top = 1.0
+	_jump_button.anchor_bottom = 1.0
+	_jump_button.offset_left = -160.0
+	_jump_button.offset_right = 160.0
+	_jump_button.offset_top = -322.0
+	_jump_button.offset_bottom = -234.0
+	_jump_button.visible = false
+	_jump_button.pressed.connect(_jump_to_candidates)
+	add_child(_jump_button)
 	# Слой эффектов денег: поверх шапки и карточек, но под всплывающими окнами.
 	_fx_layer = Control.new()
 	_fx_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -983,6 +1008,8 @@ func _next_goal() -> Array:
 	if rival != "":
 		var boss: String = str(GameState.get_boss(rival).get("name", _rival_name(rival)))
 		var ratio: float = GameState.get_duel_ratio()
+		if GameState.is_boss(rival):
+			return ["Выкупайте компанию %s: %d%% из 100%%" % [boss, int(GameState.get_duel_progress() * 100.0)], PAGE_MARKET]
 		if ratio < 1.0:
 			return ["%s сильнее в %s — станьте сильнее, чтобы тянуть канат" % [boss, _ratio_text(1.0 / maxf(ratio, 0.0001))], PAGE_MARKET]
 		return ["Тяните канат с %s: %d%%" % [boss, int(GameState.get_duel_progress() * 100.0)], PAGE_MARKET]
@@ -1129,6 +1156,13 @@ func _on_shifts_changed() -> void:
 		var bar: ProgressBar = entry[1]
 		var button: Button = entry[2]
 		var person: Dictionary = entry[3]
+		if bool(person.get("alien", false)):
+			label.text = "Не устаёт · улетит домой через %s" % _wait_text(GameState.get_alien_left(person))
+			_col(label, COLOR_INCOME)
+			bar.max_value = float(GameState.get_alien_seconds())
+			bar.value = float(GameState.get_alien_left(person))
+			button.disabled = true
+			continue
 		var hours: float = GameState.get_driver_hours(person)
 		var tired: float = GameState.get_tiredness(person)
 		var state: String = "свежий"
@@ -1261,7 +1295,8 @@ func _make_helper_row(info: Dictionary) -> PanelContainer:
 	_add_label(text_box, str(info.get("description", "")), 26, COLOR_MUTED)
 	var terms: String = "Берёт %d%% дохода водителей" % int(roundf(float(info.get("fee_share", 0)) * 100.0))
 	if float(info.get("offline_bonus", 0)) > 0.0:
-		terms += "  ·  пока вас нет, парк работает на 100%"
+		var base_offline: int = int(roundf(float(GameState._offline_income_rate) * 100.0))
+		terms += "  ·  пока вас нет, парк работает на %d%% вместо %d%%" % [base_offline + int(roundf(float(info.get("offline_bonus", 0)) * 100.0)), base_offline]
 	_add_label(text_box, terms, 24, COLOR_INCOME)
 	var status := _add_label(text_box, "", 26, COLOR_GOLD)
 	var button := _make_row_button(_on_helper_pressed.bind(helper_id))
@@ -1280,14 +1315,18 @@ func _refresh_helpers() -> void:
 			status.text = ""
 			button.text = "Нанять\n%s" % GameState.format_money(GameState.get_helper_cost(id))
 			button.disabled = not GameState.can_hire_helper(id)
+			_style_plain_button(button, COLOR_TRICK)
 		elif GameState.is_helper_on(id):
-			status.text = "Работает"
-			button.text = "Выключить"
+			# Зелёный — работает, красный — выключен: видно сразу.
+			status.text = "Работает. Нажмите, чтобы выключить"
+			button.text = "Работает"
 			button.disabled = false
+			_style_plain_button(button, COLOR_BUY)
 		else:
-			status.text = "Отдыхает — работа на вас"
-			button.text = "Включить"
+			status.text = "Выключен — работа на вас. Нажмите, чтобы включить"
+			button.text = "Выключен"
 			button.disabled = false
+			_style_plain_button(button, COLOR_DANGER)
 	if _staff_summary != null:
 		_staff_summary.text = _staff_summary_text()
 		_refresh_team_tiles()
@@ -1477,7 +1516,7 @@ func _build_market_rows() -> void:
 	ladder_box.add_child(_battle_city)
 	_market_status = _add_label(ladder_box, "", 30, COLOR_TEXT)
 	_market_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_add_label(ladder_box, "Бьёмся по очереди: перетяните канат у текущего (тянется, пока вы в игре и сильнее) — он сдастся и предложит выкуп.", 24, COLOR_MUTED)
+	_add_label(ladder_box, "Сначала два помощника — перетяните у каждого канат. Потом главный босс — выкупите его компанию по 5%.", 24, COLOR_MUTED)
 
 	for raw: Variant in GameState.get_competitors():
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
@@ -1489,20 +1528,21 @@ func _build_market_rows() -> void:
 
 ## Кнопки и таймеры рекламных кампаний — и при соперниках, и без них.
 func _refresh_ads() -> void:
-	var active: Dictionary = GameState.get_active_ad()
 	for ad_id: Variant in _ad_rows.keys():
 		var row: Dictionary = _ad_rows[ad_id]
 		var status: Label = row["status"]
 		var button: Button = row["button"]
 		var id := str(ad_id)
 		var video: bool = GameState.get_ad_pay(id) == "video"
+		# Ролики и листовки — разные полосы: листовки не мешают ролику, и наоборот.
+		var active: Dictionary = GameState.get_active_ad(id)
 		# Таймер — прямо на кнопке, на месте цены.
 		if str(active.get("id", "")) == id:
 			status.text = "Кампания идёт!"
-			button.text = "Идёт\n%s" % _wait_text(GameState.get_ad_left())
+			button.text = "Идёт\n%s" % _wait_text(GameState.get_ad_left(id))
 		elif not active.is_empty():
-			status.text = "Сначала закончится текущая кампания"
-			button.text = "Через\n%s" % _wait_text(GameState.get_ad_left())
+			status.text = "Сначала закончится другой ролик"
+			button.text = "Через\n%s" % _wait_text(GameState.get_ad_left(id))
 		elif video and GameState.get_ad_wait(id) > 0:
 			status.text = _ad_duel_hint(id)
 			button.text = "%s\n%s" % ["Ролик через" if REWARDED_ADS_ENABLED else "Снова через", _wait_text(GameState.get_ad_wait(id))]
@@ -1572,7 +1612,8 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	names.add_theme_constant_override("separation", 2)
 	head.add_child(names)
 	var title := _add_label(names, str(info.get("name", competitor_id)), 34)
-	var mood := _add_label(names, "%s · %s" % [str(boss.get("name", "")), str(info.get("personality_name", "")).to_lower()], 28, COLOR_GOLD)
+	var role: String = "Главный босс" if GameState.is_boss(competitor_id) else "Помощник"
+	var mood := _add_label(names, "%s · %s · %s" % [role, str(boss.get("name", "")), str(info.get("personality_name", "")).to_lower()], 28, COLOR_GOLD)
 	var status := _add_label(column, "", 32, COLOR_TEXT)
 
 	# Канат: вы слева, босс справа, узел ползёт к финишному флажку.
@@ -1589,6 +1630,10 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	tricks.add_theme_constant_override("separation", 8)
 	column.add_child(tricks)
 	var trick_buttons: Dictionary = {}
+	# У главного босса кнопок четыре — картинки и подписи чуть меньше, чтобы текст влез.
+	var four: bool = GameState.is_boss(competitor_id)
+	var picture_height: float = 60.0 if four else 82.0
+	var caption_size: int = 18 if four else 21
 	for raw: Variant in GameState.get_tricks():
 		var trick_id: String = str(raw.get("id", ""))
 		var button := Button.new()
@@ -1610,19 +1655,47 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 		button.add_child(trick_face)
 		var picture: Control = ItemIcon.new()
 		picture.kind = trick_id
-		picture.custom_minimum_size = Vector2(0, 82)
+		picture.custom_minimum_size = Vector2(0, picture_height)
 		picture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		trick_face.add_child(picture)
 		var caption := Label.new()
 		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		caption.add_theme_font_size_override("font_size", 21)
+		caption.add_theme_font_size_override("font_size", caption_size)
 		caption.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
 		caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		trick_face.add_child(caption)
 		button.set_meta("caption", caption)
 		tricks.add_child(button)
 		trick_buttons[trick_id] = button
+	# Четвёртая кнопка — только у главного босса: выкуп компании частями по 5%.
+	var share_button: Button = null
+	if GameState.is_boss(competitor_id):
+		share_button = Button.new()
+		share_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		share_button.custom_minimum_size = Vector2(0, 200)
+		share_button.focus_mode = Control.FOCUS_NONE
+		_style_plain_button(share_button, COLOR_MONEY)
+		share_button.pressed.connect(_on_buy_share.bind(competitor_id))
+		var share_face := VBoxContainer.new()
+		share_face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		share_face.offset_top = 10
+		share_face.offset_bottom = -14
+		share_face.alignment = BoxContainer.ALIGNMENT_CENTER
+		share_face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		share_button.add_child(share_face)
+		var share_picture: Control = ItemIcon.new()
+		share_picture.kind = "handshake"
+		share_picture.custom_minimum_size = Vector2(0, picture_height)
+		share_face.add_child(share_picture)
+		var share_caption := Label.new()
+		share_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		share_caption.add_theme_font_size_override("font_size", 24)
+		share_caption.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
+		share_caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		share_face.add_child(share_caption)
+		share_button.set_meta("caption", share_caption)
+		tricks.add_child(share_button)
 
 	var buy_button := Button.new()
 	buy_button.custom_minimum_size = Vector2(0, 110)
@@ -1641,6 +1714,7 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 		"effects": effects,
 		"tricks": trick_buttons,
 		"tricks_box": tricks,
+		"share": share_button,
 		"buy": buy_button,
 		"title": title,
 	}
@@ -1716,6 +1790,7 @@ func _refresh_video() -> void:
 func _process(delta: float) -> void:
 	_tick_video(delta)
 	_run_one_job()
+	_update_jump_button(delta)
 
 
 func _tick_video(delta: float) -> void:
@@ -1736,6 +1811,14 @@ func _finish_video() -> void:
 func _cancel_video() -> void:
 	_video_layer.visible = false
 	_video_reward = Callable()
+
+
+func _on_buy_share(competitor_id: String) -> void:
+	var result: Dictionary = GameState.buy_boss_share(competitor_id)
+	if bool(result.get("ok", false)):
+		_play(_sfx_buy)
+		if GameState.is_competitor_owned(competitor_id):
+			_enqueue_toast("Компания ваша!", str(result.get("text", "")), 4.0)
 
 
 func _on_trick(competitor_id: String, trick_id: String) -> void:
@@ -1999,7 +2082,15 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	var rope: int = int(GameState.get_duel_progress() * 100.0)
 	_col(status, COLOR_TEXT)
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	if ratio < 1.0:
+	var boss_mode: bool = GameState.is_boss(id)
+	var share: Button = row.get("share")
+	if boss_mode:
+		status.text = "Выкуплено %d%% из 100%%" % rope
+		if share != null:
+			var share_caption: Label = share.get_meta("caption")
+			share_caption.text = "Купить 5%%\n%s" % GameState.format_money(GameState.get_share_price(id))
+			share.disabled = not GameState.can_buy_share(id)
+	elif ratio < 1.0:
 		status.text = "Канат %d%% · они сильнее в %s, канат ползёт к ним" % [rope, _ratio_text(1.0 / maxf(ratio, 0.0001))]
 		_col(status, COLOR_DANGER)
 	else:
@@ -2012,10 +2103,10 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	bar.set("player_model", GameState.get_car_id())
 	powers.text = "Вы %s/с  —  %s %s/с" % [GameState.format_money(mine), short_name, GameState.format_money(theirs)]
 	var tips: PackedStringArray = PackedStringArray()
-	tips.append("Канат тянется, только пока вы в игре: чем вы сильнее, тем быстрее (вдвое сильнее — полная скорость). Сила — доход в секунду плюс заказы с тапов.")
-	if GameState.get_active_ad().is_empty():
-		tips.append("Рекламная кампания поднимает силу — канат пойдёт быстрее.")
-	tips.append("Пакости ослабляют соперника, но могут поймать.")
+	if boss_mode:
+		tips.append("Главный босс не сдаётся. Выкупайте его компанию по 5% — на 100% она ваша и остров захвачен.")
+	else:
+		tips.append("Вы сильнее — канат ползёт к вам, слабее — назад. Тянется, только пока вы в игре. Перетянули — помощник сдаётся.")
 	hint.text = " ".join(tips)
 	var notes: PackedStringArray = PackedStringArray()
 	var growth: float = GameState.get_rival_growth(id)
@@ -2429,7 +2520,13 @@ func _build_more_rows() -> void:
 
 	_more_list.add_child(_make_section_title("Опасная зона"))
 	_make_action_row("trash", "Сбросить прогресс", "Сотрёт всю игру и название компании", "Сбросить", COLOR_DANGER, _ask_reset)
-	var version := _make_center_label("Такси Кликер · сделано с любовью к жёлтым машинам", 22, Color.WHITE)
+	var build_text: String = ""
+	var build_file := FileAccess.open("res://data/build.json", FileAccess.READ)
+	if build_file != null:
+		var build: Variant = JSON.parse_string(build_file.get_as_text())
+		if typeof(build) == TYPE_DICTIONARY:
+			build_text = "\nВерсия %s · сборка %d · %s" % [str(build.get("version", "")), int(build.get("build", 0)), str(build.get("time", ""))]
+	var version := _make_center_label("Такси Кликер · сделано с любовью к жёлтым машинам" + build_text, 22, Color.WHITE)
 	_on_background(version)
 	_more_list.add_child(version)
 
@@ -2614,6 +2711,7 @@ func _build_city_rows() -> void:
 		title.text = str(city.get("name", "Город"))
 		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		title.add_theme_font_size_override("font_size", 42)
+		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_district_list.add_child(title)
 
 		var about := Label.new()
@@ -2624,11 +2722,18 @@ func _build_city_rows() -> void:
 		_col(about, COLOR_MUTED)
 		_district_list.add_child(about)
 
-		_multiplier_label = Label.new()
-		_multiplier_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_multiplier_label.add_theme_font_size_override("font_size", 32)
-		_col(_multiplier_label, COLOR_INCOME)
-		_district_list.add_child(_multiplier_label)
+		if _multiplier_label == null:
+			_multiplier_label = Label.new()
+			_multiplier_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_multiplier_label.add_theme_font_size_override("font_size", 32)
+			_col(_multiplier_label, COLOR_INCOME)
+			_district_list.add_child(_multiplier_label)
+			var how := _make_center_label("Районы прокачиваются за просмотр рекламы. С каждым новым островом — три новых района.", 26, COLOR_MUTED)
+			how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_district_list.add_child(how)
+		var island: String = str(city.get("island", ""))
+		if island != "":
+			_city_titles[island] = [title, str(city.get("name", ""))]
 
 		var districts: Variant = city.get("districts", [])
 		if typeof(districts) != TYPE_ARRAY:
@@ -2654,7 +2759,7 @@ func _make_district_row(district_id: String, info: Dictionary) -> PanelContainer
 	row.add_theme_constant_override("separation", 16)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(row)
-	row.add_child(_make_item_icon(district_id))
+	row.add_child(_make_item_icon(str(info.get("icon", district_id))))
 
 	var text_box := VBoxContainer.new()
 	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2752,8 +2857,20 @@ func _default_island() -> String:
 	return "" if regions.is_empty() else str(regions[regions.size() - 1].get("id", ""))
 
 
+## Обычный район — за просмотр рекламы; платный — покупкой в магазине.
 func _on_open_district(district_id: String) -> void:
-	GameState.open_district(district_id)
+	if GameState.is_district_premium(district_id):
+		_show_premium_offer(district_id)
+		return
+	_show_rewarded(func() -> void: GameState.open_district(district_id))
+
+
+## Платный район: оплата появится с подключением покупок в Google Play / App Store.
+## Сейчас — честное окно «скоро», без бесплатной выдачи.
+func _show_premium_offer(district_id: String) -> void:
+	var info: Dictionary = GameState._find_district(district_id)
+	_enqueue_toast("%s — %s" % [str(info.get("name", "")), str(info.get("price_text", "$2.99"))],
+		"+%d%% к доходу навсегда. Покупка станет доступна в версии из Google Play и App Store." % int(roundf(float(info.get("income_pct", 0)) * 100.0)), 5.0)
 
 
 func _on_open_region(region_id: String) -> void:
@@ -2763,6 +2880,12 @@ func _on_open_region(region_id: String) -> void:
 func _refresh_districts() -> void:
 	if _multiplier_label != null:
 		_multiplier_label.text = "Множитель дохода: x%s" % GameState.format_number(GameState.get_income_multiplier())
+	for island: Variant in _city_titles.keys():
+		var parts: Array = _city_titles[island]
+		var label: Label = parts[0]
+		var open: bool = GameState.is_region_open(str(island))
+		label.text = str(parts[1]) if open else "%s\nоткроется с островом «%s»" % [str(parts[1]), str(GameState.get_island_info(str(island)).get("name", ""))]
+		_col(label, COLOR_TEXT if open else COLOR_MUTED)
 	for district_id: Variant in _district_rows.keys():
 		var open_button: Button = _district_rows[district_id]
 		var id := str(district_id)
@@ -2770,18 +2893,30 @@ func _refresh_districts() -> void:
 		var max_level: int = GameState.get_district_max_level(id)
 		var step: int = int(roundf(float(GameState._find_district(id).get("income_pct", 0)) * 100.0))
 		var level_label: Label = _district_levels.get(id)
+		var premium: bool = GameState.is_district_premium(id)
 		if level_label != null:
-			if level == 0:
+			if premium:
+				level_label.text = "Навсегда: доход +%d%%" % step
+			elif level == 0:
 				level_label.text = "Каждый уровень: доход +%d%%" % step
 			else:
 				level_label.text = "Ур. %d/%d · доход +%d%%" % [level, max_level, int(roundf(GameState.get_district_bonus(id) * 100.0))]
-		if GameState.is_district_maxed(id):
+		if not GameState.is_district_unlocked(id):
+			open_button.text = "Закрыто"
+			open_button.disabled = true
+			_style_buy_button(open_button)
+		elif premium:
+			open_button.disabled = GameState.is_premium_owned(id)
+			open_button.text = "Куплено" if GameState.is_premium_owned(id) else "%s\n+%d%% навсегда" % [str(GameState._find_district(id).get("price_text", "$2.99")), step]
+			_style_plain_button(open_button, COLOR_MONEY)
+		elif GameState.is_district_maxed(id):
 			open_button.text = "Максимум"
 			open_button.disabled = true
+			_style_buy_button(open_button)
 		else:
-			var cost: float = GameState.get_district_cost(id)
-			open_button.text = "%s\n+%d%% · %s" % ["Открыть" if level == 0 else "Ур. %d" % (level + 1), step, GameState.format_money(cost)]
+			open_button.text = "▶ Реклама\n%s +%d%%" % ["открыть" if level == 0 else "ур. %d" % (level + 1), step]
 			open_button.disabled = not GameState.can_open_district(id)
+			_style_plain_button(open_button, COLOR_TRICK)
 
 
 func _refresh_regions() -> void:
@@ -2820,12 +2955,11 @@ func _refresh_regions() -> void:
 			var rival_id: String = GameState.get_active_rival()
 			var duel_text: String = "Все сдались — осталось выкупить."
 			if rival_id != "":
-				var progress: float = GameState.get_duel_progress()
-				if progress < 0.5:
-					duel_text = "Сейчас дуэль: %s, нужно стать сильнее в %s." % [
-						_rival_name(rival_id), _ratio_text(1.0 / maxf(progress, 0.0001))]
+				var progress: int = int(floorf(GameState.get_duel_progress() * 100.0))
+				if GameState.is_boss(rival_id):
+					duel_text = "Главный босс %s: выкуплено %d%% компании." % [_rival_name(rival_id), progress]
 				else:
-					duel_text = "Сейчас дуэль: %s, вы на %d%% его силы." % [_rival_name(rival_id), int(floorf(progress * 100.0))]
+					duel_text = "Канат с %s: перетянуто %d%%." % [_rival_name(rival_id), progress]
 			_island_status.text = "Идёт борьба за %s. Выкуплено %d из %d. %s" % [
 				str(info.get("city", "")), GameState.get_city_owned_count(), GameState.get_competitors().size(), duel_text]
 			_island_button.text = "К рынку"
@@ -3153,6 +3287,10 @@ func _driver_look(person: Dictionary) -> Dictionary:
 			look["mouth"] = "grin"
 		"honest":
 			look["eyes"] = "happy"
+	if bool(person.get("alien", false)):
+		# Инопланетянин: зелёный, глаза-капли, антенны, космический комбинезон.
+		look = {"bg": "1b2a4a", "skin": "7ed957", "hair": "", "hair_color": "3fae5a", "cloth": "2f4a7a",
+			"collar": "shirt", "mouth": "grin", "eyes": "alien", "extra": ["antennae"]}
 	return look
 
 
@@ -3327,6 +3465,7 @@ func _rebuild_staff() -> void:
 		_staff_buttons.clear()
 		for child in _candidate_box.get_children():
 			child.queue_free()
+		_candidate_box.add_child(_make_alien_row())
 		for index in candidates.size():
 			_candidate_box.add_child(_make_candidate_row(candidates[index], index, free_model))
 	_refresh_staff_money()
@@ -3371,6 +3510,36 @@ func _make_team_row(person: Dictionary, uid: int) -> Dictionary:
 		"panel": parts[0], "car": car_label, "no_car": no_car,
 		"shift_label": shift_label, "shift_bar": shift_bar, "shift_button": shift_button,
 	}
+
+
+## Инопланетянин: всегда в кандидатах, берётся за просмотр рекламы на 1 час.
+func _make_alien_row() -> PanelContainer:
+	var person: Dictionary = GameState.get_alien_offer()
+	var info: Dictionary = GameState._staff.get("alien", {})
+	var parts: Array = _make_row_panel()
+	var panel: PanelContainer = parts[0]
+	var glow := _panel_style()
+	glow.bg_color = Color("eef7ff")
+	glow.border_color = Color("7ed957")
+	glow.set_border_width_all(4)
+	panel.add_theme_stylebox_override("panel", glow)
+	var row: HBoxContainer = parts[1]
+	row.add_child(_make_driver_face(person))
+	var text_box := _make_text_box(row)
+	_add_label(text_box, "%s ★★★★★" % str(info.get("name", "Инопланетянин")), 34)
+	_add_label(text_box, str(info.get("description", "")), 26, COLOR_MUTED)
+	_add_label(text_box, "Плюсы: доход +%d%% на любой машине, не устаёт, зарплата всего %d%%" % [
+		int(roundf(float(info.get("income_bonus", 0.7)) * 100.0)), int(roundf(float(info.get("salary", 0.05)) * 100.0))], 26, COLOR_INCOME)
+	var alive: int = GameState.get_alien_count()
+	_add_label(text_box, "Работает 1 час. Сядет на лучшую машину%s" % (" · сейчас в команде: %d" % alive if alive > 0 else ""), 24, COLOR_TEXT)
+	var button := _make_row_button(func() -> void: _show_rewarded(GameState.hire_alien))
+	button.text = "▶ Реклама\nна 1 час"
+	_style_plain_button(button, COLOR_TRICK)
+	if not GameState.can_hire_alien():
+		button.disabled = true
+		button.text = "Нужна\nмашина"
+	row.add_child(button)
+	return panel
 
 
 func _make_candidate_row(person: Dictionary, index: int, free_model: String) -> PanelContainer:
@@ -3514,7 +3683,7 @@ func _rebuild_garage_list() -> void:
 		var free: int = GameState.get_free_count(model)
 		_add_label(text_box, "%s ×%d" % [_car_name(model), count], 34)
 		if free > 0:
-			_add_label(text_box, "Без водителя: %d — продадим сначала её" % free, 24, COLOR_GOLD)
+			_add_label(text_box, "Без водителя: %d — наймите водителя в «Команде»" % free, 24, COLOR_GOLD)
 		elif GameState.get_garage().size() > GameState.get_team().size():
 			_add_label(text_box, "Водитель пересядет на свободную машину", 24, COLOR_MUTED)
 		else:
@@ -4032,6 +4201,37 @@ func _spawn_bill(from_local: Vector2) -> void:
 
 
 ## Счётчик денег подпрыгивает, когда в него «влетают» купюры.
+## Плавно прокрутить «Команду» вниз, к кандидатам.
+func _jump_to_candidates() -> void:
+	var scroll: ScrollContainer = _scroll_of(_candidate_box)
+	if scroll == null:
+		return
+	var target: float = _candidate_box.get_global_rect().position.y - scroll.get_global_rect().position.y + float(scroll.scroll_vertical) - 120.0
+	var tween := create_tween()
+	tween.tween_property(scroll, "scroll_vertical", int(maxf(0.0, target)), 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+func _scroll_of(node: Node) -> ScrollContainer:
+	while node != null and not (node is ScrollContainer):
+		node = node.get_parent()
+	return node as ScrollContainer
+
+
+## Стрелка видна, только пока кандидаты ниже экрана (проверяем 4 раза в секунду).
+func _update_jump_button(delta: float) -> void:
+	_jump_check -= delta
+	if _jump_check > 0.0 or _jump_button == null:
+		return
+	_jump_check = 0.25
+	var show: bool = false
+	if _current_page == PAGE_DRIVERS and _candidate_box != null and _candidate_box.is_visible_in_tree():
+		var scroll: ScrollContainer = _scroll_of(_candidate_box)
+		if scroll != null:
+			show = _candidate_box.get_global_rect().position.y > scroll.get_global_rect().end.y - 40.0
+	if _jump_button.visible != show:
+		_jump_button.visible = show
+
+
 func _pulse_coins() -> void:
 	if _coins_label == null or (_coins_pulse != null and _coins_pulse.is_running()):
 		return
@@ -4115,7 +4315,7 @@ func _build_sounds() -> void:
 	if config.load(SETTINGS_PATH) == OK:
 		_sound_on = bool(config.get_value("audio", "sound", true))
 		_music_on = bool(config.get_value("audio", "music", true))
-		_music_volume = clampf(float(config.get_value("audio", "music_volume", 0.8)), 0.0, 1.0)
+		_music_volume = clampf(float(config.get_value("audio", "music_volume", 1.0)), 0.0, 1.0)
 		_sound_volume = clampf(float(config.get_value("audio", "sound_volume", 0.8)), 0.0, 1.0)
 	# Отдельные шины (default_bus_layout.tres), чтобы ползунок менял громкость всех звуков разом.
 	# Шины заданы в файле проекта, а не создаются в игре: в веб-версии шины, созданные на ходу,
@@ -4133,7 +4333,7 @@ func _build_sounds() -> void:
 	if track != null:
 		track.loop = true
 		_music.stream = track
-	_music.volume_db = -9.0
+	_music.volume_db = -7.0
 	add_child(_music)
 	if _music_on:
 		_music.play()
@@ -4176,7 +4376,7 @@ func _apply_volume(bus: int, volume: float) -> void:
 	if bus == -1:
 		var db: float = linear_to_db(maxf(volume * volume, 0.0001))
 		if _music != null and _music.bus == "Master":
-			_music.volume_db = -9.0 + db
+			_music.volume_db = -7.0 + db
 		return
 	AudioServer.set_bus_mute(bus, volume <= 0.001)
 	AudioServer.set_bus_volume_db(bus, linear_to_db(maxf(volume * volume, 0.0001)))
