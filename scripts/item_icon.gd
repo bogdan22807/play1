@@ -28,13 +28,54 @@ var kind: String = "":
 	set(value):
 		kind = value
 		queue_redraw()
+		for layer: Variant in _layers:
+			layer.kind = value
+
+## Слои «наклейки»: тень и тёмный контур — это копии той же картинки, перекрашенные modulate.
+## "" — корень (плашка), "body" — сама картинка, "shadow"/"outline" — копии под ней.
+var role: String = ""
+var _layers: Array = []
+
+const OUTLINE_OFFSETS := [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1),
+	Vector2(0.7, 0.7), Vector2(-0.7, 0.7), Vector2(0.7, -0.7), Vector2(-0.7, -0.7)]
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if role != "":
+		return
 	if custom_minimum_size == Vector2.ZERO:
 		custom_minimum_size = Vector2(110, 110)
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	# Тень снизу, контур вокруг, сверху сама картинка.
+	_add_layer("shadow", Vector2(0, 1), Color(0, 0, 0, 0.22), 3.2)
+	if badge:
+		for offset: Vector2 in OUTLINE_OFFSETS:
+			_add_layer("outline", offset, Color(0.1, 0.1, 0.2, 0.75), 2.0)
+	_add_layer("body", Vector2.ZERO, Color.WHITE, 0.0)
+	resized.connect(_place_layers)
+	_place_layers()
+
+
+func _add_layer(layer_role: String, direction: Vector2, tint: Color, distance: float) -> void:
+	var layer: Control = get_script().new()
+	layer.role = layer_role
+	layer.badge = badge
+	layer.kind = kind
+	layer.self_modulate = tint
+	layer.set_meta("dir", direction * distance)
+	layer.show_behind_parent = false
+	add_child(layer)
+	_layers.append(layer)
+
+
+## Сдвиг слоёв зависит от размера иконки: на маленьких — тоньше.
+func _place_layers() -> void:
+	var u: float = minf(size.x, size.y) / 100.0
+	for layer: Variant in _layers:
+		var shift: Vector2 = layer.get_meta("dir") * maxf(0.6, u)
+		layer.position = shift
+		layer.size = size
 
 
 func _draw() -> void:
@@ -42,8 +83,10 @@ func _draw() -> void:
 	var u: float = s / 100.0
 	var origin := (size - Vector2(s, s)) / 2.0
 	var c: Vector2 = origin + Vector2(50, 50) * u
-	if badge:
-		_round_rect(Rect2(origin + Vector2(2, 2) * u, Vector2(96, 96) * u), 24 * u, Color(str(BACKS.get(kind, "eeeeee"))))
+	if role == "":
+		if badge:
+			_badge(origin, u)
+		return
 	if badge and BARE.has(kind):
 		# Значок чипа на плашке — чуть меньше, чтобы не упирался в края.
 		u *= 0.72
@@ -155,6 +198,9 @@ func _draw() -> void:
 			_wrap(c, u)
 		"garage":
 			_garage(c, u)
+	# Блики и тени — только на самой картинке, не на тени и контуре.
+	if role == "body":
+		_details(c, u)
 
 
 func _washer(c: Vector2, u: float) -> void:
@@ -352,7 +398,7 @@ func _island(c: Vector2, u: float) -> void:
 
 func _handshake(c: Vector2, u: float) -> void:
 	_round_rect(Rect2(c + Vector2(-40, -8) * u, Vector2(30, 18) * u), 5 * u, Color("3fa3f5"))
-	_round_rect(Rect2(c + Vector2(10, -8) * u, Vector2(30, 18) * u), 5 * u, Color("2f4a7a"))
+	_round_rect(Rect2(c + Vector2(10, -8) * u, Vector2(30, 18) * u), 5 * u, Color("1f9d55"))
 	draw_colored_polygon(_half_down(c + Vector2(0, -2) * u, 22 * u, 20 * u), Color("e0b48f"))
 	for index in 4:
 		draw_line(c + Vector2(-12 + index * 8, 4) * u, c + Vector2(-10 + index * 8, 14) * u, Color("b98552"), 2.5 * u)
@@ -536,8 +582,141 @@ func _star(center: Vector2, outer: float, inner: float) -> PackedVector2Array:
 	return points
 
 
+## Плашка: мягкая тень, цвет с переходом сверху вниз, блик и светлый ободок.
+func _badge(origin: Vector2, u: float) -> void:
+	var back := Color(str(BACKS.get(kind, "eeeeee")))
+	var rect := Rect2(origin + Vector2(2, 2) * u, Vector2(96, 96) * u)
+	_round_rect(Rect2(rect.position + Vector2(0, 3) * u, rect.size), 24 * u, Color(0, 0, 0, 0.1))
+	_round_rect(rect, 24 * u, back.darkened(0.06))
+	_round_rect(Rect2(rect.position, Vector2(rect.size.x, rect.size.y * 0.62)), 24 * u, back.lightened(0.18))
+	_round_rect(Rect2(rect.position + Vector2(10, 6) * u, Vector2(rect.size.x * 0.55, 10 * u)), 5 * u, Color(1, 1, 1, 0.45))
+	var rim := StyleBoxFlat.new()
+	rim.draw_center = false
+	rim.border_color = Color(1, 1, 1, 0.7)
+	rim.set_border_width_all(int(maxf(1.0, 2.5 * u)))
+	rim.set_corner_radius_all(int(24 * u))
+	draw_style_box(rim, rect)
+
+
 func _round_rect(rect: Rect2, radius: float, color: Color) -> void:
 	var box := StyleBoxFlat.new()
 	box.bg_color = color
 	box.set_corner_radius_all(int(radius))
 	draw_style_box(box, rect)
+
+
+const SHINE := Color(1, 1, 1, 0.55)
+const SHADE := Color(0, 0, 0, 0.14)
+
+
+## Мелкие детали поверх картинки: блики, тени, швы, огоньки.
+func _details(c: Vector2, u: float) -> void:
+	match kind:
+		"washer":
+			draw_line(c + Vector2(-18, -2) * u, c + Vector2(-14, 24) * u, SHINE, 3 * u)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(8, -6) * u, c + Vector2(24, -6) * u, c + Vector2(18, 30) * u, c + Vector2(6, 30) * u]), SHADE)
+			for drop in [Vector2(-30, 20), Vector2(30, 6)]:
+				draw_circle(c + drop * u, 3 * u, Color("9fd4ff"))
+		"mechanic":
+			draw_line(c + Vector2(-18, 16) * u, c + Vector2(12, -14) * u, SHINE, 2 * u)
+			draw_circle(c + Vector2(16, -24) * u, 2.5 * u, SHINE)
+			draw_line(c + Vector2(24, 24) * u, c + Vector2(18, 18) * u, Color(1, 1, 1, 0.4), 2.5 * u)
+		"dispatcher":
+			draw_line(c + Vector2(-10, -12) * u, c + Vector2(-10, 26) * u, Color(1, 1, 1, 0.18), 2 * u)
+			draw_circle(c + Vector2(8, -35) * u, 3 * u, Color("e8434f"))
+			draw_line(c + Vector2(-6, -6) * u, c + Vector2(4, -6) * u, Color("1b7a3a"), 1.5 * u)
+		"flyers":
+			var font: Font = get_theme_default_font()
+			draw_string(font, c + Vector2(-4, -15) * u, "TAXI", HORIZONTAL_ALIGNMENT_CENTER, 30 * u, int(8 * u), INK)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(22, 10) * u, c + Vector2(28, 10) * u, c + Vector2(28, 16) * u]), Color("c9d2de"))
+		"billboard":
+			for x in [-24, 0, 24]:
+				draw_circle(c + Vector2(x, -32) * u, 2.5 * u, Color("ffe066"))
+				draw_colored_polygon(PackedVector2Array([c + Vector2(x - 2, -30) * u, c + Vector2(x + 2, -30) * u, c + Vector2(x + 6, -22) * u, c + Vector2(x - 6, -22) * u]), Color(1, 0.95, 0.6, 0.35))
+			draw_rect(Rect2(c + Vector2(-34, 6) * u, Vector2(68, 4) * u), SHADE)
+		"tv":
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-26, -14) * u, c + Vector2(-10, -14) * u, c + Vector2(-24, 6) * u, c + Vector2(-26, 6) * u]), Color(1, 1, 1, 0.45))
+			draw_rect(Rect2(c + Vector2(-20, 28) * u, Vector2(40, 4) * u), Color("4b3fb5"))
+		"tires":
+			draw_arc(c, 29 * u, PI * 1.1, PI * 1.6, 12, Color(1, 1, 1, 0.25), 3 * u)
+			draw_arc(c, 14 * u, PI * 1.1, PI * 1.5, 10, SHINE, 2 * u)
+		"horn":
+			draw_line(c + Vector2(-6, -4) * u, c + Vector2(10, -18) * u, SHINE, 2.5 * u)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-8, 2) * u, c + Vector2(14, 14) * u, c + Vector2(14, 24) * u, c + Vector2(-8, 6) * u]), SHADE)
+		"seats":
+			for y in [-24, -12, 0]:
+				draw_line(c + Vector2(-16, y) * u, c + Vector2(2, y) * u, Color(1, 1, 1, 0.3), 1.5 * u)
+			draw_line(c + Vector2(-17, -30) * u, c + Vector2(-17, 10) * u, Color(1, 1, 1, 0.35), 2 * u)
+		"meter":
+			draw_line(c + Vector2(-26, -15) * u, c + Vector2(24, -15) * u, Color(1, 1, 1, 0.25), 2 * u)
+			draw_string(get_theme_default_font(), c + Vector2(-7, -24) * u, "TAXI", HORIZONTAL_ALIGNMENT_CENTER, 14 * u, int(6 * u), INK)
+		"wrap":
+			draw_line(c + Vector2(-20, -10) * u, c + Vector2(-20, 28) * u, SHINE, 3 * u)
+			for dot in [Vector2(10, -28), Vector2(34, -12), Vector2(14, -6)]:
+				draw_circle(c + dot * u, 2 * u, Color("ff5d8f"))
+		"garage":
+			draw_rect(Rect2(c + Vector2(-32, -8) * u, Vector2(64, 4) * u), SHADE)
+			draw_rect(Rect2(c + Vector2(-28, -2) * u, Vector2(4, 8) * u), Color("dff4ff"))
+			draw_circle(c + Vector2(-6, 30) * u, 3 * u, INK)
+			draw_circle(c + Vector2(6, 30) * u, 3 * u, INK)
+		"money_bag":
+			draw_arc(c + Vector2(-8, 4) * u, 18 * u, PI * 1.05, PI * 1.45, 10, SHINE, 3 * u)
+			draw_circle(c + Vector2(26, 30) * u, 8 * u, Color("ffc93c"))
+			draw_circle(c + Vector2(26, 30) * u, 5 * u, Color("ffe082"))
+		"taxi", "fleet_part":
+			pass
+		"driver":
+			draw_circle(c + Vector2(-9, 6) * u, 3 * u, Color(1, 0.5, 0.5, 0.35))
+			draw_circle(c + Vector2(9, 6) * u, 3 * u, Color(1, 0.5, 0.5, 0.35))
+		"crown":
+			draw_line(c + Vector2(-28, 14) * u, c + Vector2(-30, -10) * u, SHINE, 2.5 * u)
+			for gem in [Vector2(0, 6), Vector2(-18, 10), Vector2(18, 10)]:
+				draw_circle(c + (gem + Vector2(-1.5, -1.5)) * u, 1.6 * u, Color.WHITE)
+			for spark in [Vector2(-36, -28), Vector2(34, -32)]:
+				_sparkle(c + spark * u, 6 * u)
+		"island":
+			draw_arc(c + Vector2(0, 16) * u, 34 * u, PI * 0.15, PI * 0.85, 12, Color(1, 1, 1, 0.5), 2 * u)
+			draw_circle(c + Vector2(4, -14) * u, 3 * u, Color("8d6e63"))
+			draw_circle(c + Vector2(9, -13) * u, 3 * u, Color("8d6e63"))
+		"handshake":
+			_sparkle(c + Vector2(0, -26) * u, 7 * u)
+			draw_line(c + Vector2(-36, -4) * u, c + Vector2(-16, -4) * u, Color(1, 1, 1, 0.35), 2 * u)
+		"tap":
+			draw_line(c + Vector2(-6, -12) * u, c + Vector2(-6, 0) * u, Color(1, 1, 1, 0.4), 2 * u)
+			draw_arc(c + Vector2(-3, -12) * u, 4 * u, PI, TAU, 6, Color("f5d0b0"), 2 * u)
+		"wallet":
+			draw_line(c + Vector2(-30, -12) * u, c + Vector2(-30, 20) * u, Color(1, 1, 1, 0.25), 2 * u)
+			for x in range(-28, 32, 6):
+				draw_line(c + Vector2(x, 22) * u, c + Vector2(x + 3, 22) * u, Color("d7ccc8"), 1.5 * u)
+		"chart":
+			_sparkle(c + Vector2(32, -36) * u, 6 * u)
+		"center":
+			draw_rect(Rect2(c + Vector2(-32, -20) * u, Vector2(64, 4) * u), SHADE)
+			draw_rect(Rect2(c + Vector2(18, -10) * u, Vector2(10, 14) * u), Color("dff4ff"))
+		"station":
+			draw_line(c + Vector2(-18, -24) * u, c + Vector2(-8, -24) * u, SHINE, 2 * u)
+			draw_rect(Rect2(c + Vector2(-28, -6) * u, Vector2(56, 4) * u), Color("2b7fd0"))
+			for x in range(-30, 34, 10):
+				draw_line(c + Vector2(x, 30) * u, c + Vector2(x, 36) * u, Color("8d6e63"), 3 * u)
+		"airport":
+			for k in 4:
+				draw_circle(c + Vector2(-10 + k * 8, 10 - k * 8) * u, 2 * u, Color("3fa3f5"))
+			draw_line(c + Vector2(-40, 40) * u, c + Vector2(-30, 30) * u, Color(1, 1, 1, 0.6), 4 * u)
+		"sleep":
+			for star in [Vector2(-30, -30), Vector2(-6, -36), Vector2(36, -6)]:
+				_sparkle(c + star * u, 4 * u)
+		"business":
+			draw_rect(Rect2(c + Vector2(-30, -38) * u, Vector2(4, 66) * u), Color(1, 1, 1, 0.25))
+			draw_line(c + Vector2(25, -44) * u, c + Vector2(25, -52) * u, INK, 2 * u)
+			draw_circle(c + Vector2(25, -53) * u, 2 * u, Color("e8434f"))
+		"parking":
+			draw_line(c + Vector2(6, -36) * u, c + Vector2(6, -8) * u, Color(1, 1, 1, 0.3), 2 * u)
+		"dispatch":
+			draw_line(c + Vector2(-35, 0) * u, c + Vector2(-35, 14) * u, SHINE, 2 * u)
+			draw_line(c + Vector2(15, 0) * u, c + Vector2(15, 14) * u, SHINE, 2 * u)
+
+
+## Искорка-звёздочка из двух лучей.
+func _sparkle(at: Vector2, r: float) -> void:
+	draw_colored_polygon(PackedVector2Array([at + Vector2(0, -r), at + Vector2(r * 0.25, -r * 0.25), at + Vector2(r, 0), at + Vector2(r * 0.25, r * 0.25),
+		at + Vector2(0, r), at + Vector2(-r * 0.25, r * 0.25), at + Vector2(-r, 0), at + Vector2(-r * 0.25, -r * 0.25)]), Color("ffe066"))
