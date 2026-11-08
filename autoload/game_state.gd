@@ -146,6 +146,8 @@ var _rival_age: Dictionary = {}
 ## Канат дуэли: id соперника -> 0..1. 1 — перетянули, соперник сдаётся.
 ## Двигается только пока игра открыта: дуэль выигрывают игрой, а не ночью.
 var _rope: Dictionary = {}
+## Доли главного босса острова: id -> сколько раз купили по 5%. 20 раз — компания ваша.
+var _boss_shares: Dictionary = {}
 ## С кем шла дуэль в прошлую секунду: сменился соперник — заводим таймер его первого хода.
 var _duel_rival: String = ""
 ## Секунд игры до следующего ответного хода соперника.
@@ -155,6 +157,8 @@ var _rival_attack_in: float = 0.0
 var _story_seen: Dictionary = {}
 ## Текущая реклама: {"id", "until"}. Пусто — рекламы нет.
 var _ad: Dictionary = {}
+## Листовки (за монеты) идут отдельно от роликов — их бонусы складываются.
+var _paid_ad: Dictionary = {}
 ## id кампании за ролик -> unix, когда её снова можно запустить.
 var _ad_ready: Dictionary = {}
 ## Прогресс дяди Буна: шаг обучения, включены ли советы. Хранит и меняет scripts/mentor.gd.
@@ -170,6 +174,10 @@ var _competitor_defs: Array = []
 var _owned_competitors: Dictionary = {}
 ## id региона -> 1, если регион уже открыт.
 var _opened_regions: Dictionary = {}
+## Сколько водителей нанято за забег (цена найма растёт от этого числа).
+var _hired_total: int = 0
+## Платные районы (за настоящие деньги): навсегда, переживают и продажу компании, и сброс.
+var _premium_owned: Dictionary = {}
 ## Репутация компании. Не копится сама: её каждый раз считает формула.
 var reputation: int = 0
 ## Сколько раз нажали на такси за текущий забег.
@@ -1165,8 +1173,10 @@ func _tick_shifts(seconds: float) -> void:
 	var hour: float = maxf(1.0, _shift_value("hour_seconds", 60))
 	var cars: Dictionary = get_assignments()
 	for person: Variant in _team:
-		if cars.has(int(person.get("uid", 0))):
+		# Инопланетянин не устаёт.
+		if cars.has(int(person.get("uid", 0))) and not bool(person.get("alien", false)):
 			person["hours"] = get_driver_hours(person) + seconds / hour
+	_expire_aliens()
 	var target: float = get_rating_target()
 	var step: float = _rating_value("ease_per_second", 0.02) * seconds
 	var before: float = rating
@@ -1323,13 +1333,17 @@ func get_trait_info(trait_id: String) -> Dictionary:
 
 
 ## Цена найма: подъёмные по звёздам, каждый следующий водитель дороже.
+## Цена найма растёт на hire_growth (5%) с каждым нанятым за забег. Увольнение счётчик
+## не уменьшает: уволил и нанял нового — всё равно дороже.
 func get_hire_cost(person: Dictionary) -> float:
 	var base: float = float(get_star_info(int(person.get("stars", 1))).get("hire_cost", 40))
-	return _scaled_cost(base, float(_staff.get("hire_growth", 1.5)), _team.size())
+	return _scaled_cost(base, float(_staff.get("hire_growth", 1.05)), _hired_total)
 
 
 ## Доля дохода, которую водитель забирает себе.
 func get_salary_share(person: Dictionary) -> float:
+	if bool(person.get("alien", false)):
+		return float(_staff.get("alien", {}).get("salary", 0.05))
 	var share: float = float(get_star_info(int(person.get("stars", 1))).get("salary", 0.2))
 	share += float(get_trait_info(str(person.get("trait", ""))).get("salary_bonus", 0))
 	return clampf(share, 0.0, float(_staff.get("max_salary", 0.10)))
@@ -1337,6 +1351,8 @@ func get_salary_share(person: Dictionary) -> float:
 
 ## Насколько водитель лучше обычного: звёзды и черта характера.
 func get_driver_power(person: Dictionary) -> float:
+	if bool(person.get("alien", false)):
+		return 1.0 + float(_staff.get("alien", {}).get("income_bonus", 0.7))
 	var mult: float = float(get_star_info(int(person.get("stars", 1))).get("income_mult", 1))
 	mult *= 1.0 + float(get_trait_info(str(person.get("trait", ""))).get("income_bonus", 0))
 	# Бонус водителя одинаковый на любой машине; максимум +40% (5 звёзд и лучшая черта).
@@ -1371,10 +1387,68 @@ func hire(index: int) -> bool:
 	person["uid"] = _next_uid
 	person["hours"] = 0.0
 	_next_uid += 1
+	_hired_total += 1
 	_team.append(person)
 	_candidates[index] = _make_candidate(_slot_female(index))
 	_after_staff_change()
 	return true
+
+
+## Инопланетянин: всегда в кандидатах, берётся за рекламу, 5★, +70% дохода, зарплата 5%,
+## не устаёт, работает 1 час реального времени. Можно взять сколько угодно — по одному на машину.
+signal alien_left(person_name: String)
+
+
+func get_alien_offer() -> Dictionary:
+	var info: Dictionary = _staff.get("alien", {})
+	return {"name": str(info.get("name", "Зорг")), "stars": 5, "trait": "alien", "alien": true}
+
+
+func get_alien_seconds() -> int:
+	return int(_staff.get("alien", {}).get("seconds", 3600))
+
+
+func get_alien_count() -> int:
+	return _team.filter(func(p: Variant) -> bool: return bool(p.get("alien", false))).size()
+
+
+## Инопланетян не больше, чем машин в гараже: лишнему было бы не на чем ездить.
+func can_hire_alien() -> bool:
+	return get_alien_count() < get_garage().size()
+
+
+## Вызывается после просмотра рекламы. Цена найма обычных водителей от него не растёт.
+func hire_alien() -> bool:
+	if not can_hire_alien():
+		return false
+	var person: Dictionary = get_alien_offer()
+	var names: Array = _staff.get("alien", {}).get("names", ["Зорг"])
+	person["name"] = "%s-%d" % [str(names[randi() % names.size()]), randi_range(100, 999)]
+	person["uid"] = _next_uid
+	person["hours"] = 0.0
+	person["until"] = int(Time.get_unix_time_from_system()) + get_alien_seconds()
+	_next_uid += 1
+	_team.append(person)
+	_after_staff_change()
+	return true
+
+
+## Сколько секунд осталось инопланетянину.
+func get_alien_left(person: Dictionary) -> int:
+	return maxi(0, int(person.get("until", 0)) - int(Time.get_unix_time_from_system()))
+
+
+func _expire_aliens() -> void:
+	var gone: Array = []
+	for person: Variant in _team:
+		if bool(person.get("alien", false)) and get_alien_left(person) <= 0:
+			gone.append(person)
+	if gone.is_empty():
+		return
+	for person: Variant in gone:
+		_team.erase(person)
+		alien_left.emit(str(person.get("name", "")))
+	_after_staff_change()
 
 
 func fire(uid: int) -> bool:
@@ -1508,7 +1582,7 @@ func _make_candidate(female: bool = false) -> Dictionary:
 		if roll < 0.0:
 			stars = int(raw.get("stars", 1))
 			break
-	var traits: Array = _staff.get("traits", [])
+	var traits: Array = _staff.get("traits", []).filter(func(t: Variant) -> bool: return str(t.get("id", "")) != "alien")
 	var trait_id: String = "none"
 	if not traits.is_empty():
 		trait_id = str(traits[randi() % traits.size()].get("id", "none"))
@@ -1522,6 +1596,7 @@ func _reset_staff() -> void:
 	_garage.clear()
 	_garage_level = 0
 	_team.clear()
+	_hired_total = 0
 	_candidates.clear()
 	_candidates_unix = 0
 	_fill_candidates()
@@ -1555,6 +1630,8 @@ func is_district_open(district_id: String) -> bool:
 
 ## Районы растут уровнями: каждый уровень — одинаковые +income_pct к доходу (обычно +6%).
 func get_district_level(district_id: String) -> int:
+	if is_district_premium(district_id):
+		return 1 if is_premium_owned(district_id) else 0
 	return int(_opened_districts.get(district_id, 0))
 
 
@@ -1567,6 +1644,8 @@ func is_district_maxed(district_id: String) -> bool:
 
 
 func get_district_bonus(district_id: String) -> float:
+	if is_district_premium(district_id):
+		return float(_find_district(district_id).get("income_pct", 0)) if is_premium_owned(district_id) else 0.0
 	return float(_find_district(district_id).get("income_pct", 0)) * float(get_district_level(district_id))
 
 
@@ -1578,18 +1657,53 @@ func get_district_cost(district_id: String) -> float:
 	return _scaled_cost(float(info.get("base_cost", 1)), float(info.get("cost_growth", 3)), get_district_level(district_id))
 
 
+## Районы прокачиваются за просмотр рекламы — деньги не нужны. Районы острова открываются
+## вместе с островом. Платный район (premium) — только покупкой, за рекламу нельзя.
 func can_open_district(district_id: String) -> bool:
-	if _find_district(district_id).is_empty() or is_district_maxed(district_id):
+	var info: Dictionary = _find_district(district_id)
+	if info.is_empty() or is_district_maxed(district_id) or is_district_premium(district_id):
 		return false
-	return coins + 0.001 >= get_district_cost(district_id)
+	return is_district_unlocked(district_id)
+
+
+func is_district_premium(district_id: String) -> bool:
+	return bool(_find_district(district_id).get("premium", false))
+
+
+## Район доступен, когда открыт остров его города.
+func is_district_unlocked(district_id: String) -> bool:
+	var island: String = get_district_island(district_id)
+	return island == "" or is_region_open(island)
+
+
+func get_district_island(district_id: String) -> String:
+	for raw: Variant in _city_defs:
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		for item: Variant in raw.get("districts", []):
+			if typeof(item) == TYPE_DICTIONARY and str(item.get("id", "")) == district_id:
+				return str(raw.get("island", ""))
+	return ""
+
+
+func is_premium_owned(district_id: String) -> bool:
+	return int(_premium_owned.get(district_id, 0)) > 0
+
+
+## Вызывается после успешной оплаты в магазине (Google Play / App Store).
+func grant_premium_district(district_id: String) -> void:
+	if not is_district_premium(district_id):
+		return
+	_premium_owned[district_id] = 1
+	_recalc_income()
+	coins_changed.emit(coins)
+	districts_changed.emit()
+	save_game()
 
 
 func open_district(district_id: String) -> bool:
 	if not can_open_district(district_id):
 		return false
-	coins -= get_district_cost(district_id)
-	if coins < 0.0:
-		coins = 0.0
 	_opened_districts[district_id] = get_district_level(district_id) + 1
 	_recalc_income()
 	coins_changed.emit(coins)
@@ -1811,6 +1925,8 @@ func get_competitor_power(competitor_id: String) -> float:
 	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
 	var power: float = float(info.get("power", 0)) * float(_rival_perm.get(competitor_id, 1.0))
 	power *= get_rival_growth(competitor_id)
+	# Каждая выкупленная доля босса забирает у него часть машин.
+	power *= 1.0 - get_boss_share_fraction(competitor_id)
 	var now: int = _now()
 	for raw: Variant in _rival_cuts.get(competitor_id, []):
 		if int(raw.get("until", 0)) > now:
@@ -1891,12 +2007,64 @@ func get_rival_growth_cap() -> float:
 	return float(_duel_value("growth_cap", 1.6))
 
 
-## Прогресс дуэли 0..1 — где канат. 1 — перетянули, соперник сдаётся.
+## Прогресс дуэли 0..1: у помощника — где канат, у главного босса — сколько компании выкуплено.
 func get_duel_progress() -> float:
 	var rival_id: String = get_active_rival()
 	if rival_id == "":
 		return 1.0
+	if is_boss(rival_id):
+		return get_boss_share_fraction(rival_id)
 	return clampf(float(_rope.get(rival_id, 0.0)), 0.0, 1.0)
+
+
+# Главный босс острова: канат не тянется — компанию выкупают долями по 5%.
+
+func is_boss(competitor_id: String) -> bool:
+	return str(_find_def(_competitor_defs, competitor_id).get("role", "")) == "boss"
+
+
+func get_share_step() -> float:
+	return float(_duel_value("share_percent", 5)) / 100.0
+
+
+func get_boss_shares(competitor_id: String) -> int:
+	return int(_boss_shares.get(competitor_id, 0))
+
+
+func get_boss_share_fraction(competitor_id: String) -> float:
+	return clampf(float(get_boss_shares(competitor_id)) * get_share_step(), 0.0, 1.0)
+
+
+func get_shares_total() -> int:
+	return maxi(1, roundi(1.0 / get_share_step()))
+
+
+## Цена следующей доли: сила босса (без учёта уже купленных долей) × share_seconds,
+## каждая следующая дороже на share_growth.
+func get_share_price(competitor_id: String) -> float:
+	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
+	var base: float = float(info.get("power", 0)) * float(_duel_value("share_seconds", 40))
+	return ceilf(base * pow(float(_duel_value("share_growth", 1.08)), float(get_boss_shares(competitor_id))))
+
+
+## Купить долю можно только у главного босса, когда оба помощника повержены.
+func can_buy_share(competitor_id: String) -> bool:
+	return is_boss(competitor_id) and competitor_id == get_active_rival() and coins + 0.001 >= get_share_price(competitor_id)
+
+
+func buy_boss_share(competitor_id: String) -> Dictionary:
+	if not can_buy_share(competitor_id):
+		return {"ok": false, "text": "Не хватает денег на долю."}
+	coins = maxf(0.0, coins - get_share_price(competitor_id))
+	_boss_shares[competitor_id] = get_boss_shares(competitor_id) + 1
+	var text: String = "Ваши %d%% «%s»." % [int(roundf(get_boss_share_fraction(competitor_id) * 100.0)), str(_find_def(_competitor_defs, competitor_id).get("name", ""))]
+	if get_boss_shares(competitor_id) >= get_shares_total():
+		_owned_competitors[competitor_id] = 1
+		_rival_cuts.erase(competitor_id)
+		text = _say(str(_find_def(_competitor_defs, competitor_id).get("success_text", "Компания ваша!")))
+	_tick_story(competitor_id)
+	_after_market_change()
+	return {"ok": true, "text": text}
 
 
 ## Во сколько раз вы сильнее активного соперника (меньше 1 — слабее).
@@ -2076,7 +2244,8 @@ func _tick_duel(seconds: float) -> void:
 		_duel_rival = rival_id
 		_reset_attack_timer(true)
 	_rival_age[rival_id] = float(_rival_age.get(rival_id, 0.0)) + seconds
-	_rope[rival_id] = clampf(float(_rope.get(rival_id, 0.0)) + get_rope_speed() * seconds, 0.0, 1.0)
+	if not is_boss(rival_id):
+		_rope[rival_id] = clampf(float(_rope.get(rival_id, 0.0)) + get_rope_speed() * seconds, 0.0, 1.0)
 	if _check_surrender():
 		return
 	_tick_story(rival_id)
@@ -2089,7 +2258,7 @@ func _tick_duel(seconds: float) -> void:
 ## Догнали соперника — он сдаётся и ждёт выкупа. Дуэль переходит к следующему.
 func _check_surrender() -> bool:
 	var rival_id: String = get_active_rival()
-	if rival_id == "" or float(_rope.get(rival_id, 0.0)) < 1.0:
+	if rival_id == "" or is_boss(rival_id) or float(_rope.get(rival_id, 0.0)) < 1.0:
 		return false
 	_surrendered[rival_id] = _surrender_price(rival_id)
 	# Временные эффекты на сдавшемся больше не нужны.
@@ -2152,18 +2321,32 @@ func get_ad_price(ad_id: String) -> float:
 	return _price_by_seconds(_find_def(get_ads(), ad_id))
 
 
-func get_active_ad() -> Dictionary:
-	if _ad.is_empty() or int(_ad.get("until", 0)) <= _now():
+## Две «полосы» рекламы: ролики (video) и листовки за монеты (paid). Каждая — одна кампания за раз.
+func _ad_slot(ad_id: String) -> Dictionary:
+	return _ad if get_ad_pay(ad_id) == "video" else _paid_ad
+
+
+func _slot_active(slot: Dictionary) -> Dictionary:
+	if slot.is_empty() or int(slot.get("until", 0)) <= _now():
 		return {}
-	return _find_def(get_ads(), str(_ad.get("id", "")))
+	return _find_def(get_ads(), str(slot.get("id", "")))
 
 
-func get_ad_left() -> int:
-	return maxi(0, int(_ad.get("until", 0)) - _now()) if not get_active_ad().is_empty() else 0
+## Идущая кампания той же полосы, что и ad_id (без ad_id — ролик, иначе листовки).
+func get_active_ad(ad_id: String = "") -> Dictionary:
+	if ad_id != "":
+		return _slot_active(_ad_slot(ad_id))
+	var video: Dictionary = _slot_active(_ad)
+	return video if not video.is_empty() else _slot_active(_paid_ad)
+
+
+func get_ad_left(ad_id: String = "") -> int:
+	var slot: Dictionary = _ad_slot(ad_id) if ad_id != "" else (_ad if not _slot_active(_ad).is_empty() else _paid_ad)
+	return maxi(0, int(slot.get("until", 0)) - _now()) if not _slot_active(slot).is_empty() else 0
 
 
 func get_ad_boost() -> float:
-	return float(get_active_ad().get("boost", 0))
+	return float(_slot_active(_ad).get("boost", 0)) + float(_slot_active(_paid_ad).get("boost", 0))
 
 
 ## Чем платим за кампанию: "coins" — монетами, "video" — просмотром рекламного ролика.
@@ -2176,9 +2359,9 @@ func get_ad_wait(ad_id: String) -> int:
 	return maxi(0, int(_ad_ready.get(ad_id, 0)) - _now())
 
 
-## Одна кампания за раз: новая — только когда закончилась старая.
+## Одна кампания на полосу: новый ролик — когда закончился старый; листовки — так же.
 func can_buy_ad(ad_id: String) -> bool:
-	if _find_def(get_ads(), ad_id).is_empty() or not get_active_ad().is_empty():
+	if _find_def(get_ads(), ad_id).is_empty() or not get_active_ad(ad_id).is_empty():
 		return false
 	if get_ad_pay(ad_id) == "video":
 		return get_ad_wait(ad_id) <= 0
@@ -2194,7 +2377,11 @@ func buy_ad(ad_id: String) -> bool:
 		_ad_ready[ad_id] = _now() + int(info.get("cooldown", 1800))
 	else:
 		coins = maxf(0.0, coins - get_ad_price(ad_id))
-	_ad = {"id": ad_id, "until": _now() + int(info.get("duration", 300))}
+	var entry: Dictionary = {"id": ad_id, "until": _now() + int(info.get("duration", 300))}
+	if get_ad_pay(ad_id) == "video":
+		_ad = entry
+	else:
+		_paid_ad = entry
 	_after_market_change()
 	tap_power_changed.emit(get_tap_power())
 	return true
@@ -2309,8 +2496,14 @@ func _after_market_change() -> void:
 func _tick_market(seconds: float = 1.0) -> void:
 	var now: int = _now()
 	# Кампания кончилась — доход возвращается к обычному.
+	var ended: bool = false
 	if not _ad.is_empty() and int(_ad.get("until", 0)) <= now:
 		_ad = {}
+		ended = true
+	if not _paid_ad.is_empty() and int(_paid_ad.get("until", 0)) <= now:
+		_paid_ad = {}
+		ended = true
+	if ended:
 		_recalc_income()
 		tap_power_changed.emit(get_tap_power())
 		competitors_changed.emit()
@@ -2335,6 +2528,7 @@ func _check_capture() -> void:
 			return
 	_captured[island] = 1
 	_ad = {}
+	_paid_ad = {}
 	_recalc_income()
 	var city: String = str(get_island_info(island).get("city", ""))
 	var text: String = "«%s» — такси №1 в городе %s! Доход +%d%% навсегда." % [
@@ -2369,9 +2563,11 @@ func _reset_market() -> void:
 	_surrendered.clear()
 	_rival_age.clear()
 	_rope.clear()
+	_boss_shares.clear()
 	_duel_rival = ""
 	_rival_attack_in = 0.0
 	_ad = {}
+	_paid_ad = {}
 	_captured.clear()
 
 
@@ -2469,26 +2665,39 @@ func get_run_earned() -> float:
 	return run_earned
 
 
+## Продать компанию можно, открыв 3-й остров. Франшиза — минимум ×1,3, максимум ×3.
+const FRANCHISE_MIN := 1.3
+const FRANCHISE_MAX := 3.0
+const SELL_ISLANDS := 3
+
+
 ## Какой множитель зафиксируется, если продать компанию сейчас.
 func get_preview_franchise() -> float:
 	var earned: float = maxf(0.0, lifetime_earned)
-	return 1.0 + _franchise_weight * sqrt(earned / maxf(1.0, _franchise_reference))
+	var value: float = 1.0 + _franchise_weight * sqrt(earned / maxf(1.0, _franchise_reference))
+	return clampf(maxf(value, franchise), FRANCHISE_MIN, FRANCHISE_MAX)
 
 
 func can_sell_company() -> bool:
-	return get_preview_franchise() + 0.000001 >= franchise * FRANCHISE_MIN_STEP
+	return _open_island_count() >= SELL_ISLANDS and get_preview_franchise() > franchise + 0.000001
+
+
+## Открытые острова вместе с домашним.
+func _open_island_count() -> int:
+	var count: int = 0
+	for raw: Variant in _region_defs:
+		if typeof(raw) == TYPE_DICTIONARY and is_region_open(str(raw.get("id", ""))):
+			count += 1
+	return count
 
 
 ## Почему кнопка продажи выключена. Пустая строка, если продать уже можно.
 func get_sell_block_reason() -> String:
 	if can_sell_company():
 		return ""
-	var preview: float = get_preview_franchise()
-	var need: float = franchise * FRANCHISE_MIN_STEP
-	return "Сейчас стало бы ×%s. Нужно хотя бы ×%s, это +10%% к текущей франшизе." % [
-		format_number(preview),
-		format_number(need),
-	]
+	if _open_island_count() < SELL_ISLANDS:
+		return "Продать можно, когда откроете %d-й остров (открыто %d)." % [SELL_ISLANDS, _open_island_count()]
+	return "Франшиза уже на максимуме ×%s." % format_number(FRANCHISE_MAX)
 
 
 ## Сбрасывает забег и прибавляет франшизу. Сама франшиза остаётся.
@@ -2656,6 +2865,8 @@ func save_game() -> void:
 		"my_health": _my_health,
 		"garage_level": _garage_level,
 		"team": _team.duplicate(true),
+		"hired_total": _hired_total,
+		"premium": _premium_owned.duplicate(),
 		"candidates": _candidates.duplicate(true),
 		"next_uid": _next_uid,
 		"candidates_unix": _candidates_unix,
@@ -2674,10 +2885,12 @@ func save_game() -> void:
 		"surrendered": _surrendered.duplicate(),
 		"rival_age": _rival_age.duplicate(),
 		"rope": _rope.duplicate(),
+		"boss_shares": _boss_shares.duplicate(),
 		"duel_rival": _duel_rival,
 		"rival_attack_in": _rival_attack_in,
 		"story_seen": _story_seen.duplicate(true),
 		"ad": _ad.duplicate(),
+		"paid_ad": _paid_ad.duplicate(),
 		"ad_ready": _ad_ready.duplicate(),
 		"captured": _captured.keys(),
 		"franchise": franchise,
@@ -2774,6 +2987,7 @@ func _load_market(data: Dictionary) -> void:
 	_surrendered = _read_float_dict(data.get("surrendered", {}))
 	_rival_age = _read_float_dict(data.get("rival_age", {}))
 	_rope = _read_float_dict(data.get("rope", {}))
+	_boss_shares = _read_count_dict(data.get("boss_shares", {}))
 	_duel_rival = str(data.get("duel_rival", ""))
 	_rival_attack_in = maxf(0.0, float(data.get("rival_attack_in", 0.0)))
 	_story_seen = {}
@@ -2787,8 +3001,16 @@ func _load_market(data: Dictionary) -> void:
 				_story_seen[str(key)] = beats
 	var ad: Variant = data.get("ad", {})
 	_ad = {}
+	_paid_ad = {}
 	if typeof(ad) == TYPE_DICTIONARY and ad.has("id"):
 		_ad = {"id": str(ad.get("id", "")), "until": int(ad.get("until", 0))}
+	# Старые сохранения: листовки лежали в общей полосе.
+	if not _ad.is_empty() and get_ad_pay(str(_ad.get("id", ""))) != "video":
+		_paid_ad = _ad
+		_ad = {}
+	var paid: Variant = data.get("paid_ad", {})
+	if typeof(paid) == TYPE_DICTIONARY and paid.has("id"):
+		_paid_ad = {"id": str(paid.get("id", "")), "until": int(paid.get("until", 0))}
 	_ad_ready = _read_unix_dict(data.get("ad_ready", {}))
 	_captured = _read_id_set(data.get("captured", []))
 	# До этапа 7 захват был один — родной город.
@@ -2842,6 +3064,10 @@ func _load_staff(data: Dictionary) -> void:
 			})
 	_garage_level = clampi(int(data.get("garage_level", 0)), 0, 1000)
 	_team = _read_people(data.get("team", []), true)
+	# Улетевшие, пока игра была закрыта, — до подсчёта дохода за отсутствие.
+	_team = _team.filter(func(p: Variant) -> bool: return not bool(p.get("alien", false)) or int(p.get("until", 0)) > int(Time.get_unix_time_from_system()))
+	_hired_total = maxi(int(data.get("hired_total", _team.size())), _team.size())
+	_premium_owned = _read_count_dict(data.get("premium", {}))
 	_staff_touched()
 	_candidates = _read_people(data.get("candidates", []), false)
 	# Старые сохранения: кандидаты без пола или одинаковые «Новички» — зовём новых.
@@ -2883,6 +3109,9 @@ func _read_people(raw: Variant, need_uid: bool) -> Array:
 		}
 		if item.has("female"):
 			person["female"] = bool(item.get("female"))
+		if bool(item.get("alien", false)):
+			person["alien"] = true
+			person["until"] = int(item.get("until", 0))
 		if need_uid:
 			var uid: int = int(item.get("uid", 0))
 			if uid <= 0:

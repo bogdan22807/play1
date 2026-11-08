@@ -88,7 +88,7 @@ func _init() -> void:
 				done = gs.hire_helper(id)
 			7:
 				id = district_ids[randi() % district_ids.size()]
-				price = gs.get_district_cost(id)
+				price = 0.0  # районы качаются за ролик
 				can = gs.can_open_district(id)
 				done = gs.open_district(id)
 			8:
@@ -110,6 +110,7 @@ func _init() -> void:
 			check(is_equal_approx(gs.coins, before), "без покупки деньги не тронуты: " + label)
 		if attempt % 50 == 0:
 			gs._ad = {}
+			gs._paid_ad = {}
 			# Иногда продаём машину — тоже не должно ломать покупки.
 			var garage: Array = gs.get_garage()
 			if not garage.is_empty():

@@ -8,46 +8,206 @@
         "id": "center",
         "name": "Центр",
         "description": "Короткие поездки и чаевые у кафе.",
-        "base_cost": 100,
-        "cost_growth": 2.5,
-        "income_pct": 0.05,
-        "max_level": 5
+        "income_pct": 0.025,
+        "max_level": 5,
+        "icon": "center"
       },
       {
         "id": "station",
         "name": "Вокзал",
         "description": "Люди с чемоданами не торгуются.",
-        "base_cost": 20000,
-        "cost_growth": 2.5,
-        "income_pct": 0.08,
-        "max_level": 5
+        "income_pct": 0.04,
+        "max_level": 5,
+        "icon": "station"
       },
       {
         "id": "airport",
         "name": "Аэропорт",
         "description": "Дальние рейсы и ночные доплаты.",
-        "base_cost": 400000,
-        "cost_growth": 2.5,
-        "income_pct": 0.12,
-        "max_level": 5
+        "income_pct": 0.06,
+        "max_level": 5,
+        "icon": "airport"
       },
       {
         "id": "sleep",
         "name": "Спальный район",
         "description": "Утром все едут на работу разом.",
-        "base_cost": 5000000,
-        "cost_growth": 2.5,
-        "income_pct": 0.18,
-        "max_level": 5
+        "income_pct": 0.09,
+        "max_level": 5,
+        "icon": "sleep"
       },
       {
         "id": "business",
         "name": "Деловой квартал",
         "description": "Корпоративные счета без сдачи.",
-        "base_cost": 60000000,
-        "cost_growth": 2.5,
-        "income_pct": 0.25,
-        "max_level": 5
+        "income_pct": 0.125,
+        "max_level": 5,
+        "icon": "business"
+      }
+    ]
+  },
+  {
+    "id": "europe_city",
+    "name": "Париж",
+    "island": "europe",
+    "districts": [
+      {
+        "id": "montmartre",
+        "name": "Монмартр",
+        "description": "Художники ездят на этюды и всегда опаздывают.",
+        "income_pct": 0.05,
+        "max_level": 5,
+        "icon": "center"
+      },
+      {
+        "id": "latin",
+        "name": "Латинский квартал",
+        "description": "Студенты платят мелочью, зато с улыбкой.",
+        "income_pct": 0.06,
+        "max_level": 5,
+        "icon": "station"
+      },
+      {
+        "id": "champs",
+        "name": "Елисейские поля",
+        "description": "Туристы с чемоданами и щедрыми чаевыми.",
+        "income_pct": 4.0,
+        "max_level": 1,
+        "premium": true,
+        "price_text": "$2.99",
+        "icon": "crown"
+      }
+    ]
+  },
+  {
+    "id": "africa_city",
+    "name": "Найроби",
+    "island": "africa",
+    "districts": [
+      {
+        "id": "westlands",
+        "name": "Вестлендс",
+        "description": "Офисы, кофе и вечные пробки.",
+        "income_pct": 0.07,
+        "max_level": 5,
+        "icon": "center"
+      },
+      {
+        "id": "karen",
+        "name": "Карен",
+        "description": "Тихие виллы и длинные поездки.",
+        "income_pct": 0.08,
+        "max_level": 5,
+        "icon": "station"
+      },
+      {
+        "id": "safari",
+        "name": "Сафари-парк",
+        "description": "Жирафы смотрят в окно. Туристы в восторге.",
+        "income_pct": 4.0,
+        "max_level": 1,
+        "premium": true,
+        "price_text": "$2.99",
+        "icon": "crown"
+      }
+    ]
+  },
+  {
+    "id": "south_america_city",
+    "name": "Рио-де-Жанейро",
+    "island": "south_america",
+    "districts": [
+      {
+        "id": "copacabana",
+        "name": "Копакабана",
+        "description": "Пляж, музыка и пассажиры в шлёпанцах.",
+        "income_pct": 0.09,
+        "max_level": 5,
+        "icon": "center"
+      },
+      {
+        "id": "santa_teresa",
+        "name": "Санта-Тереза",
+        "description": "Крутые улочки — держитесь крепче.",
+        "income_pct": 0.1,
+        "max_level": 5,
+        "icon": "station"
+      },
+      {
+        "id": "ipanema",
+        "name": "Ипанема",
+        "description": "Самый модный пляж. Поездки — только премиум.",
+        "income_pct": 4.0,
+        "max_level": 1,
+        "premium": true,
+        "price_text": "$2.99",
+        "icon": "crown"
+      }
+    ]
+  },
+  {
+    "id": "north_america_city",
+    "name": "Нью-Йорк",
+    "island": "north_america",
+    "districts": [
+      {
+        "id": "brooklyn",
+        "name": "Бруклин",
+        "description": "Хипстеры и пекарни на каждом углу.",
+        "income_pct": 0.11,
+        "max_level": 5,
+        "icon": "center"
+      },
+      {
+        "id": "harlem",
+        "name": "Гарлем",
+        "description": "Джаз в каждом втором такси.",
+        "income_pct": 0.12,
+        "max_level": 5,
+        "icon": "station"
+      },
+      {
+        "id": "manhattan",
+        "name": "Манхэттен",
+        "description": "Небоскрёбы и пассажиры, которые спешат всегда.",
+        "income_pct": 4.0,
+        "max_level": 1,
+        "premium": true,
+        "price_text": "$2.99",
+        "icon": "crown"
+      }
+    ]
+  },
+  {
+    "id": "oceania_city",
+    "name": "Сидней",
+    "island": "oceania",
+    "districts": [
+      {
+        "id": "bondi",
+        "name": "Бонди",
+        "description": "Сёрферы с досками на крыше.",
+        "income_pct": 0.13,
+        "max_level": 5,
+        "icon": "center"
+      },
+      {
+        "id": "newtown",
+        "name": "Ньютаун",
+        "description": "Кофейни, книги и неспешные поездки.",
+        "income_pct": 0.14,
+        "max_level": 5,
+        "icon": "station"
+      },
+      {
+        "id": "opera",
+        "name": "Оперный квартал",
+        "description": "Премьеры, фраки и самые длинные чеки.",
+        "income_pct": 4.0,
+        "max_level": 1,
+        "premium": true,
+        "price_text": "$2.99",
+        "icon": "crown"
       }
     ]
   }

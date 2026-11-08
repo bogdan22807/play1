@@ -71,32 +71,38 @@ func _init() -> void:
 	gs._surrendered.clear()
 	gs._rival_age.clear()
 
-	# Реклама добавляет силы, одна кампания за раз.
+	# Реклама добавляет силы. Листовки (за монеты) и ролики — разные полосы, бонусы складываются.
 	gs.coins = 1e9
 	var before: float = gs.get_player_power()
+	var mult_before: float = gs.get_income_multiplier()
 	check(gs.buy_ad("flyers"), "купили листовки")
 	check(gs.get_player_power() > before, "реклама подняла силу")
-	check(not gs.can_buy_ad("tv"), "вторая кампания ждёт окончания первой")
-	check(gs.get_ad_left() > 290, "реклама идёт 5 минут")
-	check(gs.get_income_multiplier() > 1.49 * gs.get_income_multiplier() / (1.0 + gs.get_ad_boost()), "реклама подняла и доход")
-	# Кончилась — доход обычный.
+	check(gs.get_ad_left("flyers") > 10700, "листовки идут 3 часа")
+	check(is_equal_approx(gs.get_income_multiplier(), mult_before * 1.2), "листовки: +20%% дохода")
+	check(not gs.can_buy_ad("flyers"), "вторые листовки ждут окончания первых")
+	check(gs.can_buy_ad("tv"), "ролик ТВ можно запустить поверх листовок")
+	check(gs.buy_ad("tv") and is_equal_approx(gs.get_income_multiplier(), mult_before * 3.2), "ТВ + листовки = +220%%")
+	check(not gs.can_buy_ad("billboard"), "второй ролик ждёт окончания первого")
+	check(gs.get_ad_left("tv") > 170 and gs.get_ad_left("tv") <= 180, "ТВ идёт 3 минуты")
+	# Кончилось — доход обычный.
 	var income_with_ad: float = gs.get_ride_value()
 	gs._ad["until"] = gs._now() - 1
+	gs._paid_ad["until"] = gs._now() - 1
 	gs._tick_market()
-	check(gs._ad.is_empty() and gs.get_ride_value() < income_with_ad, "после рекламы доход вернулся")
+	check(gs._ad.is_empty() and gs._paid_ad.is_empty() and gs.get_ride_value() < income_with_ad, "после рекламы доход вернулся")
 
-	# Кампании за ролик: без денег, но с паузой.
+	# Ролики: без денег и без паузы — следующий сразу после окончания.
 	gs.coins = 0.0
 	check(gs.get_ad_pay("tv") == "video" and gs.can_buy_ad("tv"), "ТВ — за ролик, монеты не нужны")
 	check(not gs.can_buy_ad("flyers"), "листовки — только за монеты")
 	check(gs.buy_ad("tv") and gs.coins == 0.0, "ТВ запущено бесплатно")
 	gs._ad = {}
-	check(not gs.can_buy_ad("tv") and gs.get_ad_wait("tv") > 3600, "следующий ролик ТВ не раньше чем через пару часов")
-	check(gs.can_buy_ad("billboard"), "билборд — отдельная пауза")
+	check(gs.can_buy_ad("tv") and gs.get_ad_wait("tv") == 0, "следующий ролик ТВ — сразу")
+	check(gs.buy_ad("billboard") and gs.get_ad_left("billboard") > 590, "билборд идёт 10 минут")
 	gs.save_game()
 	var gs4 := _make_state()
 	await process_frame
-	check(gs4.get_ad_wait("tv") > 3600, "пауза ролика сохранилась")
+	check(gs4.get_ad_left("billboard") > 590, "идущий ролик сохранился")
 	gs4.queue_free()
 	gs._ad_ready.clear()
 	gs._ad = {}
@@ -170,7 +176,7 @@ func _init() -> void:
 	# Догнали — соперник сдаётся, цена зафиксирована, выкуп без отказа.
 	var surrenders: Array = []
 	gs.rival_surrendered.connect(func(id: String, text: String) -> void: surrenders.append([id, text]))
-	gs._rival_perm["wolf"] = 0.00001
+	gs._rival_perm["wolf"] = 0.000000001
 	gs.coins = 0.0
 	gs._tick_market()
 	check(gs.get_rival_state("wolf") == "active", "сила есть, но канат ещё не перетянут — не сдаётся сразу")

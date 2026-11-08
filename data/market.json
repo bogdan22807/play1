@@ -32,10 +32,10 @@
       "id": "flyers",
       "name": "Листовки на рынке",
       "description": "Бабушка Ним раздаёт листовки вместе с манго.",
-      "price_seconds": 75,
+      "price_seconds": 1080,
       "min_price": 50,
-      "boost": 0.5,
-      "duration": 300,
+      "boost": 0.2,
+      "duration": 10800,
       "pay": "coins"
     },
     {
@@ -45,16 +45,16 @@
       "boost": 1.0,
       "duration": 600,
       "pay": "video",
-      "cooldown": 1800
+      "cooldown": 0
     },
     {
       "id": "tv",
       "name": "Ролик на ТВ",
       "description": "Таксист танцует со слоном. Почему — никто не знает, но запоминается.",
       "boost": 2.0,
-      "duration": 900,
+      "duration": 180,
       "pay": "video",
-      "cooldown": 7200
+      "cooldown": 0
     }
   ],
   "tricks": [
@@ -64,7 +64,7 @@
       "description": "Их машины полдня стоят на домкратах.",
       "price_seconds": 30,
       "min_price": 100,
-      "cut": 0.25,
+      "cut": 0.1,
       "duration": 300,
       "catch": 0.2,
       "permanent": false
@@ -75,7 +75,7 @@
       "description": "Их лучший водитель теперь возит ваших пассажиров. Навсегда.",
       "price_seconds": 120,
       "min_price": 500,
-      "cut": 0.1,
+      "cut": 0.04,
       "duration": 0,
       "catch": 0.3,
       "permanent": true
@@ -86,7 +86,7 @@
       "description": "«В их такси водитель поёт оперу». Половина города верит.",
       "price_seconds": 90,
       "min_price": 300,
-      "cut": 0.4,
+      "cut": 0.15,
       "duration": 600,
       "catch": 0.35,
       "permanent": false
@@ -116,6 +116,9 @@
       "default": "{rival} отвечает ударом."
     },
     "rope_seconds": 720,
-    "rope_back_seconds": 1800
+    "rope_back_seconds": 1800,
+    "share_percent": 5,
+    "share_seconds": 40,
+    "share_growth": 1.08
   }
 }

@@ -54,13 +54,8 @@ func _init() -> void:
 	check(not gs.can_buy_fleet("old_sedan"), "в полный гараж не меняем на такую же")
 	gs.coins = 1e8
 	var before: int = gs.get_fleet_count("old_sedan")
-	check(not gs.can_buy_fleet("business"), "бизнес продаётся только в Париже")
-	check(gs.get_car_lock("business") == "europe", "бизнес ждёт Европу")
-	# Открытая Европа добавила бы гаражу места — для проверки обмена просто снимаем замок.
-	var business_def: Dictionary = gs._find_def(gs._car_defs, "business")
-	business_def["unlock_island"] = ""
+	check(gs.get_car_lock("business") == "", "все машины доступны с начала игры")
 	check(gs.buy_fleet("business"), "обмен на бизнес")
-	business_def["unlock_island"] = "europe"
 	check(gs.get_fleet_count("old_sedan") == before - 1 and gs.get_garage().size() == 5, "седан ушёл в обмен")
 	check(gs.expand_garage() and gs.get_garage_capacity() == 10, "расширили гараж")
 

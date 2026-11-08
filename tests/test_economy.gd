@@ -38,29 +38,30 @@ func _init() -> void:
 	var center_step: float = gs._district_multiplier() - mult0
 	check(gs.open_district("center"), "второй уровень Центра")
 	check(is_equal_approx(gs._district_multiplier() - mult0, center_step * 2.0), "второй уровень даёт столько же")
-	var cheap: float = gs.get_district_cost("station")
-	var pricey: float = gs.get_district_cost("business")
+	var coins_before: float = gs.coins
+	check(gs.open_district("station") and gs.coins == coins_before, "район качается за ролик, монеты не списаны")
 	var cheap_step: float = float(gs._find_district("station")["income_pct"])
-	var pricey_step: float = float(gs._find_district("business")["income_pct"])
-	check(pricey > cheap and pricey_step > cheap_step, "дороже — значит и бонус больше")
+	var top_step: float = float(gs._find_district("business")["income_pct"])
+	check(top_step > cheap_step and top_step * 5.0 <= 0.7 + 0.0001, "самый прибыльный район после 5 уровня не больше +70%%")
+	# Районы островов: закрыты, пока остров не куплен; платный — только покупкой.
+	check(not gs.can_open_district("montmartre"), "районы Парижа ждут Европу")
+	gs._opened_regions["europe"] = 1
+	check(gs.can_open_district("montmartre"), "Европа открыла районы Парижа")
+	check(not gs.can_open_district("champs") and gs.is_district_premium("champs"), "платный район за ролик не открыть")
+	var before_premium: float = gs._district_multiplier()
+	gs.grant_premium_district("champs")
+	check(is_equal_approx(gs._district_multiplier() - before_premium, 4.0), "платный район: +400%% навсегда")
+	gs._premium_owned.clear()
+	gs._opened_regions.erase("europe")
 	for i in 10:
 		gs.open_district("center")
 	check(gs.is_district_maxed("center") and not gs.can_open_district("center"), "у района потолок 5")
 
-	# Машины новых классов — только с открытием своего острова.
-	check(gs.get_car_lock("comfort") == "", "комфорт доступен сразу")
-	check(gs.get_car_lock("business") == "europe" and not gs.can_buy_fleet("business"), "бизнес ждёт Европу")
-	check(gs.get_car_lock("limo") == "north_america", "лимузин ждёт Северную Америку")
-	gs._opened_regions["europe"] = 1
-	check(gs.get_car_lock("business") == "" and gs.can_buy_fleet("business"), "Европа открыла бизнес")
-	gs._opened_regions.erase("europe")
-
-	# Линия тапа: до бизнеса (уровень 12) можно, дальше — только с Европой.
+	# Все машины и вся линия тапа доступны с начала игры.
+	check(gs.get_car_lock("limo") == "" and gs.can_buy_fleet("business"), "все машины доступны сразу")
 	gs._tap_level = 11
-	check(gs.get_tap_level_lock() == "europe" and not gs.can_buy_tap_level(), "линия тапа ждёт Европу")
-	gs._opened_regions["europe"] = 1
-	check(gs.get_tap_level_lock() == "" and gs.can_buy_tap_level(), "с Европой линия идёт дальше")
-	gs._opened_regions.erase("europe")
+	check(gs.get_tap_level_lock() == "", "линия тапа без замков")
+	gs._tap_level = 0
 
 	# Ночь: 8 часов без игры дают 42% дохода — около 3,4 часа игры.
 	check(is_equal_approx(gs.get_offline_rate(), 0.42), "без игры — 42%% дохода")

@@ -354,18 +354,18 @@
     "id": "franchise_ten",
     "name": "Сеть франшиз",
     "kind": "franchise",
-    "need": 3,
+    "need": 2.5,
     "reward_coins": 100000000.0,
     "reward_reputation": 0,
-    "description": "Доведите франшизу до ×3"
+    "description": "Доведите франшизу до ×2,5"
   },
   {
     "id": "franchise_fifty",
     "name": "Империя",
     "kind": "franchise",
-    "need": 5,
+    "need": 3,
     "reward_coins": 1000000000000.0,
     "reward_reputation": 0,
-    "description": "Доведите франшизу до ×5"
+    "description": "Доведите франшизу до максимума ×3"
   }
 ]
