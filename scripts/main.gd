@@ -1518,7 +1518,7 @@ func _build_market_rows() -> void:
 	ladder_box.add_child(_battle_city)
 	_market_status = _add_label(ladder_box, "", 30, COLOR_TEXT)
 	_market_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_add_label(ladder_box, "Выкупайте компании соперников по 5% — у кого угодно, в любом порядке. Стоянка, машины и диспетчерская урезают их доход — доли дешевеют.", 24, COLOR_MUTED)
+	_add_label(ladder_box, "Выкупайте компании соперников по 5% — у кого угодно, в любом порядке. Стоянка, машины и диспетчерская — тоже по 5%, дороже, но после них доли дешевле.", 24, COLOR_MUTED)
 
 	for raw: Variant in GameState.get_competitors():
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
@@ -1719,7 +1719,7 @@ func _show_rival_details(competitor_id: String) -> void:
 			" (уже ваша)" if GameState.has_buyout(competitor_id, part_id) else "",
 			str(raw.get("description", "")),
 			int(roundf(float(raw.get("cut", 0)) * 100.0))])
-	lines.append("Части компании урезают её доход — каждая следующая доля дешевле:\n" + "\n".join(parts))
+	lines.append("Каждая часть — это тоже +5%% компании, только дороже доли. Зато навсегда урезает их доход, и все следующие доли дешевле:\n" + "\n".join(parts))
 	var attack: String = _attack_text(GameState.get_rival_attack_kind(competitor_id))
 	lines.append("Пока вы выкупаете, они огрызаются: %s." % attack)
 	_show_notice(str(info.get("name", competitor_id)), "\n\n".join(lines))
@@ -1817,10 +1817,21 @@ func _cancel_video() -> void:
 	_video_reward = Callable()
 
 
+## Анимация в картинке города: такси въезжает в гараж этого соперника.
+func _play_city_buy(competitor_id: String, text: String) -> void:
+	if _battle_city == null:
+		return
+	var rivals: Array = GameState.get_competitors()
+	for index in rivals.size():
+		if str(rivals[index].get("id", "")) == competitor_id:
+			_battle_city.play_buy(index, text)
+
+
 func _on_buy_share(competitor_id: String) -> void:
 	var result: Dictionary = GameState.buy_boss_share(competitor_id)
 	if bool(result.get("ok", false)):
 		_play(_sfx_buy)
+		_play_city_buy(competitor_id, "+5%")
 		if GameState.is_competitor_owned(competitor_id):
 			_enqueue_toast("Компания ваша!", str(result.get("text", "")), 4.0)
 
@@ -1830,6 +1841,7 @@ func _on_buyout(competitor_id: String, part_id: String) -> void:
 	if not bool(result.get("ok", false)):
 		return
 	_play(_sfx_buy)
+	_play_city_buy(competitor_id, "+5%")
 	var name: String = ""
 	for raw: Variant in GameState.get_buyouts():
 		if str(raw.get("id", "")) == part_id:
@@ -2034,6 +2046,7 @@ func _refresh_competitors() -> void:
 			"state": GameState.get_rival_state(id),
 			"pct": int(roundf(GameState.get_duel_progress(id) * 100.0)),
 			"parts": _owned_parts(id),
+			"style": str(raw.get("personality", "")),
 		})
 	if _battle_city != null:
 		_battle_city.set_rivals(scene, GameState.get_front_city())
@@ -2093,7 +2106,7 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 		if owned:
 			caption.text = "%s\n✓ ваши" % part_name if part_name == "Часть машин" else "%s\n✓ ваша" % part_name
 		else:
-			caption.text = "%s\n%s" % [label_text, GameState.format_money(GameState.get_buyout_price(id, pid))]
+			caption.text = "%s\n+5%% · %s" % [label_text, GameState.format_money(GameState.get_buyout_price(id, pid))]
 		button.disabled = not GameState.can_buy_buyout(id, pid)
 		_col(caption, _text_on(COLOR_BUY) if not button.disabled else (COLOR_INCOME if owned else COLOR_MUTED))
 		caption.get_parent().modulate = Color(1, 1, 1, 1.0 if not button.disabled or owned else 0.75)

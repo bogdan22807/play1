@@ -70,32 +70,26 @@ func _init() -> void:
 	gs._ad = {}
 	gs._recalc_income()
 
-	# Части компании: стоянка, машины, диспетчерская — по разу у каждого, навсегда урезают доход и цену долей.
+	# Части компании: стоянка, машины, диспетчерская — по разу у каждого. Каждая — это тоже +5%%,
+	# только дороже доли; зато навсегда урезает доход соперника и удешевляет следующие доли.
 	var wolf_power: float = gs.get_competitor_power("wolf")
 	var share_before: float = gs.get_share_price("wolf")
 	gs.coins = 0.0
 	check(not gs.can_buy_buyout("wolf", "parking"), "без денег стоянку не купить")
+	check(is_equal_approx(gs.get_buyout_price("wolf", "parking"), ceilf(share_before * 2.0)), "стоянка = 2 цены доли")
 	gs.coins = 1e15
 	var deal: Dictionary = gs.buy_buyout("wolf", "parking")
 	check(deal["ok"] and gs.has_buyout("wolf", "parking"), "стоянка Волка ваша")
+	check(is_equal_approx(gs.get_duel_progress("wolf"), 0.05), "стоянка — это ещё и 5%% компании")
 	check(not gs.can_buy_buyout("wolf", "parking"), "второй раз ту же стоянку не купить")
-	check(is_equal_approx(gs.get_competitor_power("wolf"), wolf_power * 0.92), "доход Волка −8%%")
-	check(gs.get_share_price("wolf") < share_before, "доля Волка подешевела")
+	check(is_equal_approx(gs.get_competitor_power("wolf"), wolf_power * 0.92 * 0.95), "доход Волка −8%% и −5%% за долю")
+	check(gs.get_share_price("wolf") < share_before * 1.08, "следующая доля дешевле, чем была бы")
 	check(gs.can_buy_buyout("lotus", "parking"), "у Лотоса своя стоянка")
 	gs.buy_buyout("wolf", "fleet_part")
 	gs.buy_buyout("wolf", "dispatch")
 	check(is_equal_approx(gs.get_buyout_factor("wolf"), 0.92 * 0.9 * 0.88), "все три части вместе")
-	# Выгода есть, но небольшая: части стоят чуть меньше, чем экономят на долях.
-	var parts_cost: float = 0.0
-	for raw: Variant in gs.get_buyouts():
-		parts_cost += gs.get_buyout_price("wolf", str(raw["id"]))
-	var all_shares_full: float = 0.0
-	var all_shares_cut: float = 0.0
-	for k in 20:
-		all_shares_full += share_before * pow(1.08, k)
-		all_shares_cut += gs.get_share_price("wolf") * pow(1.08, k)
-	var saved: float = all_shares_full - all_shares_cut
-	check(saved > parts_cost and saved < parts_cost * 1.6, "части окупаются, но не сильно: экономия %s, цена %s" % [saved, parts_cost])
+	check(gs.get_boss_shares("wolf") == 3, "три части = 15%%")
+	gs._boss_shares.clear()
 	gs.save_game()
 	var gs5 := _make_state()
 	await process_frame

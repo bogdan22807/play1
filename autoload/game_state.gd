@@ -2062,6 +2062,11 @@ func buy_boss_share(competitor_id: String) -> Dictionary:
 	if not can_buy_share(competitor_id):
 		return {"ok": false, "text": "Не хватает денег на долю."}
 	coins = maxf(0.0, coins - get_share_price(competitor_id))
+	return _add_share(competitor_id)
+
+
+## +5% компании соперника (и за обычную долю, и за выкупленную часть). 100% — компания ваша.
+func _add_share(competitor_id: String) -> Dictionary:
 	_boss_shares[competitor_id] = get_boss_shares(competitor_id) + 1
 	var text: String = "Ваши %d%% «%s»." % [int(roundf(get_boss_share_fraction(competitor_id) * 100.0)), str(_find_def(_competitor_defs, competitor_id).get("name", ""))]
 	if get_boss_shares(competitor_id) >= get_shares_total():
@@ -2391,11 +2396,11 @@ func has_buyout(competitor_id: String, buyout_id: String) -> bool:
 	return typeof(owned) == TYPE_DICTIONARY and owned.has(buyout_id)
 
 
-## Цена части: столько-то «базовых» долей соперника (без учёта уже купленного).
+## Часть компании — это тоже 5%, но дороже обычной доли (price_mult × цена следующей доли):
+## зато навсегда урезает доход соперника, и все следующие доли дешевле.
 func get_buyout_price(competitor_id: String, buyout_id: String) -> float:
-	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
 	var part: Dictionary = _find_def(get_buyouts(), buyout_id)
-	return ceilf(float(info.get("power", 0)) * float(_duel_value("share_seconds", 40)) * float(part.get("price_shares", 2)))
+	return ceilf(get_share_price(competitor_id) * float(part.get("price_mult", 1.5)))
 
 
 func can_buy_buyout(competitor_id: String, buyout_id: String) -> bool:
@@ -2414,8 +2419,11 @@ func buy_buyout(competitor_id: String, buyout_id: String) -> Dictionary:
 	var owned: Dictionary = _buyouts.get(competitor_id, {})
 	owned[buyout_id] = 1
 	_buyouts[competitor_id] = owned
-	_after_market_change()
-	return {"ok": true, "text": "%s\nДоход соперника −%d%%, доли дешевле." % [str(part.get("description", "")), int(roundf(float(part.get("cut", 0)) * 100.0))]}
+	var result: Dictionary = _add_share(competitor_id)
+	if not is_competitor_owned(competitor_id):
+		result["text"] = "%s\n+5%% компании, их доход −%d%%, следующие доли дешевле." % [
+			str(part.get("description", "")), int(roundf(float(part.get("cut", 0)) * 100.0))]
+	return result
 
 
 ## Во сколько раз выкупленные части урезали доход соперника (1 — ничего не куплено).
