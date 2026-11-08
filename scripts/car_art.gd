@@ -51,12 +51,27 @@ static func draw_car(canvas: CanvasItem, pos: Vector2, angle: float, model: Stri
 	if kind == "rickshaw":
 		_draw_rickshaw(canvas, length, width, body, roof)
 	else:
+		# Колёса чуть выглядывают из-под кузова.
+		var tire := Color("1f2328")
+		for wx in [-0.3, 0.3]:
+			for side in [-1.0, 1.0]:
+				_round_rect(canvas, Rect2(Vector2(wx * length - length * 0.08, side * width * 0.46 - width * 0.07), Vector2(length * 0.16, width * 0.14)), width * 0.05, tire)
 		_round_rect(canvas, Rect2(-half, Vector2(length, width)), width * 0.32, body)
+		# Объём: нижний борт темнее, верхний светлее, бамперы и линия капота.
+		_round_rect(canvas, Rect2(Vector2(-half.x, width * 0.22), Vector2(length, width * 0.28)), width * 0.3, body.darkened(0.16))
+		_round_rect(canvas, Rect2(Vector2(-half.x + length * 0.06, -half.y + width * 0.05), Vector2(length * 0.88, width * 0.1)), width * 0.05, Color(1, 1, 1, 0.28))
+		canvas.draw_rect(Rect2(Vector2(half.x - length * 0.035, -width * 0.36), Vector2(length * 0.035, width * 0.72)), body.darkened(0.3))
+		canvas.draw_rect(Rect2(Vector2(-half.x, -width * 0.36), Vector2(length * 0.03, width * 0.72)), body.darkened(0.3))
+		if kind != "limo":
+			canvas.draw_line(Vector2(half.x - length * 0.2, -width * 0.32), Vector2(half.x - length * 0.2, width * 0.32), Color(0, 0, 0, 0.12), maxf(1.0, width * 0.03))
 		_draw_cabin(canvas, kind, length, width, roof, info)
-		# Фары спереди, стоп-сигналы сзади.
+		# Фары спереди с ореолом, стоп-сигналы сзади.
 		for side in [-1.0, 1.0]:
-			canvas.draw_rect(Rect2(Vector2(half.x - size * 0.05, side * width * 0.3 - size * 0.035), Vector2(size * 0.05, size * 0.07)), HEADLIGHT)
-			canvas.draw_rect(Rect2(Vector2(-half.x, side * width * 0.3 - size * 0.03), Vector2(size * 0.04, size * 0.06)), TAILLIGHT)
+			var head := Rect2(Vector2(half.x - size * 0.06, side * width * 0.3 - size * 0.04), Vector2(size * 0.06, size * 0.08))
+			canvas.draw_circle(head.get_center() + Vector2(size * 0.03, 0), size * 0.06, Color(1, 0.96, 0.6, 0.25))
+			_round_rect(canvas, head, size * 0.02, HEADLIGHT)
+			canvas.draw_rect(Rect2(head.position + Vector2(size * 0.01, size * 0.01), Vector2(size * 0.02, size * 0.02)), Color.WHITE)
+			_round_rect(canvas, Rect2(Vector2(-half.x, side * width * 0.3 - size * 0.035), Vector2(size * 0.045, size * 0.07)), size * 0.015, TAILLIGHT)
 	if dirt > 0.02:
 		# Пятна грязи: чем грязнее, тем больше и темнее.
 		var spots: Array = [Vector2(-0.3, -0.25), Vector2(0.15, 0.3), Vector2(0.35, -0.15), Vector2(-0.05, 0.05)]
@@ -73,6 +88,8 @@ static func _draw_cabin(canvas: CanvasItem, kind: String, length: float, width: 
 		canvas.draw_rect(Rect2(Vector2(front - length * 0.24, -glass_w / 2.0), Vector2(length * 0.08, glass_w)), GLASS)
 		canvas.draw_rect(Rect2(Vector2(-front + length * 0.08, -glass_w / 2.0), Vector2(length * 0.06, glass_w)), GLASS)
 		_round_rect(canvas, Rect2(Vector2(-front + length * 0.14, -width * 0.38), Vector2(length * 0.62, width * 0.76)), width * 0.15, roof)
+		_round_rect(canvas, Rect2(Vector2(-front + length * 0.18, -width * 0.32), Vector2(length * 0.45, width * 0.1)), width * 0.04, Color(1, 1, 1, 0.18))
+		canvas.draw_line(Vector2(front - length * 0.22, -width * 0.3), Vector2(front - length * 0.18, -width * 0.05), Color(1, 1, 1, 0.4), maxf(1.0, width * 0.04))
 		for index in 4:
 			var x: float = -front + length * (0.2 + index * 0.13)
 			canvas.draw_rect(Rect2(Vector2(x, -width * 0.42), Vector2(length * 0.09, width * 0.06)), GLASS)
@@ -86,10 +103,21 @@ static func _draw_cabin(canvas: CanvasItem, kind: String, length: float, width: 
 		Vector2(windshield_x + length * 0.12, glass_w / 2.0 - width * 0.06),
 		Vector2(windshield_x, glass_w / 2.0),
 	]), GLASS)
+	# Блик на лобовом стекле и зеркала по бокам.
+	canvas.draw_line(Vector2(windshield_x + length * 0.03, -glass_w * 0.3), Vector2(windshield_x + length * 0.08, -glass_w * 0.05), Color(1, 1, 1, 0.45), maxf(1.0, width * 0.05))
+	for side in [-1.0, 1.0]:
+		_round_rect(canvas, Rect2(Vector2(windshield_x - length * 0.01, side * (width * 0.5 + width * 0.02) - width * 0.04), Vector2(length * 0.045, width * 0.08)), width * 0.03, roof.darkened(0.25))
 	var rear_x: float = -front + length * (0.08 if box else 0.12)
 	canvas.draw_rect(Rect2(Vector2(rear_x, -glass_w / 2.0 + width * 0.05), Vector2(length * 0.08, glass_w - width * 0.1)), GLASS)
 	var roof_rect := Rect2(Vector2(rear_x + length * 0.08, -width * 0.38), Vector2(windshield_x - rear_x - length * 0.08, width * 0.76))
+	# Боковые стёкла: тонкие полоски вдоль крыши.
+	for side in [-1.0, 1.0]:
+		canvas.draw_rect(Rect2(Vector2(roof_rect.position.x, side * width * 0.42 - width * 0.03), Vector2(roof_rect.size.x, width * 0.06)), GLASS.lightened(0.15))
+		# Стойка между дверями.
+		canvas.draw_rect(Rect2(Vector2(roof_rect.get_center().x - length * 0.012, side * width * 0.42 - width * 0.04), Vector2(length * 0.024, width * 0.08)), roof.darkened(0.2))
 	_round_rect(canvas, roof_rect, width * 0.12, roof)
+	# Блик на крыше.
+	_round_rect(canvas, Rect2(roof_rect.position + Vector2(roof_rect.size.x * 0.1, roof_rect.size.y * 0.1), Vector2(roof_rect.size.x * 0.6, roof_rect.size.y * 0.16)), width * 0.04, Color(1, 1, 1, 0.3))
 	var center: Vector2 = roof_rect.get_center()
 	match kind:
 		"taxi":
@@ -122,9 +150,19 @@ static func _draw_rickshaw(canvas: CanvasItem, length: float, width: float, body
 	canvas.draw_line(Vector2(half_l * 0.1, 0), Vector2(half_l, 0), Color("37474f"), width * 0.12)
 	canvas.draw_rect(Rect2(Vector2(half_l * 0.75, -width * 0.1), Vector2(width * 0.35, width * 0.2)), Color("212121"))
 	canvas.draw_line(Vector2(half_l * 0.55, -width * 0.3), Vector2(half_l * 0.55, width * 0.3), Color("90a4ae"), width * 0.08)
+	# Задние колёса выглядывают по бокам.
+	for side in [-1.0, 1.0]:
+		_round_rect(canvas, Rect2(Vector2(-half_l + length * 0.15, side * width * 0.48 - width * 0.07), Vector2(length * 0.2, width * 0.14)), width * 0.05, Color("1f2328"))
 	_round_rect(canvas, Rect2(Vector2(-half_l, -width / 2.0), Vector2(length * 0.62, width)), width * 0.2, body)
 	_round_rect(canvas, Rect2(Vector2(-half_l + length * 0.05, -width * 0.42), Vector2(length * 0.42, width * 0.84)), width * 0.25, roof)
+	# Полоски на тенте и блик.
+	for k in 3:
+		var x: float = -half_l + length * (0.12 + k * 0.11)
+		canvas.draw_line(Vector2(x, -width * 0.38), Vector2(x, width * 0.38), roof.darkened(0.12), maxf(1.0, width * 0.04))
+	_round_rect(canvas, Rect2(Vector2(-half_l + length * 0.1, -width * 0.36), Vector2(length * 0.3, width * 0.1)), width * 0.04, Color(1, 1, 1, 0.35))
+	# Водитель: голова в кепке.
 	canvas.draw_circle(Vector2(half_l * 0.3, 0), width * 0.16, Color("ffcc80"))
+	canvas.draw_circle(Vector2(half_l * 0.26, 0), width * 0.11, Color("e53935"))
 
 
 ## Стили закруглённых прямоугольников живут в кэше: город рисует десятки машин каждый кадр.
