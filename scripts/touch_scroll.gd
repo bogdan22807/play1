@@ -14,7 +14,7 @@ extends Node
 const DRAG_THRESHOLD := 18.0
 ## Насколько быстро гаснет инерция: чем больше, тем быстрее остановка.
 const FRICTION := 3.2
-const MIN_SPEED := 20.0
+const MIN_SPEED := 30.0
 
 var scroll: ScrollContainer
 ## Вернёт true, если поверх открыто окно — тогда список под ним не листаем.
@@ -67,6 +67,7 @@ func _input(event: InputEvent) -> void:
 				if _now() - _last_time > 0.15:
 					_velocity = 0.0
 				_position = float(scroll.scroll_vertical)
+				_stopped_at = _now()
 			_tracking = false
 			_dragging = false
 	elif event is InputEventMouseMotion and _tracking:
@@ -95,12 +96,26 @@ func _on_slider(at: Vector2) -> bool:
 	return false
 
 
+## Список сейчас едет (палец тянет или катится по инерции) — главный экран в это время
+## откладывает тяжёлые обновления, чтобы прокрутка шла ровно.
+func is_moving() -> bool:
+	return _dragging or (not _tracking and absf(_velocity) >= MIN_SPEED) or _now() - _stopped_at < 0.2
+
+
+var _stopped_at: float = -10.0
+
+
 func _process(delta: float) -> void:
 	if scroll == null or _tracking or absf(_velocity) < MIN_SPEED:
 		return
 	var before: float = _position
 	_scroll_by(_velocity * delta)
-	_velocity *= exp(-FRICTION * delta)
+	# Медленный «хвост» инерции гасим быстрее: прокрутка идёт целыми пикселями,
+	# и ползущий по пикселю список выглядит дёрганым.
+	var friction: float = FRICTION if absf(_velocity) > 160.0 else FRICTION * 3.0
+	_velocity *= exp(-friction * delta)
+	if absf(_velocity) < MIN_SPEED:
+		_stopped_at = _now()
 	# Упёрлись в начало или конец списка — стоп.
 	if is_equal_approx(before, _position):
 		_velocity = 0.0

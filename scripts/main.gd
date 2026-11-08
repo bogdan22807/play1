@@ -1380,6 +1380,7 @@ func _build_scroll_page() -> Control:
 	var touch: Node = TouchScroll.new()
 	page.add_child(touch)
 	touch.setup(scroll, _is_modal_open)
+	_scrollers.append(touch)
 	var bar: VScrollBar = scroll.get_v_scroll_bar()
 	var grabber := StyleBoxFlat.new()
 	grabber.bg_color = Color(COLOR_TITLE_OUTLINE, 0.45)
@@ -2834,7 +2835,9 @@ func _island_state(island_id: String) -> String:
 		return "captured"
 	if GameState.is_region_open(island_id):
 		return "front" if GameState.get_front_island() == island_id else "available"
-	if GameState.can_open_region(island_id) or GameState.get_region_block_reason(island_id).find("Сначала") < 0:
+	# Закрыт «под замком», только пока не захвачен предыдущий остров (без сборки длинной подсказки).
+	var previous: Dictionary = GameState._previous_island(island_id)
+	if previous.is_empty() or GameState.is_island_captured(str(previous.get("id", ""))):
 		return "available"
 	return "locked"
 
@@ -4483,6 +4486,11 @@ func _show_page(page: int) -> void:
 
 
 func _style_plain_button(button: Button, color: Color) -> void:
+	# Тот же цвет — ничего не трогаем: смена стиля заставляет кнопку пересчитываться,
+	# а обновления экрана идут 4 раза в секунду — при листании это давало рывки.
+	if button.has_meta("_plain_style") and button.get_meta("_plain_style") == color:
+		return
+	button.set_meta("_plain_style", color)
 	button.add_theme_stylebox_override("normal", _button_style(color))
 	button.add_theme_stylebox_override("hover", _button_style(color.lightened(0.08)))
 	button.add_theme_stylebox_override("pressed", _button_style(color.darkened(0.08), true))
@@ -4638,7 +4646,7 @@ func _tick_coins_label(delta: float) -> void:
 ## из-за которых картинка подёргивается.
 
 const JOB_GAP := {
-	"tapline": 0.25, "page": 0.25, "wear": 0.2, "shifts": 0.5, "city": 0.3,
+	"tapline": 0.25, "page": 0.5, "wear": 0.2, "shifts": 0.5, "city": 0.3,
 	"staff": 0.0, "competitors": 0.25, "rate": 0.25,
 }
 var _dirty: Dictionary = {}
@@ -4651,13 +4659,29 @@ func _mark(job: String) -> void:
 	_dirty[job] = true
 
 
+## Пока список едет под пальцем или по инерции, тяжёлые обновления страницы ждут:
+## прокрутка должна идти ровно 60 кадров в секунду. Деньги и цифры догонят сразу после.
+const JOBS_WHILE_SCROLLING := ["tapline", "rate", "city"]
+var _scrollers: Array = []
+
+
+func _is_scrolling() -> bool:
+	for scroller: Variant in _scrollers:
+		if is_instance_valid(scroller) and scroller.is_moving():
+			return true
+	return false
+
+
 func _run_one_job() -> void:
 	if _dirty.is_empty():
 		return
+	var scrolling: bool = _is_scrolling()
 	var now: float = float(Time.get_ticks_msec()) / 1000.0
 	for step in _job_order.size():
 		var job: String = _job_order[(_job_cursor + step) % _job_order.size()]
 		if not _dirty.has(job):
+			continue
+		if scrolling and not JOBS_WHILE_SCROLLING.has(job):
 			continue
 		if now - float(_job_last.get(job, -100.0)) < float(JOB_GAP.get(job, 0.25)):
 			continue
