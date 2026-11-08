@@ -89,9 +89,12 @@ func _draw() -> void:
 	var hair_color: Color = _c("hair_color", "2b2b2b")
 	var female: bool = bool(look.get("female", false))
 
-	# Подложка-значок.
+	# Подложка-значок: белый ободок, фон темнее книзу и мягкий свет сверху.
+	var bg: Color = _c("bg", "a0aec8")
 	draw_circle(c, 50 * u, Color.WHITE)
-	draw_circle(c, 46 * u, _c("bg", "a0aec8"))
+	draw_circle(c, 46 * u, bg.darkened(0.12))
+	draw_colored_polygon(_ellipse(c + Vector2(0, -6) * u, 42 * u, 38 * u), bg)
+	draw_colored_polygon(_ellipse(c + Vector2(-8, -22) * u, 24 * u, 14 * u), bg.lightened(0.14))
 
 	var face := c + Vector2(0, 6 * u + breath)
 	# Длинные волосы — позади головы.
@@ -106,22 +109,33 @@ func _draw() -> void:
 		"bob":
 			draw_colored_polygon(_ellipse(face + Vector2(0, 2) * u, 28 * u, 27 * u), hair_color)
 
+	# Шея с тенью под подбородком.
+	draw_rect(Rect2(face + Vector2(-9, 14) * u, Vector2(18, 16) * u), skin_dark)
 	# Одежда: плечи и воротник по характеру.
 	_draw_clothes(c, u, breath)
+	draw_colored_polygon(_ellipse(face + Vector2(0, 26) * u, 10 * u, 4 * u), Color(0, 0, 0, 0.12))
 
-	# Уши, лицо.
-	draw_circle(face + Vector2(-24, 2) * u, 5.5 * u, skin_dark)
-	draw_circle(face + Vector2(24, 2) * u, 5.5 * u, skin_dark)
-	draw_colored_polygon(_ellipse(face, 24 * u, 26 * u), skin)
+	# Уши с тенью внутри, лицо с объёмом: тень по низу и справа, свет на лбу и щеке.
+	for side in [-1.0, 1.0]:
+		draw_circle(face + Vector2(side * 24, 2) * u, 5.5 * u, skin_dark)
+		draw_circle(face + Vector2(side * 24.5, 2.5) * u, 2.8 * u, skin_dark.darkened(0.15))
+	draw_colored_polygon(_ellipse(face, 24 * u, 26 * u), skin_dark)
+	draw_colored_polygon(_ellipse(face + Vector2(-1, -1.5) * u, 22.8 * u, 24.5 * u), skin)
+	draw_colored_polygon(_ellipse(face + Vector2(-7, -12) * u, 9 * u, 5 * u), skin.lightened(0.14))
+	draw_colored_polygon(_ellipse(face + Vector2(-13, 4) * u, 4 * u, 3 * u), skin.lightened(0.1))
 	if female or bool(look.get("cheeks", false)):
 		draw_circle(face + Vector2(-13, 9) * u, 4.5 * u, Color(1, 0.45, 0.45, 0.35))
 		draw_circle(face + Vector2(13, 9) * u, 4.5 * u, Color(1, 0.45, 0.45, 0.35))
 
 	_draw_hair(face, u, hair_color)
+	# Блеск волос.
+	if str(look.get("hair", "")) not in ["", "bald_sides"]:
+		draw_arc(face + Vector2(-4, -14) * u, 14 * u, PI * 1.15, PI * 1.55, 10, Color(1, 1, 1, 0.28), 2.5 * u)
 	_draw_eyes(face, u)
 	_draw_glasses(face, u)
-	# Нос.
+	# Нос с бликом.
 	draw_circle(face + Vector2(0, 5) * u, 3.6 * u, skin_dark)
+	draw_circle(face + Vector2(-1, 4) * u, 1.2 * u, Color(1, 1, 1, 0.35))
 	_draw_mouth(face, u)
 	_draw_beard(face, u, hair_color)
 	_draw_hat(face, u)
@@ -134,6 +148,13 @@ func _draw_clothes(c: Vector2, u: float, breath: float) -> void:
 		c + Vector2(-36, 48) * u, c + Vector2(-27, 30) * u + Vector2(0, breath),
 		c + Vector2(27, 30) * u + Vector2(0, breath), c + Vector2(36, 48) * u,
 	]), cloth)
+	# Объём одежды: правое плечо в тени, левое на свету, складки у рук.
+	draw_colored_polygon(PackedVector2Array([
+		c + Vector2(10, 30) * u, c + Vector2(27, 30) * u, c + Vector2(36, 48) * u, c + Vector2(16, 48) * u,
+	]), cloth.darkened(0.14))
+	draw_line(c + Vector2(-26, 32) * u, c + Vector2(-16, 31) * u, cloth.lightened(0.3), 2 * u)
+	draw_line(c + Vector2(-24, 40) * u, c + Vector2(-22, 48) * u, cloth.darkened(0.2), 1.5 * u)
+	draw_line(c + Vector2(24, 40) * u, c + Vector2(22, 48) * u, cloth.darkened(0.25), 1.5 * u)
 	match str(look.get("collar", "")):
 		"shirt":
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-11, 30) * u, c + Vector2(0, 42) * u, c + Vector2(11, 30) * u]), Color.WHITE)
@@ -218,11 +239,15 @@ func _draw_eyes(face: Vector2, u: float) -> void:
 				draw_circle(eye + Vector2(side * 0.5 - 2, -1.5) * u, 1.4 * u, Color.WHITE)
 				continue
 			"lashes":
-				draw_circle(eye, 2.8 * u, OUTLINE)
-				draw_line(eye + Vector2(side * 2, -2) * u, eye + Vector2(side * 5, -5) * u, OUTLINE, 1.5 * u)
-			_:
+				draw_colored_polygon(_ellipse(eye, 4.4 * u, 3.6 * u), Color.WHITE)
 				draw_circle(eye, 2.8 * u, OUTLINE)
 				draw_circle(eye + Vector2(-0.8, -0.8) * u, 0.9 * u, Color.WHITE)
+				draw_line(eye + Vector2(side * 2, -2) * u, eye + Vector2(side * 5, -5) * u, OUTLINE, 1.5 * u)
+			_:
+				draw_colored_polygon(_ellipse(eye, 4.2 * u, 3.4 * u), Color.WHITE)
+				draw_circle(eye + Vector2(0, 0.3) * u, 2.8 * u, _c("iris", "5d4037"))
+				draw_circle(eye + Vector2(0, 0.3) * u, 1.6 * u, OUTLINE)
+				draw_circle(eye + Vector2(-0.9, -0.6) * u, 0.9 * u, Color.WHITE)
 		# Брови.
 		var brow_color: Color = _c("brow", str(look.get("hair_color", "2b2b2b")))
 		var tilt: float = -2.0 if kind == "angry" else 0.0
