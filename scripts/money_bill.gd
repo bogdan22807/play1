@@ -6,16 +6,39 @@ const PAPER := Color("4cc77a")
 const PAPER_DARK := Color("1f9d55")
 const INK := Color("0f5c33")
 
+const Baker := preload("res://scripts/baker.gd")
+
 var shade: float = 0.0
+var bake_mode: bool = false
+var _texture: Texture2D
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if bake_mode:
+		# Художник рисует купюру 54×30 в удвоенном масштабе (картинка 108×60 — чётко на любом экране).
+		size = Vector2(54, 30)
+		return
 	size = Vector2(54, 30)
 	pivot_offset = size / 2.0
+	# Четыре оттенка купюр печём один раз — дальше каждая купюра одна картинка.
+	var step: float = snappedf(shade, 0.33)
+	var key: String = "bill|%.2f" % step
+	if Baker.has(key):
+		_texture = Baker.get_cached(key)
+	else:
+		var painter: Control = get_script().new()
+		painter.bake_mode = true
+		painter.shade = step
+		_texture = Baker.texture(get_tree(), key, Vector2i(108, 60), painter)
 
 
 func _draw() -> void:
+	if not bake_mode:
+		if _texture != null:
+			draw_texture_rect(_texture, Rect2(Vector2.ZERO, size), false)
+		return
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(2, 2))
 	var paper: Color = PAPER.lerp(Color("7ddc9c"), shade)
 	var rect := Rect2(Vector2.ZERO, size)
 	draw_rect(Rect2(rect.position + Vector2(2, 3), rect.size), Color(0, 0, 0, 0.18))

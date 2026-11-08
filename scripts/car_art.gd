@@ -18,6 +18,45 @@ const TAILLIGHT := Color("e53935")
 const DIRT := Color("6d4c2f")
 
 
+const Baker := preload("res://scripts/baker.gd")
+## Машины запекаются в текстуры такого размера (длина обычной машины в пикселях).
+const BAKE_UNIT := 128.0
+const BAKE_PAD := 28.0
+
+
+## Размер запечённой картинки машины при BAKE_UNIT.
+static func bake_extent(model: String) -> Vector2:
+	var info: Dictionary = style(model)
+	return Vector2(float(info.get("length", 1.0)) * BAKE_UNIT + BAKE_PAD * 2.0, float(info.get("width", 0.46)) * BAKE_UNIT + BAKE_PAD * 2.0)
+
+
+## Готовая картинка машины: рисуется один раз, потом одной командой.
+## Грязь округляем до четвертей — иначе пришлось бы печь сотни вариантов.
+static func texture(tree: SceneTree, model: String, body_override: Color = Color(0, 0, 0, 0), dirt: float = 0.0, broken: bool = false) -> Texture2D:
+	var dirt_step: float = snappedf(clampf(dirt, 0.0, 1.0), 0.25)
+	var key: String = "car|%s|%s|%.2f|%s" % [model, body_override.to_html(true) if body_override.a > 0.0 else "-", dirt_step, broken]
+	if Baker.has(key):
+		return Baker.get_cached(key)
+	var painter: Control = load("res://scripts/car_painter.gd").new()
+	painter.model = model
+	painter.unit = BAKE_UNIT
+	painter.body_override = body_override
+	painter.dirt = dirt_step
+	painter.broken = broken
+	var ext: Vector2 = bake_extent(model)
+	return Baker.texture(tree, key, Vector2i(ceili(ext.x), ceili(ext.y)), painter)
+
+
+## Нарисовать запечённую машину: центр в pos, поворот angle, size — длина обычной машины.
+static func draw_baked(canvas: CanvasItem, pos: Vector2, angle: float, model: String, size: float,
+		body_override: Color = Color(0, 0, 0, 0), dirt: float = 0.0, broken: bool = false) -> void:
+	var tex: Texture2D = texture(canvas.get_tree(), model, body_override, dirt, broken)
+	var ext: Vector2 = bake_extent(model) * (size / BAKE_UNIT)
+	canvas.draw_set_transform(pos, angle, Vector2.ONE)
+	canvas.draw_texture_rect(tex, Rect2(-ext / 2.0, ext), false)
+	canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 static func style(model: String) -> Dictionary:
 	return STYLES.get(model, STYLES["old_sedan"])
 
