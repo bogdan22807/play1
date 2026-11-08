@@ -127,7 +127,7 @@ func _draw() -> void:
 				_swords(base + Vector2(width / 2.0, height * 0.18))
 		# Подпись: название и состояние.
 		var name_text: String = str(info.get("name", ""))
-		var state_text: String = {"owned": "ваш", "surrendered": "сдался", "active": "дуэль!", "waiting": "ждёт"}.get(state, "")
+		var state_text: String = {"owned": "ваш", "surrendered": "сдался", "active": "ваши %d%%" % int(info.get("pct", 0)), "waiting": "ждёт"}.get(state, "")
 		var state_color: Color = {"owned": OWNED.darkened(0.2), "surrendered": INK, "active": ACTIVE, "waiting": Color("6b7385")}.get(state, INK)
 		_text(font, Vector2(x, size.y - 50), name_text, 24, INK, Color(1, 1, 1, 0.9))
 		_text(font, Vector2(x, size.y - 16), state_text, 28, state_color, Color.WHITE)

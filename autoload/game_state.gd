@@ -1981,15 +1981,22 @@ func get_active_rival() -> String:
 	return ""
 
 
-## "owned" — выкуплен, "surrendered" — сдался и ждёт выкупа, "active" — дуэль сейчас, "waiting" — следующий.
+## "owned" — выкуплен; "active" — на текущем острове, доли можно покупать; "waiting" — на другом острове.
 func get_rival_state(competitor_id: String) -> String:
 	if is_competitor_owned(competitor_id):
 		return "owned"
 	if is_rival_surrendered(competitor_id):
 		return "surrendered"
-	if competitor_id == get_active_rival():
+	if _is_front_rival(competitor_id):
 		return "active"
 	return "waiting"
+
+
+func _is_front_rival(competitor_id: String) -> bool:
+	for raw: Variant in get_competitors():
+		if str(raw.get("id", "")) == competitor_id:
+			return not is_competitor_owned(competitor_id)
+	return false
 
 
 func is_rival_surrendered(competitor_id: String) -> bool:
@@ -2007,17 +2014,15 @@ func get_rival_growth_cap() -> float:
 	return float(_duel_value("growth_cap", 1.6))
 
 
-## Прогресс дуэли 0..1: у помощника — где канат, у главного босса — сколько компании выкуплено.
-func get_duel_progress() -> float:
-	var rival_id: String = get_active_rival()
+## Сколько компании соперника выкуплено, 0..1 (без id — у первого невыкупленного).
+func get_duel_progress(competitor_id: String = "") -> float:
+	var rival_id: String = competitor_id if competitor_id != "" else get_active_rival()
 	if rival_id == "":
 		return 1.0
-	if is_boss(rival_id):
-		return get_boss_share_fraction(rival_id)
-	return clampf(float(_rope.get(rival_id, 0.0)), 0.0, 1.0)
+	return get_boss_share_fraction(rival_id)
 
 
-# Главный босс острова: канат не тянется — компанию выкупают долями по 5%.
+# Выкуп долями: у любого соперника текущего острова, в любом порядке, по 5%.
 
 func is_boss(competitor_id: String) -> bool:
 	return str(_find_def(_competitor_defs, competitor_id).get("role", "")) == "boss"
@@ -2039,17 +2044,26 @@ func get_shares_total() -> int:
 	return maxi(1, roundi(1.0 / get_share_step()))
 
 
-## Цена следующей доли: сила босса (без учёта уже купленных долей) × share_seconds,
-## каждая следующая дороже на share_growth.
+## Цена следующей доли: сила соперника × share_seconds, каждая следующая дороже на share_growth.
+## Уже купленные доли цену не снижают, а пакости (гвозди, слух, пирожки) — снижают, пока действуют.
 func get_share_price(competitor_id: String) -> float:
 	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
-	var base: float = float(info.get("power", 0)) * float(_duel_value("share_seconds", 40))
+	var power: float = float(info.get("power", 0)) * float(_rival_perm.get(competitor_id, 1.0))
+	var now: int = _now()
+	for raw: Variant in _rival_cuts.get(competitor_id, []):
+		if int(raw.get("until", 0)) > now:
+			power *= 1.0 - clampf(float(raw.get("cut", 0)), -1.0, 0.95)
+	var base: float = power * float(_duel_value("share_seconds", 40))
 	return ceilf(base * pow(float(_duel_value("share_growth", 1.08)), float(get_boss_shares(competitor_id))))
 
 
-## Купить долю можно только у главного босса, когда оба помощника повержены.
+## Долю можно купить у любого невыкупленного соперника текущего острова.
 func can_buy_share(competitor_id: String) -> bool:
-	return is_boss(competitor_id) and competitor_id == get_active_rival() and coins + 0.001 >= get_share_price(competitor_id)
+	return _is_front_rival(competitor_id) and coins + 0.001 >= get_share_price(competitor_id)
+
+
+func buy_share(competitor_id: String) -> Dictionary:
+	return buy_boss_share(competitor_id)
 
 
 func buy_boss_share(competitor_id: String) -> Dictionary:
@@ -2062,7 +2076,8 @@ func buy_boss_share(competitor_id: String) -> Dictionary:
 		_owned_competitors[competitor_id] = 1
 		_rival_cuts.erase(competitor_id)
 		text = _say(str(_find_def(_competitor_defs, competitor_id).get("success_text", "Компания ваша!")))
-	_tick_story(competitor_id)
+	if not is_competitor_owned(competitor_id):
+		_tick_story(competitor_id)
 	_after_market_change()
 	return {"ok": true, "text": text}
 
@@ -2231,7 +2246,7 @@ func _tick_story(rival_id: String) -> void:
 		return
 	if not is_story_seen(rival_id, "intro"):
 		_mark_story(rival_id, "intro")
-	elif not is_story_seen(rival_id, "half") and get_duel_progress() >= 0.5:
+	elif not is_story_seen(rival_id, "half") and get_duel_progress(rival_id) >= 0.5:
 		_mark_story(rival_id, "half")
 
 
@@ -2243,32 +2258,19 @@ func _tick_duel(seconds: float) -> void:
 	if rival_id != _duel_rival:
 		_duel_rival = rival_id
 		_reset_attack_timer(true)
-	_rival_age[rival_id] = float(_rival_age.get(rival_id, 0.0)) + seconds
-	if not is_boss(rival_id):
-		_rope[rival_id] = clampf(float(_rope.get(rival_id, 0.0)) + get_rope_speed() * seconds, 0.0, 1.0)
-	if _check_surrender():
-		return
-	_tick_story(rival_id)
+	# Каната больше нет: соперников выкупают долями (buy_share). Здесь — только знакомство и их ходы.
+	if not is_story_seen(rival_id, "intro"):
+		_tick_story(rival_id)
 	_rival_attack_in -= seconds
 	if _rival_attack_in <= 0.0:
 		_reset_attack_timer(false)
 		_rival_attack(rival_id)
 
 
-## Догнали соперника — он сдаётся и ждёт выкупа. Дуэль переходит к следующему.
+## Старый канат: соперник сдавался, когда его перетянули. Теперь всех выкупают долями,
+## поэтому сдачи нет (функция оставлена для старых тестов и сохранений).
 func _check_surrender() -> bool:
-	var rival_id: String = get_active_rival()
-	if rival_id == "" or is_boss(rival_id) or float(_rope.get(rival_id, 0.0)) < 1.0:
-		return false
-	_surrendered[rival_id] = _surrender_price(rival_id)
-	# Временные эффекты на сдавшемся больше не нужны.
-	_rival_cuts.erase(rival_id)
-	var text: String = "%s\nВыкуп: %s." % [_duel_text("surrender_texts", rival_id), format_money(_surrendered[rival_id])]
-	rival_surrendered.emit(rival_id, text)
-	competitors_changed.emit()
-	_note_progress()
-	save_game()
-	return true
+	return false
 
 
 ## Ответный ход соперника по характеру.
@@ -2404,7 +2406,7 @@ func get_trick_wait(competitor_id: String) -> int:
 
 
 func can_play_trick(competitor_id: String, trick_id: String) -> bool:
-	if competitor_id == "" or competitor_id != get_active_rival():
+	if competitor_id == "" or not _is_front_rival(competitor_id):
 		return false
 	# Переманить можно не всех: самые верные водители не уходят даже за пирожки.
 	if bool(_find_def(get_tricks(), trick_id).get("permanent", false)) and get_competitor_lost_drivers(competitor_id) >= 1.0 - _market_value("permanent_floor", 0.7) - 0.001:
@@ -2988,6 +2990,15 @@ func _load_market(data: Dictionary) -> void:
 	_rival_age = _read_float_dict(data.get("rival_age", {}))
 	_rope = _read_float_dict(data.get("rope", {}))
 	_boss_shares = _read_count_dict(data.get("boss_shares", {}))
+	# Старые сохранения: перетянутый канат и сдавшиеся соперники превращаются в доли
+	# (весь канат = 50% компании), чтобы прогресс не пропал.
+	for key: Variant in _rope.keys():
+		var id: String = str(key)
+		_boss_shares[id] = maxi(get_boss_shares(id), int(floorf(clampf(float(_rope[key]), 0.0, 1.0) * get_shares_total() * 0.5)))
+	for key: Variant in _surrendered.keys():
+		_boss_shares[str(key)] = maxi(get_boss_shares(str(key)), int(get_shares_total() / 2))
+	_rope.clear()
+	_surrendered.clear()
 	_duel_rival = str(data.get("duel_rival", ""))
 	_rival_attack_in = maxf(0.0, float(data.get("rival_attack_in", 0.0)))
 	_story_seen = {}

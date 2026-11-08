@@ -35,6 +35,7 @@ DT = 2.0                             # шаг во время игры, секу
 AD_SECONDS = 30.0                    # сколько длится рекламный ролик (в это время игрок не тапает)
 DISTRICT_ADS_PER_SESSION = 4         # сколько роликов за районы игрок смотрит за заход
 ALIENS_PER_SESSION = 2               # инопланетян за ролик (каждый на 1 час)
+SHARE_PAYBACK = 45.0                 # доли берём, когда остальные покупки окупаются дольше 45 минут
 USE_VIDEO_ADS = True                 # крутить ТВ за ролики весь заход
 
 
@@ -338,9 +339,13 @@ class Player:
         for c in self.front_rivals():
             if c["id"] in self.surrendered:
                 found.append(("rival", c["id"], self.surrendered[c["id"]], 1e8))
-        rival = self.active_rival()
-        if rival is not None and rival.get("role") == "boss":
-            found.append(("share", rival["id"], self.share_price(rival), 1e8))
+        # Доли — у любого соперника острова; берём самую дешёвую.
+        open_rivals = [c for c in self.front_rivals() if c["id"] not in self.owned]
+        # Игрок не бросает развитие ради долей: доля «окупается» как вложение на SHARE_PAYBACK минут,
+        # то есть сначала берёт всё, что окупается быстрее, а лишние деньги несёт соперникам.
+        if open_rivals:
+            c = min(open_rivals, key=self.share_price)
+            found.append(("share", c["id"], self.share_price(c), 1.0 / (SHARE_PAYBACK * 60.0)))
         return found
 
     def next_expansion(self):
@@ -357,9 +362,6 @@ class Player:
         for c in self.front_rivals():
             if c["id"] in self.surrendered:
                 return self.surrendered[c["id"]]
-        rival = self.active_rival()
-        if rival is not None and rival.get("role") == "boss":
-            return self.share_price(rival)
         rep = self.reputation()
         for idx, r in enumerate(self.regions):
             if r["id"] in self.open_regions:
@@ -492,16 +494,7 @@ class Player:
                 self.taps += int(TAPS_PER_SECOND * dt)
             if self.team:
                 self.reviews += self.reviews_k * math.sqrt(self.team) * dt / 3600.0
-            rival = self.active_rival()
-            if rival is not None and rival.get("role") != "boss":
-                ratio = self.player_power() / self.rival_power(rival)
-                pos = self.rope.get(rival["id"], 0.0) + self.rope_speed(ratio) * dt
-                pos = max(0.0, pos)
-                self.rope[rival["id"]] = pos
-                if pos >= 1.0:
-                    price = math.ceil(self.rival_power(rival) * float(self.duel().get("price_seconds", 180)))
-                    self.surrendered[rival["id"]] = price
-                    self.log("сдался %s (выкуп %s)" % (rival["id"], fmt_money(price)))
+            # Каната нет: соперников выкупают долями (см. options/buy).
             island = self.front()
             if island and all(c["id"] in self.owned for c in self.front_rivals()):
                 self.captured[island] = self.time

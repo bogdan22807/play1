@@ -22,13 +22,14 @@ func _init() -> void:
 	gs.reset_progress()
 	gs.set_company_name("Жёлтая молния")
 
-	# Дуэли по очереди: сначала Волк, остальные ждут.
-	check(gs.get_active_rival() == "wolf", "первая дуэль — с Волком")
-	check(gs.get_rival_state("lotus") == "waiting" and gs.get_rival_state("elephant") == "waiting", "остальные ждут")
-	check(gs.get_duel_progress() < 0.1, "на старте до Волка далеко")
+	# Доли можно выкупать у всех троих сразу, в любом порядке.
+	check(gs.get_active_rival() == "wolf", "первый в списке — Волк")
+	check(gs.get_rival_state("lotus") == "active" and gs.get_rival_state("elephant") == "active", "все трое доступны сразу")
+	check(gs.get_rival_state("eurobolt") == "waiting", "соперники других островов ждут")
+	check(gs.get_duel_progress() == 0.0, "на старте ничего не выкуплено")
 	check(not gs.can_open_region("europe"), "Европа закрыта до захвата")
 	check(gs.get_region_block_reason("europe").contains("Бангкок"), "причина: сначала Бангкок")
-	check(not gs.can_play_trick("lotus", "nails"), "пакостить можно только текущему сопернику")
+	check(not gs.can_play_trick("eurobolt", "nails"), "пакостить можно только соперникам своего острова")
 
 	# У каждого конкурента свой босс с сюжетом, среди боссов есть женщины.
 	var women: int = 0
@@ -48,54 +49,15 @@ func _init() -> void:
 	gs._tick_market(0.0)
 	gs._tick_market(0.0)
 	check(scenes == ["wolf:intro"], "знакомство с Волком один раз: %s" % str(scenes))
-	# Канат: слабее — не тянется и ползёт назад; сильнее — тянется, вдвое сильнее — в полную силу.
-	check(gs.get_rope_speed(0.5) < 0.0, "слабее — канат ползёт назад")
-	check(gs.get_rope_speed(1.0) == 0.0, "на равных — стоит")
-	check(gs.get_rope_speed(1.5) > 0.0 and gs.get_rope_speed(1.5) < gs.get_rope_speed(2.0), "чуть сильнее — медленнее")
-	check(is_equal_approx(gs.get_rope_speed(2.0), gs.get_rope_speed(10.0)), "вдвое и больше — полная скорость")
-	var full_time: float = 1.0 / gs.get_rope_speed(5.0)
-	check(full_time >= 600.0, "даже при огромном перевесе на соперника — минимум 10 минут игры: %s" % full_time)
-	# Делаем игрока втрое сильнее Волка и тянем.
-	gs._rival_cuts["wolf"] = [{"cut": 0.95, "until": gs._now() + 100000, "source": "a"}]
-	var cut_ok: bool = gs.get_duel_ratio() >= 2.0
-	if not cut_ok:
-		gs._rival_perm["wolf"] = gs.get_player_power() / (gs.get_competitor_power("wolf") * 3.0)
-	check(gs.get_duel_ratio() >= 2.0, "игрок вдвое сильнее Волка: %s" % gs.get_duel_ratio())
-	gs._tick_market(full_time * 0.55)
-	check(scenes.has("wolf:half"), "на половине каната Волк нервничает: %s, канат %s" % [str(scenes), gs.get_duel_progress()])
-	check(gs.get_rival_state("wolf") == "active", "на половине ещё не сдался")
-	check(gs.get_rope_eta() > 0, "видно, сколько ещё тянуть")
-	gs._rival_cuts.clear()
-	gs._rival_perm.clear()
-	gs._rope.clear()
-	gs._surrendered.clear()
-	gs._rival_age.clear()
-
-	# Реклама добавляет силы. Листовки (за монеты) и ролики — разные полосы, бонусы складываются.
-	gs.coins = 1e9
-	var before: float = gs.get_player_power()
-	var mult_before: float = gs.get_income_multiplier()
-	check(gs.buy_ad("flyers"), "купили листовки")
-	check(gs.get_player_power() > before, "реклама подняла силу")
-	check(gs.get_ad_left("flyers") > 10700, "листовки идут 3 часа")
-	check(is_equal_approx(gs.get_income_multiplier(), mult_before * 1.2), "листовки: +20%% дохода")
-	check(not gs.can_buy_ad("flyers"), "вторые листовки ждут окончания первых")
-	check(gs.can_buy_ad("tv"), "ролик ТВ можно запустить поверх листовок")
-	check(gs.buy_ad("tv") and is_equal_approx(gs.get_income_multiplier(), mult_before * 3.2), "ТВ + листовки = +220%%")
-	check(not gs.can_buy_ad("billboard"), "второй ролик ждёт окончания первого")
-	check(gs.get_ad_left("tv") > 170 and gs.get_ad_left("tv") <= 180, "ТВ идёт 3 минуты")
-	# Кончилось — доход обычный.
-	var income_with_ad: float = gs.get_ride_value()
-	gs._ad["until"] = gs._now() - 1
-	gs._paid_ad["until"] = gs._now() - 1
-	gs._tick_market()
-	check(gs._ad.is_empty() and gs._paid_ad.is_empty() and gs.get_ride_value() < income_with_ad, "после рекламы доход вернулся")
-
-	# Ролики: без денег и без паузы — следующий сразу после окончания.
-	gs.coins = 0.0
-	check(gs.get_ad_pay("tv") == "video" and gs.can_buy_ad("tv"), "ТВ — за ролик, монеты не нужны")
-	check(not gs.can_buy_ad("flyers"), "листовки — только за монеты")
-	check(gs.buy_ad("tv") and gs.coins == 0.0, "ТВ запущено бесплатно")
+	# Знакомство — один раз; на половине выкупа босс нервничает.
+	gs.coins = 1e15
+	for k in 10:
+		check(gs.buy_share("lotus")["ok"], "доля Лотоса")
+	check(scenes.has("lotus:half"), "на 50%% Лотос нервничает: %s" % str(scenes))
+	gs.buy_share("wolf")
+	check(is_equal_approx(gs.get_duel_progress("lotus"), 0.5) and is_equal_approx(gs.get_duel_progress("wolf"), 0.05), "доли то одного, то другого")
+	gs._boss_shares.clear()
+	scenes.clear()
 	gs._ad = {}
 	check(gs.can_buy_ad("tv") and gs.get_ad_wait("tv") == 0, "следующий ролик ТВ — сразу")
 	check(gs.buy_ad("billboard") and gs.get_ad_left("billboard") > 590, "билборд идёт 10 минут")
@@ -173,40 +135,36 @@ func _init() -> void:
 	gs._tick_market()
 	check(gs.get_rival_attack_left() > 200, "первый ход соперника — через несколько минут")
 
-	# Догнали — соперник сдаётся, цена зафиксирована, выкуп без отказа.
-	var surrenders: Array = []
-	gs.rival_surrendered.connect(func(id: String, text: String) -> void: surrenders.append([id, text]))
-	gs._rival_perm["wolf"] = 0.000000001
+	# Пакость снижает цену доли, пока действует.
+	var share_price: float = gs.get_share_price("wolf")
+	gs._rival_cuts["wolf"] = [{"cut": 0.1, "until": gs._now() + 600, "source": "nails"}]
+	check(gs.get_share_price("wolf") < share_price, "с гвоздями доля дешевле")
+	gs._rival_cuts.clear()
 	gs.coins = 0.0
-	gs._tick_market()
-	check(gs.get_rival_state("wolf") == "active", "сила есть, но канат ещё не перетянут — не сдаётся сразу")
-	gs._tick_market(3600.0)
-	check(gs.get_rival_state("wolf") == "surrendered", "Волк сдался")
-	check(surrenders.size() == 1 and str(surrenders[0][1]).contains("Выкуп"), "сообщение о сдаче с ценой")
-	check(gs.get_active_rival() == "lotus", "дуэль перешла к Лотосу")
-	var price: float = gs.get_competitor_cost("wolf")
-	gs._rival_perm.erase("wolf")
-	check(is_equal_approx(gs.get_competitor_cost("wolf"), price), "цена не меняется после сдачи")
-	check(not gs.can_buy_rival("wolf"), "без денег не купить")
-	check(not gs.buy_rival("lotus")["ok"], "несдавшегося не купить")
-	gs.coins = price * 3.0
-	var deal: Dictionary = gs.buy_rival("wolf")
-	check(deal["ok"] and gs.is_competitor_owned("wolf"), "выкупили Волка")
+	check(not gs.can_buy_share("wolf"), "без денег долю не купить")
+	gs.coins = 1e15
+	for k in 20:
+		gs.buy_share("wolf")
+	check(gs.is_competitor_owned("wolf"), "выкупили Волка целиком")
 	check(gs.get_city_owned_count() == 1, "выкуплен 1 из 3")
 	check(not gs.is_home_captured(), "один выкуп — ещё не захват")
+	gs._tick_market(3600.0)
+	check(gs._surrendered.is_empty(), "никто не сдаётся — только выкуп")
 
-	# Сохранение посреди дуэли.
-	gs._rival_age["lotus"] = 1800.0
-	gs._rope["lotus"] = 0.4
-	gs._surrendered["elephant"] = 12345.0
+	# Сохранение посреди выкупа и перенос старого каната.
+	gs._boss_shares["lotus"] = 6
+	gs._rope["elephant"] = 0.6
+	gs._surrendered["lotus_x"] = 1.0
 	gs.save_game()
 	var gs3 := _make_state()
 	await process_frame
-	check(is_equal_approx(float(gs3._rival_age.get("lotus", 0)), 1800.0), "возраст дуэли сохранился")
-	check(is_equal_approx(gs3.get_duel_progress(), 0.4), "канат сохранился")
-	check(gs3.is_rival_surrendered("elephant") and is_equal_approx(gs3.get_competitor_cost("elephant"), 12345.0), "сдавшийся сохранился")
+	check(gs3.get_boss_shares("lotus") == 6, "доли сохранились")
+	check(gs3.get_boss_shares("elephant") == 6, "старый канат 60%% стал 30%% компании")
+	check(gs3._rope.is_empty() and gs3._surrendered.is_empty(), "канат и сдача из старых сохранений убраны")
 	gs3.queue_free()
+	gs._rope.clear()
 	gs._surrendered.clear()
+	gs._boss_shares.clear()
 
 	# Захват: все выкуплены — Бангкок наш.
 	var captured_text: Array = []
