@@ -1621,8 +1621,8 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	more.custom_minimum_size = Vector2(150, 96)
 	more.focus_mode = Control.FOCUS_NONE
 	more.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_style_plain_button(more, COLOR_PANEL_EDGE)
-	more.add_theme_font_size_override("font_size", 22)
+	_style_plain_button(more, COLOR_BUY)
+	more.add_theme_font_size_override("font_size", 24)
 	more.pressed.connect(_show_rival_details.bind(competitor_id))
 	head.add_child(more)
 
