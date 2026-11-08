@@ -1,30 +1,15 @@
 {
   "player_tap_rate": 3,
   "capture_bonus": 0.25,
-  "trick_cooldown_seconds": 60,
-  "permanent_floor": 0.7,
-  "caught_rating_hit": 0.3,
-  "caught_fine_mult": 2.0,
-  "revenge_health_hit": 0.15,
-  "revenge_rating_hit": 0.4,
   "personalities": {
     "aggressive": {
-      "catch_bonus": 0.0,
-      "revenge_chance": 0.5,
-      "revenge": "health",
       "attack": "health"
     },
     "cunning": {
-      "catch_bonus": 0.15,
-      "revenge_chance": 0.35,
-      "revenge": "rating",
       "attack": "rating"
     },
     "family": {
-      "catch_bonus": -0.1,
-      "revenge_chance": 0.0,
-      "revenge": "",
-      "attack": "promo"
+      "attack": "rating"
     }
   },
   "ads": [
@@ -57,68 +42,46 @@
       "cooldown": 0
     }
   ],
-  "tricks": [
-    {
-      "id": "nails",
-      "name": "Гвозди на стоянке",
-      "description": "Их машины полдня стоят на домкратах.",
-      "price_seconds": 30,
-      "min_price": 100,
-      "cut": 0.1,
-      "duration": 300,
-      "catch": 0.2,
-      "permanent": false
-    },
-    {
-      "id": "pies",
-      "name": "Переманить водителя пирожками",
-      "description": "Их лучший водитель теперь возит ваших пассажиров. Навсегда.",
-      "price_seconds": 120,
-      "min_price": 500,
-      "cut": 0.04,
-      "duration": 0,
-      "catch": 0.3,
-      "permanent": true
-    },
-    {
-      "id": "rumor",
-      "name": "Слух в соцсетях",
-      "description": "«В их такси водитель поёт оперу». Половина города верит.",
-      "price_seconds": 90,
-      "min_price": 300,
-      "cut": 0.15,
-      "duration": 600,
-      "catch": 0.35,
-      "permanent": false
-    }
-  ],
   "duel": {
-    "growth_per_hour": 0.0,
-    "growth_cap": 1.0,
-    "price_seconds": 900,
     "first_attack": 300,
     "attack_min": 360,
     "attack_max": 600,
     "attack_health": 0.1,
     "attack_rating": 0.25,
-    "attack_promo": 0.2,
-    "attack_promo_seconds": 300,
-    "surrender_texts": {
-      "aggressive": "{rival}: «Ладно, ваша взяла. Платите — и наши стоянки ваши. Только никому не говорите, что мы сдались».",
-      "cunning": "{rival}: «Как неожиданно! «{company}» нас обогнали. Мы, разумеется, готовы обсудить цену… без мелкого шрифта».",
-      "family": "{rival}: «Семейный совет решил: «{company}» возят лучше. Дети давно просились на пенсию — покупайте».",
-      "default": "{rival} сдаётся и готов продаться."
-    },
     "attack_texts": {
       "aggressive": "{rival} огрызается: ночью кто-то прошёлся по вашим колёсам.",
       "cunning": "{rival} шепнул блогерам, что у «{company}» водители путают право и лево.",
-      "family": "{rival} устроил семейную акцию: «Каждому пассажиру — бабушкин суп».",
+      "family": "{rival} устроил семейную акцию: «Каждому пассажиру — бабушкин суп». Пассажиры сравнивают, и отзывы о «{company}» просели.",
       "default": "{rival} отвечает ударом."
     },
-    "rope_seconds": 720,
-    "rope_back_seconds": 1800,
     "share_percent": 5,
     "share_seconds": 40,
     "share_growth": 1.08
-  }
+  },
+  "buyouts": [
+    {
+      "id": "parking",
+      "name": "Стоянка",
+      "button": "Выкупить\nстоянку",
+      "description": "Их машины ночуют на вашей стоянке и платят за место вам.",
+      "cut": 0.08,
+      "price_shares": 2.0
+    },
+    {
+      "id": "fleet_part",
+      "name": "Часть машин",
+      "button": "Выкупить\nмашины",
+      "description": "Пять их машин теперь возят пассажиров под вашим флагом.",
+      "cut": 0.1,
+      "price_shares": 3.0
+    },
+    {
+      "id": "dispatch",
+      "name": "Диспетчерская",
+      "button": "Выкупить\nдиспетчерскую",
+      "description": "Звонки их клиентов теперь принимают ваши диспетчеры.",
+      "cut": 0.12,
+      "price_shares": 4.0
+    }
+  ]
 }

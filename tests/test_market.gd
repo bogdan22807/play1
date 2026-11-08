@@ -29,7 +29,7 @@ func _init() -> void:
 	check(gs.get_duel_progress() == 0.0, "на старте ничего не выкуплено")
 	check(not gs.can_open_region("europe"), "Европа закрыта до захвата")
 	check(gs.get_region_block_reason("europe").contains("Бангкок"), "причина: сначала Бангкок")
-	check(not gs.can_play_trick("eurobolt", "nails"), "пакостить можно только соперникам своего острова")
+	check(not gs.can_buy_buyout("eurobolt", "parking"), "выкупать части можно только у соперников своего острова")
 
 	# У каждого конкурента свой босс с сюжетом, среди боссов есть женщины.
 	var women: int = 0
@@ -70,48 +70,42 @@ func _init() -> void:
 	gs._ad = {}
 	gs._recalc_income()
 
-	# Пакость: проверяем обе ветки.
-	seed(1)
+	# Части компании: стоянка, машины, диспетчерская — по разу у каждого, навсегда урезают доход и цену долей.
 	var wolf_power: float = gs.get_competitor_power("wolf")
-	var outcomes: Dictionary = {"caught": 0, "ok": 0}
-	for attempt in 40:
-		gs._trick_ready.clear()
-		gs.coins = 1e9
-		var rating_before: float = gs.rating
-		var power_before: float = gs.get_competitor_power("wolf")
-		var result: Dictionary = gs.play_trick("wolf", "nails")
-		check(result["ok"], "пакость сыграна")
-		if result["caught"]:
-			outcomes["caught"] += 1
-			check(gs.rating < rating_before or gs.rating == 1.0, "поймали — рейтинг вниз")
-			check(str(result["text"]).contains("Жёлтая молния"), "реплика с названием компании")
-		else:
-			outcomes["ok"] += 1
-			check(gs.get_competitor_power("wolf") <= power_before, "сработало — волк не сильнее")
-		gs.rating = 4.0
-		if gs.get_active_rival() != "wolf":
-			break
-	check(outcomes["caught"] > 0 and outcomes["ok"] > 0, "бывает и так, и так: %s" % outcomes)
-	check(gs.get_competitor_power("wolf") < wolf_power, "волк ослаб")
-	check(gs.get_competitor_cuts("wolf").size() == 1, "одинаковые пакости не складываются, а продлеваются")
-	gs._rival_cuts.clear()
-	gs._surrendered.clear()
-
-	# Переманивание — навсегда.
-	for attempt in 10:
-		gs._trick_ready.clear()
-		gs.coins = 1e9
-		gs.play_trick("wolf", "pies")
-	check(gs.get_competitor_lost_drivers("wolf") > 0.0, "у волка переманили водителей")
-	check(gs.get_competitor_lost_drivers("wolf") <= 0.301, "но не больше 30%%: %s" % gs.get_competitor_lost_drivers("wolf"))
-	check(not gs.can_play_trick("wolf", "pies"), "больше переманить нельзя")
-	gs._rival_perm.clear()
-	gs._surrendered.clear()
-
-	# Временные эффекты проходят.
-	gs._rival_cuts["wolf"] = [{"cut": 0.5, "until": gs._now() - 1}]
-	gs._tick_market()
-	check(gs.get_competitor_cuts("wolf").is_empty(), "истёкший удар убран")
+	var share_before: float = gs.get_share_price("wolf")
+	gs.coins = 0.0
+	check(not gs.can_buy_buyout("wolf", "parking"), "без денег стоянку не купить")
+	gs.coins = 1e15
+	var deal: Dictionary = gs.buy_buyout("wolf", "parking")
+	check(deal["ok"] and gs.has_buyout("wolf", "parking"), "стоянка Волка ваша")
+	check(not gs.can_buy_buyout("wolf", "parking"), "второй раз ту же стоянку не купить")
+	check(is_equal_approx(gs.get_competitor_power("wolf"), wolf_power * 0.92), "доход Волка −8%%")
+	check(gs.get_share_price("wolf") < share_before, "доля Волка подешевела")
+	check(gs.can_buy_buyout("lotus", "parking"), "у Лотоса своя стоянка")
+	gs.buy_buyout("wolf", "fleet_part")
+	gs.buy_buyout("wolf", "dispatch")
+	check(is_equal_approx(gs.get_buyout_factor("wolf"), 0.92 * 0.9 * 0.88), "все три части вместе")
+	# Выгода есть, но небольшая: части стоят чуть меньше, чем экономят на долях.
+	var parts_cost: float = 0.0
+	for raw: Variant in gs.get_buyouts():
+		parts_cost += gs.get_buyout_price("wolf", str(raw["id"]))
+	var all_shares_full: float = 0.0
+	var all_shares_cut: float = 0.0
+	for k in 20:
+		all_shares_full += share_before * pow(1.08, k)
+		all_shares_cut += gs.get_share_price("wolf") * pow(1.08, k)
+	var saved: float = all_shares_full - all_shares_cut
+	check(saved > parts_cost and saved < parts_cost * 1.6, "части окупаются, но не сильно: экономия %s, цена %s" % [saved, parts_cost])
+	gs.save_game()
+	var gs5 := _make_state()
+	await process_frame
+	check(gs5.has_buyout("wolf", "dispatch"), "части сохранились")
+	gs5.queue_free()
+	# Конкуренты не растут со временем.
+	var before_wait: float = gs.get_competitor_power("lotus")
+	gs._tick_market(36000.0)
+	check(is_equal_approx(gs.get_competitor_power("lotus"), before_wait), "конкуренты не растут")
+	gs._buyouts.clear()
 
 	# Ответные ходы по характеру.
 	var attacks: Array = []
@@ -126,8 +120,9 @@ func _init() -> void:
 	gs._rival_attack("lotus")
 	check(gs.rating < rating_before_attack, "Лотос портит рейтинг")
 	var elephant_before: float = gs.get_competitor_power("elephant")
+	gs.rating = 4.0
 	gs._rival_attack("elephant")
-	check(gs.get_competitor_power("elephant") > elephant_before, "Слон устроил акцию и стал сильнее")
+	check(gs.get_competitor_power("elephant") == elephant_before and gs.rating < 4.0, "Слон устроил акцию: сильнее не стал, но отзывы просели")
 	check(attacks.size() == 3 and str(attacks[0][1]).length() > 30, "ходы с текстом голосом босса: %s" % str(attacks))
 	gs._rival_cuts.clear()
 	gs.rating = 4.0
@@ -135,11 +130,6 @@ func _init() -> void:
 	gs._tick_market()
 	check(gs.get_rival_attack_left() > 200, "первый ход соперника — через несколько минут")
 
-	# Пакость снижает цену доли, пока действует.
-	var share_price: float = gs.get_share_price("wolf")
-	gs._rival_cuts["wolf"] = [{"cut": 0.1, "until": gs._now() + 600, "source": "nails"}]
-	check(gs.get_share_price("wolf") < share_price, "с гвоздями доля дешевле")
-	gs._rival_cuts.clear()
 	gs.coins = 0.0
 	check(not gs.can_buy_share("wolf"), "без денег долю не купить")
 	gs.coins = 1e15

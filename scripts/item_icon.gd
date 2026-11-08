@@ -14,6 +14,7 @@ const BACKS := {
 	"money_bag": "e3f7ea", "taxi": "fff4d6", "driver": "dff0ff", "crown": "fff4d6", "island": "dff0ff",
 	"handshake": "e6e0ff", "tap": "e3f7ea", "wallet": "ffe3e3", "chart": "e3f7ea", "team": "dff0ff",
 	"music": "e6e0ff", "sound": "dff0ff", "restart": "e3f7ea", "trash": "ffe3e3", "pencil": "fff4d6",
+	"parking": "dff0ff", "fleet_part": "fff6d6", "dispatch": "e6f7ea",
 	"nails": "ffe3e3", "pies": "fff1dc", "rumor": "dff0ff",
 	"center": "fff1dc", "station": "e3e7ee", "airport": "dff0ff", "sleep": "e6e0ff", "business": "e3f7ea",
 }
@@ -92,6 +93,12 @@ func _draw() -> void:
 		"team":
 			_driver(c + Vector2(-16, 4) * u, u * 0.8)
 			_driver(c + Vector2(16, 4) * u, u * 0.8)
+		"parking":
+			_parking(c, u)
+		"fleet_part":
+			_fleet_part(c, u)
+		"dispatch":
+			_dispatch(c, u)
 		"nails":
 			_nails(c, u)
 		"pies":
@@ -380,6 +387,43 @@ func _half_up(center: Vector2, rx: float, ry: float) -> PackedVector2Array:
 		var angle: float = PI + PI * float(index) / 16.0
 		points.append(center + Vector2(cos(angle) * rx, sin(angle) * ry))
 	return points
+
+
+func _parking(c: Vector2, u: float) -> void:
+	# Синий знак «P» на столбике и машина на разметке.
+	draw_rect(Rect2(c + Vector2(18, -6) * u, Vector2(5, 40) * u), Color("7a8399"))
+	_round_rect(Rect2(c + Vector2(2, -40) * u, Vector2(38, 38) * u), 7 * u, Color("2b6cb0"))
+	_round_rect(Rect2(c + Vector2(5, -37) * u, Vector2(32, 32) * u), 5 * u, Color("2f7fd1"))
+	var p_col := Color.WHITE
+	draw_rect(Rect2(c + Vector2(13, -32) * u, Vector2(6, 22) * u), p_col)
+	draw_arc(c + Vector2(20, -25) * u, 7 * u, -PI / 2.0, PI / 2.0, 10, p_col, 6 * u)
+	draw_line(c + Vector2(16, -32) * u, c + Vector2(20, -32) * u, p_col, 6 * u)
+	draw_line(c + Vector2(16, -18) * u, c + Vector2(20, -18) * u, p_col, 6 * u)
+	for x in [-44.0, -10.0]:
+		draw_line(c + Vector2(x, 10) * u, c + Vector2(x, 36) * u, Color.WHITE, 3 * u)
+	_taxi(c + Vector2(-27, 22) * u, u * 0.42)
+
+
+func _fleet_part(c: Vector2, u: float) -> void:
+	# Три такси рядом, на двух — ваш жёлтый флажок.
+	_taxi(c + Vector2(-16, -14) * u, u * 0.6)
+	_taxi(c + Vector2(16, 6) * u, u * 0.6)
+	_taxi(c + Vector2(-12, 28) * u, u * 0.6)
+	for at in [Vector2(-6, -34), Vector2(26, -14)]:
+		var top: Vector2 = c + at * u
+		draw_line(top, top + Vector2(0, 16) * u, INK, 2.5 * u)
+		draw_colored_polygon(PackedVector2Array([top, top + Vector2(14, 4) * u, top + Vector2(0, 8) * u]), Color("2fbf5f"))
+
+
+func _dispatch(c: Vector2, u: float) -> void:
+	# Гарнитура диспетчера и «волны» звонка.
+	draw_arc(c + Vector2(-6, 0) * u, 26 * u, PI, TAU, 20, INK, 6 * u)
+	_round_rect(Rect2(c + Vector2(-38, -4) * u, Vector2(14, 24) * u), 5 * u, Color("2fbf5f"))
+	_round_rect(Rect2(c + Vector2(12, -4) * u, Vector2(14, 24) * u), 5 * u, Color("2fbf5f"))
+	draw_line(c + Vector2(-31, 18) * u, c + Vector2(-20, 32) * u, INK, 3 * u)
+	draw_circle(c + Vector2(-16, 33) * u, 5 * u, INK)
+	for index in 3:
+		draw_arc(c + Vector2(24, -26) * u, (6 + index * 7) * u, -PI * 0.45, PI * 0.05, 8, Color("e8434f"), 3 * u)
 
 
 func _nails(c: Vector2, u: float) -> void:
