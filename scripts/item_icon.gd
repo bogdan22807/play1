@@ -54,6 +54,8 @@ func _ready() -> void:
 		size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		resized.connect(_request_bake)
 		_request_bake()
+		# Окно сменило плотность пикселей (настройка «Графика») — перепечь под новую чёткость.
+		get_viewport().size_changed.connect(_request_bake)
 		return
 	# Мягкая тень снизу и сама картинка сверху (без тёмного контура — так чище).
 	_add_layer("shadow", Vector2(0.3, 1), Color(0, 0, 0, 0.16), 3.0)

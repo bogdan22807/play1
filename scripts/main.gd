@@ -1792,6 +1792,7 @@ func _refresh_video() -> void:
 
 
 func _process(delta: float) -> void:
+	_tick_coins_label(delta)
 	_tick_video(delta)
 	_run_one_job()
 	_update_jump_button(delta)
@@ -2471,6 +2472,8 @@ func _build_more_rows() -> void:
 	_sound_slider.set_value_no_signal(_sound_volume * 100.0)
 	_refresh_sound_button()
 	_mentor_tips_button = _make_setting_row("", "Советы дяди Буна", "Шутки и подсказки деда", _toggle_mentor_tips)
+	if OS.has_feature("web"):
+		_make_quality_row()
 
 	_more_list.add_child(_make_section_title("Обучение"))
 	_make_action_row("restart", "Пройти обучение заново", "Дядя Бун снова всё покажет", "Начать", COLOR_BUY, _restart_tutorial)
@@ -2549,6 +2552,53 @@ func _make_volume_row(icon_kind: String, title: String, hint: String, toggle_cb:
 	column.add_child(slider)
 	_more_list.add_child(parts[0])
 	return [toggle, slider, percent]
+
+
+## Графика в браузере: «Чёткая» — полное разрешение экрана всегда; «Авто» — тоже полное,
+## но если телефон не тянет 60 кадров, чуть снижает (×2, потом ×1,75); «Плавная» — ×1,5.
+var _quality_buttons: Dictionary = {}
+
+
+func _make_quality_row() -> void:
+	var parts: Array = _make_row_panel()
+	var row: HBoxContainer = parts[1]
+	var holder: Container = row.get_parent()
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	holder.remove_child(row)
+	holder.add_child(column)
+	column.add_child(row)
+	row.add_child(_make_item_icon("tv"))
+	var text_box := _make_text_box(row)
+	_add_label(text_box, "Графика", 32)
+	_add_label(text_box, "Чёткая — максимум деталей, Плавная — для слабых телефонов", 24, COLOR_MUTED)
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 8)
+	column.add_child(buttons)
+	for item: Array in [["sharp", "Чёткая"], ["auto", "Авто"], ["smooth", "Плавная"]]:
+		var button := Button.new()
+		button.text = item[1]
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0, 84)
+		button.focus_mode = Control.FOCUS_NONE
+		button.add_theme_font_size_override("font_size", 28)
+		button.pressed.connect(_set_quality.bind(str(item[0])))
+		buttons.add_child(button)
+		_quality_buttons[item[0]] = button
+	_more_list.add_child(parts[0])
+	_refresh_quality_buttons()
+
+
+func _set_quality(mode: String) -> void:
+	JavaScriptBridge.eval("window.taxiSetQuality && window.taxiSetQuality('%s')" % mode)
+	_refresh_quality_buttons()
+
+
+func _refresh_quality_buttons() -> void:
+	var mode: String = str(JavaScriptBridge.eval("window.taxiGetQuality ? window.taxiGetQuality() : 'auto'"))
+	for key: Variant in _quality_buttons.keys():
+		var button: Button = _quality_buttons[key]
+		_style_plain_button(button, COLOR_BUY if str(key) == mode else COLOR_DISABLED)
 
 
 ## Ползунок в стиле игры: толстая закруглённая дорожка, зелёная заливка, круглая ручка.
@@ -4554,9 +4604,25 @@ func _on_buy_upgrade(upgrade_id: String) -> void:
 func _on_coins_changed(value: float) -> void:
 	if _last_coins >= 0.0 and value < _last_coins - 0.5:
 		_play(_sfx_buy)
+		_coins_wait = 0.0
 	_last_coins = value
+	# Деньги капают каждый кадр, а перерисовывать крупную цифру с обводкой 60 раз в секунду
+	# дорого. 12 раз в секунду глаз не отличает от непрерывного счёта.
+	_coins_dirty = true
+
+
+var _coins_dirty: bool = false
+var _coins_wait: float = 0.0
+
+
+func _tick_coins_label(delta: float) -> void:
+	_coins_wait -= delta
+	if not _coins_dirty or _coins_wait > 0.0 or _coins_label == null:
+		return
+	_coins_wait = 1.0 / 12.0
+	_coins_dirty = false
 	_mark("tapline")
-	var text := GameState.format_money(value)
+	var text := GameState.format_money(_last_coins)
 	# Пока на экране та же строка, подпись не трогаем — иначе цифры двоятся.
 	if _coins_label.text == text:
 		return
