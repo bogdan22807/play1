@@ -490,6 +490,7 @@ func _draw_static() -> void:
 	c.draw_rect(Rect2(Vector2.ZERO, size), GROUND)
 	_draw_blocks(c)
 	_draw_roads(c)
+	_draw_road_texture(c)
 	_draw_light_housings(c)
 	for lamp: Vector2 in _lamps:
 		c.draw_circle(lamp + Vector2(2, 3), _road * 0.07, Color(0, 0, 0, 0.25))
@@ -524,13 +525,26 @@ func _draw_blocks(c: CanvasItem) -> void:
 		var rect: Rect2 = block["rect"]
 		c.draw_rect(rect, CURB)
 		c.draw_rect(rect.grow(-3), SIDEWALK)
-		# Плитка тротуара.
-		var tile: float = _road * 0.32
+		# Бордюр с объёмом: светлая кромка сверху-слева, тень снизу-справа.
+		c.draw_line(rect.position + Vector2(1, 1), Vector2(rect.end.x - 1, rect.position.y + 1), Color(1, 1, 1, 0.6), 2.0)
+		c.draw_line(rect.position + Vector2(1, 1), Vector2(rect.position.x + 1, rect.end.y - 1), Color(1, 1, 1, 0.6), 2.0)
+		c.draw_line(Vector2(rect.position.x, rect.end.y - 1), rect.end - Vector2(0, 1), Color(0, 0, 0, 0.18), 2.0)
+		c.draw_line(Vector2(rect.end.x - 1, rect.position.y), rect.end - Vector2(1, 0), Color(0, 0, 0, 0.18), 2.0)
+		# Плитка тротуара: сетка по всей полосе вдоль кварталов.
+		var tile: float = _road * 0.16
+		var band: float = _road * 0.12
 		var x: float = rect.position.x + tile
 		while x < rect.end.x:
-			c.draw_line(Vector2(x, rect.position.y + 3), Vector2(x, rect.position.y + _road * 0.12), Color(0, 0, 0, 0.05), 1.0)
-			c.draw_line(Vector2(x, rect.end.y - 3), Vector2(x, rect.end.y - _road * 0.12), Color(0, 0, 0, 0.05), 1.0)
+			for y0 in [rect.position.y + 3, rect.end.y - band]:
+				c.draw_line(Vector2(x, y0), Vector2(x, y0 + band - 3), Color(0, 0, 0, 0.06), 1.0)
 			x += tile
+		var y: float = rect.position.y + tile
+		while y < rect.end.y:
+			for x0 in [rect.position.x + 3, rect.end.x - band]:
+				c.draw_line(Vector2(x0, y), Vector2(x0 + band - 3, y), Color(0, 0, 0, 0.06), 1.0)
+			y += tile
+		for edge in [rect.position.y + band, rect.end.y - band]:
+			c.draw_line(Vector2(rect.position.x + band, edge), Vector2(rect.end.x - band, edge), Color(0, 0, 0, 0.05), 1.0)
 		var inner: Rect2 = rect.grow(-_road * 0.12)
 		if block["park"]:
 			_draw_park(c, inner)
@@ -542,13 +556,39 @@ func _draw_blocks(c: CanvasItem) -> void:
 
 func _draw_park(c: CanvasItem, inner: Rect2) -> void:
 	c.draw_rect(inner, PARK)
-	# Дорожки крест-накрест.
+	# Газон «полосками», как после стрижки.
+	var stripe: float = _road * 0.22
+	var sx: float = inner.position.x
+	var odd: bool = false
+	while sx < inner.end.x:
+		if odd:
+			c.draw_rect(Rect2(Vector2(sx, inner.position.y), Vector2(minf(stripe, inner.end.x - sx), inner.size.y)), Color(1, 1, 1, 0.06))
+		odd = not odd
+		sx += stripe
+	# Кусты по краю парка.
+	var bush_x: float = inner.position.x + _road * 0.12
+	while bush_x < inner.end.x - _road * 0.1:
+		for by in [inner.position.y + _road * 0.1, inner.end.y - _road * 0.1]:
+			c.draw_circle(Vector2(bush_x, by) + Vector2(2, 3), _road * 0.07, Color(0, 0, 0, 0.15))
+			c.draw_circle(Vector2(bush_x, by), _road * 0.07, TREE_DARK)
+			c.draw_circle(Vector2(bush_x - 1.5, by - 1.5), _road * 0.045, TREE)
+		bush_x += _road * 0.17
+	# Дорожки крест-накрест с бордюром.
 	var path := Color("e9dcc0")
-	c.draw_line(Vector2(inner.position.x, inner.get_center().y), Vector2(inner.end.x, inner.get_center().y), path, _road * 0.14)
-	c.draw_line(Vector2(inner.get_center().x, inner.position.y), Vector2(inner.get_center().x, inner.end.y), path, _road * 0.14)
+	for edge_color in [Color("cbbd9c"), path]:
+		var w: float = _road * (0.17 if edge_color != path else 0.14)
+		c.draw_line(Vector2(inner.position.x, inner.get_center().y), Vector2(inner.end.x, inner.get_center().y), edge_color, w)
+		c.draw_line(Vector2(inner.get_center().x, inner.position.y), Vector2(inner.get_center().x, inner.end.y), edge_color, w)
 	var pond_r: float = minf(inner.size.x, inner.size.y) * 0.2
-	c.draw_circle(inner.get_center(), pond_r * 1.15, Color("dcd2bb"))
-	c.draw_circle(inner.get_center(), pond_r, POND)
+	# Фонтан: каменный бортик с тенью, вода с бликами и кругами.
+	c.draw_circle(inner.get_center() + Vector2(3, 4), pond_r * 1.18, Color(0, 0, 0, 0.18))
+	c.draw_circle(inner.get_center(), pond_r * 1.18, Color("bfb39a"))
+	c.draw_circle(inner.get_center(), pond_r * 1.08, Color("dcd2bb"))
+	c.draw_circle(inner.get_center(), pond_r, POND.darkened(0.12))
+	c.draw_circle(inner.get_center() + Vector2(-pond_r * 0.08, -pond_r * 0.08), pond_r * 0.9, POND)
+	for ring in [0.55, 0.75]:
+		c.draw_arc(inner.get_center(), pond_r * ring, 0, TAU, 32, Color(1, 1, 1, 0.35), 1.5)
+	c.draw_arc(inner.get_center(), pond_r * 0.85, PI * 1.1, PI * 1.5, 12, Color(1, 1, 1, 0.6), 2.5)
 	c.draw_circle(inner.get_center(), pond_r * 0.3, Color("8fd3ff"))
 	c.draw_circle(inner.get_center(), pond_r * 0.12, Color.WHITE)
 	# Скамейки.
@@ -565,10 +605,15 @@ func _draw_park(c: CanvasItem, inner: Rect2) -> void:
 
 
 func _draw_tree(c: CanvasItem, at: Vector2, r: float) -> void:
-	c.draw_circle(at + Vector2(4, 6), r, Color(0, 0, 0, 0.22))
-	c.draw_circle(at, r, TREE_DARK)
-	c.draw_circle(at + Vector2(-r * 0.15, -r * 0.15), r * 0.75, TREE)
-	c.draw_circle(at + Vector2(-r * 0.3, -r * 0.3), r * 0.35, TREE.lightened(0.15))
+	# Крона из нескольких «шапок» листвы: тень, тёмный низ, светлый верх, блик.
+	c.draw_circle(at + Vector2(r * 0.25, r * 0.35), r * 1.05, Color(0, 0, 0, 0.22))
+	var lobes: Array = [Vector2(-0.35, 0.1), Vector2(0.35, 0.15), Vector2(0, -0.3), Vector2(0.05, 0.35)]
+	for lobe: Vector2 in lobes:
+		c.draw_circle(at + lobe * r, r * 0.62, TREE_DARK)
+	for lobe: Vector2 in lobes:
+		c.draw_circle(at + lobe * r + Vector2(-r * 0.1, -r * 0.12), r * 0.48, TREE)
+	c.draw_circle(at + Vector2(-r * 0.25, -r * 0.35), r * 0.3, TREE.lightened(0.18))
+	c.draw_circle(at + Vector2(-r * 0.32, -r * 0.42), r * 0.12, Color(1, 1, 1, 0.25))
 
 
 ## Дом сверху: тень, крыша со скатами, конёк и детали на крыше по типу дома.
@@ -576,13 +621,33 @@ func _draw_house(c: CanvasItem, house: Dictionary) -> void:
 	var r: Rect2 = house["rect"]
 	var roof: Color = house["roof"]
 	var kind: int = house["kind"]
-	c.draw_rect(Rect2(r.position + Vector2(6, 8), r.size), Color(0, 0, 0, 0.24))
+	c.draw_rect(Rect2(r.position + Vector2(6, 8), r.size), Color(0, 0, 0, 0.18))
+	c.draw_rect(Rect2(r.position + Vector2(3, 4), r.size), Color(0, 0, 0, 0.14))
+	# Стена дома видна снизу: светлая штукатурка, окна и дверь — дом «стоит», а не лежит.
+	var wall_h: float = minf(r.size.y * 0.22, _road * 0.22)
+	var wall := Rect2(Vector2(r.position.x, r.end.y - wall_h), Vector2(r.size.x, wall_h))
+	var wall_color: Color = Color("efe6d6") if kind != 3 else Color("cfd8dc")
+	c.draw_rect(wall, wall_color.darkened(0.08))
+	var wins: int = maxi(2, int(r.size.x / 16.0))
+	for w in wins:
+		var wx: float = wall.position.x + (w + 0.25) * wall.size.x / wins
+		c.draw_rect(Rect2(Vector2(wx, wall.position.y + wall_h * 0.25), Vector2(wall.size.x / wins * 0.5, wall_h * 0.45)), Color("5d7fa3"))
+		c.draw_rect(Rect2(Vector2(wx, wall.position.y + wall_h * 0.25), Vector2(wall.size.x / wins * 0.5, wall_h * 0.15)), Color("a9cbe8"))
+	if kind != 3:
+		c.draw_rect(Rect2(Vector2(wall.get_center().x - wall_h * 0.25, wall.position.y + wall_h * 0.3), Vector2(wall_h * 0.5, wall_h * 0.7)), Color("8d5a3b"))
+	r = Rect2(r.position, Vector2(r.size.x, r.size.y - wall_h))
 	c.draw_rect(r, roof.darkened(0.3))
 	var inner: Rect2 = r.grow(-3)
 	if kind == 3:
 		# Плоская крыша многоэтажки: бордюр, бак с водой, вентиляция, вертолётная «H».
 		c.draw_rect(inner, roof.lightened(0.05))
 		c.draw_rect(inner.grow(-5), roof.darkened(0.06))
+		# Тень от парапета и будка выхода на крышу.
+		c.draw_rect(Rect2(inner.position + Vector2(5, 5), Vector2(inner.size.x - 10, 3)), Color(0, 0, 0, 0.1))
+		var hut := Rect2(inner.position + inner.size * Vector2(0.08, 0.66), inner.size * Vector2(0.22, 0.22))
+		c.draw_rect(Rect2(hut.position + Vector2(3, 3), hut.size), Color(0, 0, 0, 0.18))
+		c.draw_rect(hut, Color("b0bec5"))
+		c.draw_rect(Rect2(hut.position, Vector2(hut.size.x, hut.size.y * 0.3)), Color("cfd8dc"))
 		c.draw_circle(inner.position + inner.size * Vector2(0.28, 0.3), minf(inner.size.x, inner.size.y) * 0.12, Color("b0bec5"))
 		c.draw_circle(inner.position + inner.size * Vector2(0.28, 0.3), minf(inner.size.x, inner.size.y) * 0.07, Color("90a4ae"))
 		for v in 2:
@@ -599,6 +664,10 @@ func _draw_house(c: CanvasItem, house: Dictionary) -> void:
 		c.draw_line(Vector2(inner.position.x, row), Vector2(inner.end.x, row), Color(0, 0, 0, 0.06), 1.0)
 		row += 7.0
 	c.draw_line(inner.position + Vector2(0, half_h), inner.position + Vector2(inner.size.x, half_h), roof.darkened(0.3), 3.0)
+	c.draw_line(inner.position + Vector2(0, half_h - 2), inner.position + Vector2(inner.size.x, half_h - 2), roof.lightened(0.35), 1.5)
+	# Свес крыши: светлая кромка сверху, тень внизу.
+	c.draw_line(inner.position, inner.position + Vector2(inner.size.x, 0), roof.lightened(0.3), 2.0)
+	c.draw_line(inner.position + Vector2(0, inner.size.y), inner.end, roof.darkened(0.2), 2.0)
 	match kind:
 		0:
 			# Труба с дымоходом.
@@ -652,6 +721,47 @@ func _draw_roads(c: CanvasItem) -> void:
 			c.draw_line(Vector2(x + stop, y - half), Vector2(x + stop, y), Color.WHITE, 3.0)
 			c.draw_line(Vector2(x - stop, y), Vector2(x - stop, y + half), Color.WHITE, 3.0)
 			c.draw_circle(Vector2(x + half * 0.45, y - half * 0.45), _road * 0.06, Color("4a5168"))
+
+
+## Асфальт «живой»: крапинки, заплатки, трещины и решётки ливнёвки (рисуется один раз).
+func _draw_road_texture(c: CanvasItem) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 21
+	var half: float = _road / 2.0
+	var lanes: Array = []
+	for x: float in _xs:
+		lanes.append(Rect2(Vector2(x - half, 0), Vector2(_road, size.y)))
+	for y: float in _ys:
+		lanes.append(Rect2(Vector2(0, y - half), Vector2(size.x, _road)))
+	for lane: Rect2 in lanes:
+		var count: int = int(lane.size.x * lane.size.y / 260.0)
+		for k in count:
+			var at := lane.position + Vector2(rng.randf() * lane.size.x, rng.randf() * lane.size.y)
+			c.draw_rect(Rect2(at, Vector2(2, 2)), Color(1, 1, 1, 0.05) if rng.randf() < 0.5 else Color(0, 0, 0, 0.08))
+		# Пара заплаток и трещина на каждой улице.
+		for k in 2:
+			var at := lane.position + Vector2(rng.randf() * lane.size.x, rng.randf() * lane.size.y)
+			var patch := Vector2(_road * rng.randf_range(0.2, 0.35), _road * rng.randf_range(0.15, 0.25))
+			c.draw_rect(Rect2(at, patch), ROAD.darkened(0.08))
+		var crack := lane.position + Vector2(rng.randf() * lane.size.x, rng.randf() * lane.size.y)
+		var points := PackedVector2Array([crack])
+		for k in 4:
+			crack += Vector2(rng.randf_range(-6, 10), rng.randf_range(-6, 10))
+			points.append(crack)
+		c.draw_polyline(points, Color(0, 0, 0, 0.18), 1.2)
+	# Ливнёвки у бордюра рядом с перекрёстками.
+	for x: float in _xs:
+		for y: float in _ys:
+			for at in [Vector2(x - half + 3, y - half - _road * 0.6), Vector2(x + half - 3 - _road * 0.14, y + half + _road * 0.5)]:
+				var grate := Rect2(at, Vector2(_road * 0.14, _road * 0.08))
+				c.draw_rect(grate, Color("3e4457"))
+				for bar in 4:
+					c.draw_line(grate.position + Vector2(grate.size.x * (bar + 0.5) / 4.0, 1), grate.position + Vector2(grate.size.x * (bar + 0.5) / 4.0, grate.size.y - 1), Color("6b7385"), 1.0)
+			# Люк: обод и рифление.
+			var hatch := Vector2(x + half * 0.45, y - half * 0.45)
+			c.draw_arc(hatch, _road * 0.06, 0, TAU, 16, Color("6b7385"), 1.5)
+			c.draw_line(hatch - Vector2(_road * 0.04, 0), hatch + Vector2(_road * 0.04, 0), Color("6b7385"), 1.0)
+			c.draw_line(hatch - Vector2(0, _road * 0.04), hatch + Vector2(0, _road * 0.04), Color("6b7385"), 1.0)
 
 
 ## Каждый кадр: картинка города, ночь, пешеходы, машины с фарами, светофоры.
@@ -788,6 +898,7 @@ func _draw_person(c: CanvasItem, at: Vector2, dir: Vector2, info: Dictionary) ->
 	var side := Vector2(-dir.y, dir.x)
 	var swing: float = sin(_time * 9.0 + float(info.get("phase", 0.0))) * r * 0.9
 	var leg := Vector2(r * 0.7, r * 0.7)
+	c.draw_circle(at + Vector2(r * 0.3, r * 0.45), r * 1.05, Color(0, 0, 0, 0.18))
 	c.draw_rect(Rect2(at + side * r * 0.45 + dir * swing - leg / 2.0, leg), Color("2a2a48"))
 	c.draw_rect(Rect2(at - side * r * 0.45 - dir * swing - leg / 2.0, leg), Color("2a2a48"))
 	c.draw_circle(at, r, info.get("shirt", Color.WHITE))
