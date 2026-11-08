@@ -1711,7 +1711,7 @@ func _show_rival_details(competitor_id: String) -> void:
 	lines.append("Возит на %s/с. Ваши %d%% компании." % [
 		GameState.format_money(GameState.get_competitor_power(competitor_id)),
 		int(roundf(GameState.get_duel_progress(competitor_id) * 100.0))])
-	lines.append("Выкупите 100%% — компания станет вашей, ваш доход +%d%% навсегда." % int(roundf(float(info.get("income_bonus", 0)) * 100.0)))
+	lines.append("Выкупите 100%% — компания станет вашей, ваш доход +%s%% навсегда." % _pct(float(info.get("income_bonus", 0))))
 	var parts: PackedStringArray = PackedStringArray()
 	for raw: Variant in GameState.get_buyouts():
 		var part_id: String = str(raw.get("id", ""))
@@ -2060,6 +2060,14 @@ func _refresh_competitors() -> void:
 			_refresh_rival_row(id, raw)
 
 
+## Процент без лишних нулей: 0.125 → «12,5», 0.25 → «25».
+func _pct(share: float) -> String:
+	var value: float = snappedf(share * 100.0, 0.1)
+	if is_equal_approx(value, roundf(value)):
+		return "%d" % int(roundf(value))
+	return ("%.1f" % value).replace(".", ",")
+
+
 func _owned_parts(competitor_id: String) -> Array:
 	var result: Array = []
 	for raw: Variant in GameState.get_buyouts():
@@ -2081,7 +2089,7 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	tricks_box.visible = full
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if state == "owned":
-		status.text = "Компания ваша  ·  доход +%d%%" % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
+		status.text = "Компания ваша  ·  доход +%s%%" % _pct(float(info.get("income_bonus", 0)))
 		_col(status, COLOR_INCOME)
 		return
 	if state != "active":
@@ -2092,7 +2100,7 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	_col(status, COLOR_TEXT)
 	status.text = "Ваши %d%% компании" % int(roundf(progress * 100.0))
 	bar.value = progress
-	powers.text = "100%% — компания ваша и +%d%% к доходу" % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
+	powers.text = "100%% — компания ваша и +%s%% к доходу" % _pct(float(info.get("income_bonus", 0)))
 	var tricks: Dictionary = row["tricks"]
 	for part_id: Variant in tricks.keys():
 		var button: Button = tricks[part_id]
@@ -4613,6 +4621,11 @@ func _on_coins_changed(value: float) -> void:
 	if _last_coins >= 0.0 and value < _last_coins - 0.5:
 		_play(_sfx_buy)
 		_coins_wait = 0.0
+		# Покупка: сразу показываем новые цены, иначе второй быстрый тап купил бы
+		# по новой цене, а на кнопке ещё висела бы старая.
+		if not _purchase_refresh_queued:
+			_purchase_refresh_queued = true
+			_refresh_after_purchase.call_deferred()
 	_last_coins = value
 	# Деньги капают каждый кадр, а перерисовывать крупную цифру с обводкой 60 раз в секунду
 	# дорого. 12 раз в секунду глаз не отличает от непрерывного счёта.
@@ -4620,6 +4633,15 @@ func _on_coins_changed(value: float) -> void:
 
 
 var _coins_dirty: bool = false
+var _purchase_refresh_queued: bool = false
+
+
+func _refresh_after_purchase() -> void:
+	_purchase_refresh_queued = false
+	_tick_coins_label(1.0)
+	_refresh_page(_current_page)
+	_dirty.erase("page")
+	_job_last["page"] = float(Time.get_ticks_msec()) / 1000.0
 var _coins_wait: float = 0.0
 
 
