@@ -11,6 +11,8 @@ extends Control
 signal tapped(at: Vector2)
 
 const CarArt := preload("res://scripts/car_art.gd")
+const Baker := preload("res://scripts/baker.gd")
+const PersonPainter := preload("res://scripts/person_painter.gd")
 
 # >>> PALETTE
 const GROUND := Color("9bdc75")
@@ -891,11 +893,20 @@ func _draw_person(c: CanvasItem, at: Vector2, dir: Vector2, info: Dictionary) ->
 	var side := Vector2(-dir.y, dir.x)
 	var swing: float = sin(_time * 9.0 + float(info.get("phase", 0.0))) * r * 0.9
 	var leg := Vector2(r * 0.7, r * 0.7)
-	c.draw_circle(at + Vector2(r * 0.3, r * 0.45), r * 1.05, Color(0, 0, 0, 0.18))
 	c.draw_rect(Rect2(at + side * r * 0.45 + dir * swing - leg / 2.0, leg), Color("2a2a48"))
 	c.draw_rect(Rect2(at - side * r * 0.45 - dir * swing - leg / 2.0, leg), Color("2a2a48"))
-	c.draw_circle(at, r, info.get("shirt", Color.WHITE))
-	c.draw_circle(at + dir * r * 0.15, r * 0.6, info.get("skin", Color("e0b48f")))
+	# Тело и голова — готовая картинка (круги дорого пересчитывать каждый кадр).
+	var shirt: Color = info.get("shirt", Color.WHITE)
+	var skin: Color = info.get("skin", Color("e0b48f"))
+	var key: String = "person|%s|%s" % [shirt.to_html(false), skin.to_html(false)]
+	var tex: Texture2D = Baker.get_cached(key)
+	if tex == null:
+		var painter: Control = PersonPainter.new()
+		painter.shirt = shirt
+		painter.skin = skin
+		tex = Baker.texture(get_tree(), key, Vector2i(48, 48), painter)
+	var box: float = r / 0.3
+	c.draw_texture_rect(tex, Rect2(at - Vector2(box, box) / 2.0, Vector2(box, box)), false)
 
 
 func _draw_smoke(c: CanvasItem, at: Vector2) -> void:
