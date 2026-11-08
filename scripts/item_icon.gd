@@ -30,6 +30,14 @@ var kind: String = "":
 		queue_redraw()
 		for layer: Variant in _layers:
 			layer.kind = value
+		if role == "" and not bake_mode and is_inside_tree():
+			_request_bake()
+
+const Baker := preload("res://scripts/baker.gd")
+## true — это «художник» внутри запекания: рисует фигурами (с тенью). Иначе иконка
+## показывает готовую картинку одной командой — так в 30–40 раз меньше работы каждый кадр.
+var bake_mode: bool = false
+var _texture: Texture2D
 
 ## Тень — копия той же картинки, перекрашенная modulate.
 ## "" — корень (плашка), "body" — сама картинка, "shadow" — копия под ней.
@@ -40,9 +48,13 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if role != "":
 		return
-	if custom_minimum_size == Vector2.ZERO:
-		custom_minimum_size = Vector2(110, 110)
-	size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if not bake_mode:
+		if custom_minimum_size == Vector2.ZERO:
+			custom_minimum_size = Vector2(110, 110)
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		resized.connect(_request_bake)
+		_request_bake()
+		return
 	# Мягкая тень снизу и сама картинка сверху (без тёмного контура — так чище).
 	_add_layer("shadow", Vector2(0.3, 1), Color(0, 0, 0, 0.16), 3.0)
 	_add_layer("body", Vector2.ZERO, Color.WHITE, 0.0)
@@ -71,7 +83,29 @@ func _place_layers() -> void:
 		layer.size = size
 
 
+## Печём картинку под реальный размер на экране (с учётом растяжения окна — чтобы было чётко).
+func _request_bake() -> void:
+	if size.x < 1.0 or size.y < 1.0 or kind == "":
+		return
+	var scale: float = maxf(1.0, get_viewport().get_final_transform().get_scale().x) if get_viewport() != null else 1.0
+	var pixels := Vector2i(ceili(size.x * scale), ceili(size.y * scale))
+	var key: String = "icon|%s|%s|%d|%d" % [kind, badge, pixels.x, pixels.y]
+	if Baker.has(key):
+		_texture = Baker.get_cached(key)
+	else:
+		var painter: Control = get_script().new()
+		painter.bake_mode = true
+		painter.badge = badge
+		painter.kind = kind
+		_texture = Baker.texture(get_tree(), key, pixels, painter)
+	queue_redraw()
+
+
 func _draw() -> void:
+	if role == "" and not bake_mode:
+		if _texture != null:
+			draw_texture_rect(_texture, Rect2(Vector2.ZERO, size), false)
+		return
 	var s: float = minf(size.x, size.y)
 	var u: float = s / 100.0
 	var origin := (size - Vector2(s, s)) / 2.0

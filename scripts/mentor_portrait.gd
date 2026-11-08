@@ -12,10 +12,34 @@ const SHIRT := Color("3fb2ff")
 
 var _talk_left: float = 0.0
 var _time: float = 0.0
+const Baker := preload("res://scripts/baker.gd")
+## Молчащий дед — готовая картинка (одна команда); фигурами рисуем, только пока говорит.
+var bake_mode: bool = false
+var _texture: Texture2D
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if bake_mode:
+		set_process(false)
+		return
+	resized.connect(_request_bake)
+	_request_bake()
+
+
+func _request_bake() -> void:
+	if size.x < 1.0 or size.y < 1.0:
+		return
+	var scale: float = maxf(1.0, get_viewport().get_final_transform().get_scale().x)
+	var pixels := Vector2i(ceili(size.x * scale), ceili(size.y * scale))
+	var key: String = "mentor|%d|%d" % [pixels.x, pixels.y]
+	if Baker.has(key):
+		_texture = Baker.get_cached(key)
+	else:
+		var painter: Control = get_script().new()
+		painter.bake_mode = true
+		_texture = Baker.texture(get_tree(), key, pixels, painter)
+	queue_redraw()
 
 
 ## Дед говорит ещё столько секунд.
@@ -31,14 +55,16 @@ func _process(delta: float) -> void:
 		return
 	_time += delta
 	_talk_left = maxf(0.0, _talk_left - delta)
-	# Пока говорит — плавно; молча только «дышит», хватит 10 кадров в секунду.
-	_redraw_left -= delta
-	if _talk_left > 0.0 or _redraw_left <= 0.0:
-		_redraw_left = 0.1
+	# Перерисовываем, только пока говорит (и один раз, когда замолчал).
+	if _talk_left > 0.0 or _redraw_left > 0.0:
+		_redraw_left = 0.1 if _talk_left > 0.0 else 0.0
 		queue_redraw()
 
 
 func _draw() -> void:
+	if not bake_mode and _talk_left <= 0.0 and _texture != null:
+		draw_texture_rect(_texture, Rect2(Vector2.ZERO, size), false)
+		return
 	var s: float = minf(size.x, size.y)
 	var c: Vector2 = size / 2.0
 	var u: float = s / 100.0

@@ -20,12 +20,43 @@ var rivals: Array = []
 var city_name: String = ""
 var _portraits: Array = []
 var _time: float = 0.0
+## Неподвижная картина (небо, город, гаражи) печётся в текстуру и перепекается только
+## при покупке. Каждый кадр — одна картинка, а не сотни окошек и кирпичей.
+var bake_mode: bool = false
+var _bake: SubViewport
+var _painter: Control
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if bake_mode:
+		set_process(false)
+		return
 	custom_minimum_size = Vector2(0, 470)
+	_bake = SubViewport.new()
+	_bake.transparent_bg = true
+	_bake.disable_3d = true
+	_bake.render_target_update_mode = SubViewport.UPDATE_ONCE
+	add_child(_bake)
+	_painter = get_script().new()
+	_painter.bake_mode = true
+	_bake.add_child(_painter)
 	resized.connect(_place)
+	resized.connect(_rebake)
+
+
+func _rebake() -> void:
+	if _bake == null or size.x < 1.0 or size.y < 1.0:
+		return
+	var scale: float = maxf(1.0, get_viewport().get_final_transform().get_scale().x)
+	_bake.size = Vector2i(ceili(size.x * scale), ceili(size.y * scale))
+	_bake.canvas_transform = Transform2D(0.0, Vector2(scale, scale), 0.0, Vector2.ZERO)
+	_painter.size = size
+	_painter.rivals = rivals
+	_painter.city_name = city_name
+	_painter.queue_redraw()
+	_bake.render_target_update_mode = SubViewport.UPDATE_ONCE
+	queue_redraw()
 
 
 func set_rivals(new_rivals: Array, new_city: String) -> void:
@@ -42,7 +73,8 @@ func set_rivals(new_rivals: Array, new_city: String) -> void:
 			face.set_look(rivals[index].get("look", {}))
 			face.modulate = Color(1, 1, 1, 0.55) if str(rivals[index].get("state", "")) == "waiting" else Color.WHITE
 	_place()
-	queue_redraw()
+	if not bake_mode:
+		_rebake()
 
 
 func _slot(index: int) -> float:
@@ -78,19 +110,30 @@ func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return
 	_time += delta
+	# Перерисовка только во время анимации покупки; в остальное время картинка стоит.
 	if _anim_index >= 0:
 		if _time - _anim_start > ANIM_TIME:
 			_anim_index = -1
 		queue_redraw()
-		return
-	# Пульс и облака — достаточно 10 кадров в секунду.
-	_redraw_left -= delta
-	if _redraw_left <= 0.0:
-		_redraw_left = 0.1
-		queue_redraw()
 
 
 func _draw() -> void:
+	if bake_mode:
+		_draw_scene()
+		return
+	if _bake != null:
+		draw_texture_rect(_bake.get_texture(), Rect2(Vector2.ZERO, size), false)
+	if _anim_index >= 0 and _anim_index < rivals.size():
+		var ground_y: float = size.y * 0.68
+		var t: float = (_time - _anim_start) / ANIM_TIME
+		var flash: float = clampf(1.0 - absf(t - 0.55) * 4.0, 0.0, 1.0)
+		if flash > 0.0:
+			var width: float = minf(200.0, size.x / 3.3)
+			_round_rect(Rect2(Vector2(_slot(_anim_index) - width / 2.0 - 6.0, ground_y - 160.0), Vector2(width + 12.0, 166.0)), 14.0, Color(1, 1, 0.7, 0.45 * flash))
+		_draw_buy_anim(ground_y, get_theme_default_font())
+
+
+func _draw_scene() -> void:
 	var ground_y: float = size.y * 0.68
 	# Небо с градиентом, город на горизонте, облака, земля и дорога.
 	_round_rect(Rect2(Vector2.ZERO, size), 26.0, SKY)
@@ -169,12 +212,6 @@ func _draw() -> void:
 		for row in 4:
 			var ly: float = gate.position.y + gate.size.y * (row + 1) / 5.0
 			draw_line(Vector2(gate.position.x + 3, ly), Vector2(gate.end.x - 3, ly), Color(0, 0, 0, 0.25), 2.0)
-		# Вспышка при покупке.
-		if _anim_index == index:
-			var t: float = (_time - _anim_start) / ANIM_TIME
-			var flash: float = clampf(1.0 - absf(t - 0.55) * 4.0, 0.0, 1.0)
-			if flash > 0.0:
-				_round_rect(Rect2(base - Vector2(6, 6), Vector2(width + 12, height + 12)), 14.0, Color(1, 1, 0.7, 0.45 * flash))
 		# Машины у гаража: их — цвета компании, ваши — жёлтые. Чем больше доля, тем больше жёлтых.
 		var cars: int = 3
 		var mine: int = int(roundf(pct * cars))
@@ -200,7 +237,6 @@ func _draw() -> void:
 		var state_color: Color = {"owned": OWNED.darkened(0.2), "active": INK, "waiting": Color("6b7385")}.get(state, INK)
 		_text(font, Vector2(x, size.y - 48), name_text, 24, INK, Color(1, 1, 1, 0.9))
 		_text(font, Vector2(x, size.y - 14), state_text, 30, state_color, Color.WHITE)
-	_draw_buy_anim(ground_y, font)
 
 
 ## Жёлтое такси едет по дороге к гаражу, потом над гаражом всплывает «+5%» и искры.

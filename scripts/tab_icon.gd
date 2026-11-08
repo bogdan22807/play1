@@ -4,7 +4,14 @@ extends Control
 var kind: String = "city":
 	set(value):
 		kind = value
+		if is_inside_tree() and not bake_mode:
+			_request_bake()
 		queue_redraw()
+
+const Baker := preload("res://scripts/baker.gd")
+## true — художник внутри запекания. Обычная иконка показывает готовую картинку.
+var bake_mode: bool = false
+var _texture: Texture2D
 var color: Color = Color.WHITE:
 	set(value):
 		color = value
@@ -27,6 +34,25 @@ var _pulse: float = 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not bake_mode:
+		resized.connect(_request_bake)
+		_request_bake()
+
+
+func _request_bake() -> void:
+	if size.x < 1.0 or size.y < 1.0:
+		return
+	var scale: float = maxf(1.0, get_viewport().get_final_transform().get_scale().x)
+	var pixels := Vector2i(ceili(size.x * scale), ceili(size.y * scale))
+	var key: String = "tab|%s|%d|%d" % [kind, pixels.x, pixels.y]
+	if Baker.has(key):
+		_texture = Baker.get_cached(key)
+	else:
+		var painter: Control = get_script().new()
+		painter.bake_mode = true
+		painter.kind = kind
+		_texture = Baker.texture(get_tree(), key, pixels, painter)
+	queue_redraw()
 
 
 func _process(delta: float) -> void:
@@ -38,17 +64,22 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	var s: float = minf(size.x, size.y)
 	var o: Vector2 = (size - Vector2(s, s)) / 2.0
-	match kind:
-		"city":
-			_city(o, s)
-		"car":
-			_car(o, s)
-		"team":
-			_team(o, s)
-		"map":
-			_map(o, s)
-		"market":
-			_market(o, s)
+	if not bake_mode:
+		if _texture != null:
+			draw_texture_rect(_texture, Rect2(Vector2.ZERO, size), false)
+	else:
+		match kind:
+			"city":
+				_city(o, s)
+			"car":
+				_car(o, s)
+			"team":
+				_team(o, s)
+			"map":
+				_map(o, s)
+			"market":
+				_market(o, s)
+		return
 	if glow:
 		var ring: float = s * (0.62 + 0.08 * sin(_pulse))
 		draw_arc(o + Vector2(s, s) / 2.0, ring, 0, TAU, 40, Color(glow_color, 0.9), s * 0.08)

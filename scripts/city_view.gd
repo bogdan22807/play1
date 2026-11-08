@@ -769,13 +769,6 @@ func _draw_frame() -> void:
 	var c: CanvasItem = _cars_layer
 	c.draw_texture(_bake.get_texture(), Vector2.ZERO)
 	var night: float = night_amount()
-	# Тени облаков днём медленно плывут по городу.
-	if night < 0.95:
-		for index in 2:
-			var at := Vector2(fmod(_time * 14.0 + index * size.x * 0.6, size.x + 400.0) - 200.0, size.y * (0.3 + index * 0.4))
-			var shade := Color(0.1, 0.15, 0.35, 0.035 * (1.0 - night))
-			for puff: Vector3 in [Vector3(0, 0, 1.2), Vector3(1.1, 0.25, 0.9), Vector3(-1.0, 0.3, 0.8), Vector3(0.3, -0.6, 0.85)]:
-				c.draw_circle(at + Vector2(puff.x, puff.y) * _road, _road * puff.z, shade)
 	if night > 0.01:
 		c.draw_rect(Rect2(Vector2.ZERO, size), Color(NIGHT, 0.55 * night))
 		c.draw_texture(_night_bake.get_texture(), Vector2.ZERO, Color(1, 1, 1, night))
@@ -790,20 +783,20 @@ func _draw_frame() -> void:
 			"fleet":
 				var info: Dictionary = fleet[car["slot"]] if car["slot"] < fleet.size() else {}
 				var broken: bool = bool(info.get("broken", false))
-				CarArt.draw_car(c, _car_pos(car), _car_angle(car), str(info.get("model", "old_sedan")), _car_size, Color(0, 0, 0, 0), float(info.get("dirt", 0)), broken)
+				CarArt.draw_baked(c, _car_pos(car), _car_angle(car), str(info.get("model", "old_sedan")), _car_size, Color(0, 0, 0, 0), float(info.get("dirt", 0)), broken)
 				c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 				if broken:
 					_draw_smoke(c, _car_pos(car))
 			"rival":
 				var color: Color = rival_colors[car["slot"]] if car["slot"] < rival_colors.size() else Color.GRAY
-				CarArt.draw_car(c, _car_pos(car), _car_angle(car), "old_sedan", _car_size * 0.95, color)
+				CarArt.draw_baked(c, _car_pos(car), _car_angle(car), "old_sedan", _car_size * 0.95, color)
 				c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if not player.is_empty():
 		var pos: Vector2 = _car_pos(player)
 		var pulse: float = 1.0 + 0.08 * sin(_time * 4.0)
 		c.draw_arc(pos, _car_size * 0.85 * pulse, 0, TAU, 32, Color(PLAYER_RING, 0.7), 4.0)
 		var scale_up: float = 1.25 + 0.25 * _bounce
-		CarArt.draw_car(c, pos + Vector2(0, -10.0 * _bounce), _car_angle(player), player_model, _car_size * scale_up, Color(0, 0, 0, 0), player_dirt, player_broken)
+		CarArt.draw_baked(c, pos + Vector2(0, -10.0 * _bounce), _car_angle(player), player_model, _car_size * scale_up, Color(0, 0, 0, 0), player_dirt, player_broken)
 		c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		if player_broken:
 			_draw_smoke(c, pos)

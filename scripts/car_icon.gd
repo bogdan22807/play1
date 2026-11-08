@@ -18,4 +18,5 @@ func _draw() -> void:
 	# Каждая модель вписывается в иконку целиком: лимузин мельче, рикша крупнее.
 	var info: Dictionary = CarArt.style(model)
 	var unit: float = minf(size.x * 0.92 / float(info.get("length", 1.0)), size.y * 0.9 / float(info.get("width", 0.5)))
-	CarArt.draw_car(self, size / 2.0 + Vector2(0, -2), 0.0, model, unit)
+	# Запечённая картинка: одна команда вместо сорока фигур.
+	CarArt.draw_baked(self, size / 2.0 + Vector2(0, -2), 0.0, model, unit)
