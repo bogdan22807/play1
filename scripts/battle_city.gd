@@ -43,6 +43,7 @@ func _ready() -> void:
 	_bake.add_child(_painter)
 	resized.connect(_place)
 	resized.connect(_rebake)
+	get_viewport().size_changed.connect(_rebake)
 
 
 func _rebake() -> void:
