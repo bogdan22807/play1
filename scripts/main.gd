@@ -1518,7 +1518,7 @@ func _build_market_rows() -> void:
 	ladder_box.add_child(_battle_city)
 	_market_status = _add_label(ladder_box, "", 30, COLOR_TEXT)
 	_market_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_add_label(ladder_box, "Выкупайте доли соперников по 5% — у кого угодно и в каком угодно порядке. Каждая доля ослабляет соперника, следующая дороже. 100% у всех троих — город ваш.", 24, COLOR_MUTED)
+	_add_label(ladder_box, "Выкупайте компании соперников по 5% — у кого угодно, в любом порядке. Стоянка, машины и диспетчерская урезают их доход — доли дешевеют.", 24, COLOR_MUTED)
 
 	for raw: Variant in GameState.get_competitors():
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
@@ -1596,10 +1596,10 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	style.border_color = _market_color(competitor_id)
 	panel.add_theme_stylebox_override("panel", style)
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 8)
+	column.add_theme_constant_override("separation", 10)
 	panel.add_child(column)
 
-	# Шапка: портрет босса, компания, босс и характер.
+	# Шапка: портрет босса, компания, роль — и кнопка «Подробнее» со всей историей.
 	var boss: Dictionary = GameState.get_boss(competitor_id)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 18)
@@ -1615,109 +1615,114 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	head.add_child(names)
 	var title := _add_label(names, str(info.get("name", competitor_id)), 34)
 	var role: String = "Главный босс" if GameState.is_boss(competitor_id) else "Помощник"
-	var mood := _add_label(names, "%s · %s · %s" % [role, str(boss.get("name", "")), str(info.get("personality_name", "")).to_lower()], 28, COLOR_GOLD)
-	var status := _add_label(column, "", 32, COLOR_TEXT)
+	var mood := _add_label(names, "%s · %s" % [role, str(boss.get("name", ""))], 26, COLOR_GOLD)
+	var more := Button.new()
+	more.text = "ⓘ\nПодробнее"
+	more.custom_minimum_size = Vector2(150, 96)
+	more.focus_mode = Control.FOCUS_NONE
+	more.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_style_plain_button(more, COLOR_PANEL_EDGE)
+	more.add_theme_font_size_override("font_size", 22)
+	more.pressed.connect(_show_rival_details.bind(competitor_id))
+	head.add_child(more)
 
-	# Полоса выкупа: сколько процентов компании уже ваши.
+	# Главное: сколько компании уже ваше.
+	var status := _add_label(column, "", 32, COLOR_TEXT)
 	var bar: ProgressBar = _make_bar(COLOR_BUY)
 	bar.custom_minimum_size = Vector2(0, 30)
 	column.add_child(bar)
-	var powers := _add_label(column, "", 28, COLOR_TEXT)
+	var powers := _add_label(column, "", 24, COLOR_MUTED)
 	powers.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var effects := _add_label(column, "", 24, COLOR_INCOME)
-	var description := _add_label(column, "%s %s" % [str(info.get("description", "")), str(boss.get("style", ""))], 24, COLOR_MUTED)
-	var hint := _add_label(column, "", 24, COLOR_MUTED)
 
+	# Четыре кнопки: три части компании и «Купить 5% компании».
 	var tricks := HBoxContainer.new()
 	tricks.add_theme_constant_override("separation", 8)
 	column.add_child(tricks)
 	var trick_buttons: Dictionary = {}
-	# Кнопок четыре (три пакости и «Купить 5%») — картинки и подписи поменьше, чтобы текст влез.
-	var picture_height: float = 60.0
-	var caption_size: int = 18
-	for raw: Variant in GameState.get_tricks():
-		var trick_id: String = str(raw.get("id", ""))
-		var button := Button.new()
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0, 200)
-		button.focus_mode = Control.FOCUS_NONE
-		_style_plain_button(button, COLOR_TRICK)
-		button.pressed.connect(_on_trick.bind(competitor_id, trick_id))
-		# Картинка пакости сверху, подпись снизу — кнопку видно издалека.
-		var trick_face := VBoxContainer.new()
-		trick_face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		trick_face.offset_top = 10
-		trick_face.offset_bottom = -14
-		trick_face.offset_left = 6
-		trick_face.offset_right = -6
-		trick_face.alignment = BoxContainer.ALIGNMENT_CENTER
-		trick_face.add_theme_constant_override("separation", 2)
-		trick_face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		button.add_child(trick_face)
-		var picture: Control = ItemIcon.new()
-		picture.kind = trick_id
-		picture.custom_minimum_size = Vector2(0, picture_height)
-		picture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		trick_face.add_child(picture)
-		var caption := Label.new()
-		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		caption.add_theme_font_size_override("font_size", caption_size)
-		caption.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
-		caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		trick_face.add_child(caption)
-		button.set_meta("caption", caption)
+	for raw: Variant in GameState.get_buyouts():
+		var part_id: String = str(raw.get("id", ""))
+		var button: Button = _make_picture_button(part_id, COLOR_BUY, _on_buyout.bind(competitor_id, part_id))
 		tricks.add_child(button)
-		trick_buttons[trick_id] = button
-	# Четвёртая кнопка — выкуп компании частями по 5%.
-	var share_button := Button.new()
-	share_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	share_button.custom_minimum_size = Vector2(0, 200)
-	share_button.focus_mode = Control.FOCUS_NONE
-	_style_plain_button(share_button, COLOR_MONEY)
-	share_button.pressed.connect(_on_buy_share.bind(competitor_id))
-	var share_face := VBoxContainer.new()
-	share_face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	share_face.offset_top = 10
-	share_face.offset_bottom = -14
-	share_face.alignment = BoxContainer.ALIGNMENT_CENTER
-	share_face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	share_button.add_child(share_face)
-	var share_picture: Control = ItemIcon.new()
-	share_picture.kind = "handshake"
-	share_picture.custom_minimum_size = Vector2(0, picture_height)
-	share_face.add_child(share_picture)
-	var share_caption := Label.new()
-	share_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	share_caption.add_theme_font_size_override("font_size", 24)
-	share_caption.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
-	share_caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	share_face.add_child(share_caption)
-	share_button.set_meta("caption", share_caption)
+		trick_buttons[part_id] = button
+	var share_button: Button = _make_picture_button("handshake", COLOR_MONEY, _on_buy_share.bind(competitor_id))
 	tricks.add_child(share_button)
-
-	var buy_button := Button.new()
-	buy_button.custom_minimum_size = Vector2(0, 110)
-	buy_button.focus_mode = Control.FOCUS_NONE
-	_style_buy_button(buy_button)
-	buy_button.pressed.connect(_on_buy_rival.bind(competitor_id))
-	column.add_child(buy_button)
 
 	_competitor_rows[competitor_id] = {
 		"mood": mood,
-		"description": description,
 		"status": status,
 		"bar": bar,
 		"powers": powers,
-		"hint": hint,
-		"effects": effects,
 		"tricks": trick_buttons,
 		"tricks_box": tricks,
 		"share": share_button,
-		"buy": buy_button,
+		"more": more,
 		"title": title,
 	}
 	return panel
+
+
+## Квадратная кнопка: картинка сверху, подпись снизу (подпись — отдельная метка в meta "caption").
+func _make_picture_button(kind: String, color: Color, callback: Callable) -> Button:
+	var button := Button.new()
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.custom_minimum_size = Vector2(0, 210)
+	button.focus_mode = Control.FOCUS_NONE
+	_style_plain_button(button, color)
+	button.pressed.connect(callback)
+	var face := VBoxContainer.new()
+	face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	face.offset_top = 10
+	face.offset_bottom = -12
+	face.offset_left = 4
+	face.offset_right = -4
+	face.alignment = BoxContainer.ALIGNMENT_CENTER
+	face.add_theme_constant_override("separation", 4)
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(face)
+	var picture: Control = ItemIcon.new()
+	picture.kind = kind
+	picture.custom_minimum_size = Vector2(0, 70)
+	picture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face.add_child(picture)
+	var caption := Label.new()
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	caption.add_theme_font_size_override("font_size", 20)
+	caption.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face.add_child(caption)
+	button.set_meta("caption", caption)
+	button.set_meta("picture", picture)
+	return button
+
+
+## Окно «Подробнее»: кто такой соперник, его босс и что даёт выкуп.
+func _show_rival_details(competitor_id: String) -> void:
+	var info: Dictionary = {}
+	for raw: Variant in GameState.get_competitors():
+		if str(raw.get("id", "")) == competitor_id:
+			info = raw
+	var boss: Dictionary = GameState.get_boss(competitor_id)
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("%s · %s" % [str(boss.get("name", "")), str(info.get("personality_name", "")).to_lower()])
+	lines.append("%s %s" % [str(info.get("description", "")), str(boss.get("style", ""))])
+	lines.append("Возит на %s/с. Ваши %d%% компании." % [
+		GameState.format_money(GameState.get_competitor_power(competitor_id)),
+		int(roundf(GameState.get_duel_progress(competitor_id) * 100.0))])
+	lines.append("Выкупите 100%% — компания станет вашей, ваш доход +%d%% навсегда." % int(roundf(float(info.get("income_bonus", 0)) * 100.0)))
+	var parts: PackedStringArray = PackedStringArray()
+	for raw: Variant in GameState.get_buyouts():
+		var part_id: String = str(raw.get("id", ""))
+		parts.append("• %s%s — %s Их доход −%d%%." % [
+			str(raw.get("name", part_id)),
+			" (уже ваша)" if GameState.has_buyout(competitor_id, part_id) else "",
+			str(raw.get("description", "")),
+			int(roundf(float(raw.get("cut", 0)) * 100.0))])
+	lines.append("Части компании урезают её доход — каждая следующая доля дешевле:\n" + "\n".join(parts))
+	var attack: String = _attack_text(GameState.get_rival_attack_kind(competitor_id))
+	lines.append("Пока вы выкупаете, они огрызаются: %s." % attack)
+	_show_notice(str(info.get("name", competitor_id)), "\n\n".join(lines))
 
 
 func _on_buy_ad(ad_id: String) -> void:
@@ -1820,18 +1825,16 @@ func _on_buy_share(competitor_id: String) -> void:
 			_enqueue_toast("Компания ваша!", str(result.get("text", "")), 4.0)
 
 
-func _on_trick(competitor_id: String, trick_id: String) -> void:
-	var result: Dictionary = GameState.play_trick(competitor_id, trick_id)
+func _on_buyout(competitor_id: String, part_id: String) -> void:
+	var result: Dictionary = GameState.buy_buyout(competitor_id, part_id)
 	if not bool(result.get("ok", false)):
 		return
-	var title: String = "Попались!" if bool(result.get("caught", false)) else "Сработало"
-	var body: String = str(result.get("text", ""))
-	var revenge: String = str(result.get("revenge", ""))
-	if revenge != "":
-		body += "\n\nОтвет: " + revenge
-	_show_notice(title, body)
-	if bool(result.get("caught", false)):
-		_mentor.on_event("caught")
+	_play(_sfx_buy)
+	var name: String = ""
+	for raw: Variant in GameState.get_buyouts():
+		if str(raw.get("id", "")) == part_id:
+			name = str(raw.get("name", part_id))
+	_enqueue_toast("%s — ваша!" % name, str(result.get("text", "")), 4.0)
 
 
 func _on_buy_rival(competitor_id: String) -> void:
@@ -2030,6 +2033,7 @@ func _refresh_competitors() -> void:
 			"name": str(raw.get("name", id)).replace("Таксопарк ", "").replace("«", "").replace("»", ""),
 			"state": GameState.get_rival_state(id),
 			"pct": int(roundf(GameState.get_duel_progress(id) * 100.0)),
+			"parts": _owned_parts(id),
 		})
 	if _battle_city != null:
 		_battle_city.set_rivals(scene, GameState.get_front_city())
@@ -2041,24 +2045,26 @@ func _refresh_competitors() -> void:
 			_refresh_rival_row(id, raw)
 
 
+func _owned_parts(competitor_id: String) -> Array:
+	var result: Array = []
+	for raw: Variant in GameState.get_buyouts():
+		if GameState.has_buyout(competitor_id, str(raw.get("id", ""))):
+			result.append(str(raw.get("id", "")))
+	return result
+
+
 func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	var row: Dictionary = _competitor_rows[id]
 	var status: Label = row["status"]
-	var bar: Control = row["bar"]
+	var bar: ProgressBar = row["bar"]
 	var powers: Label = row["powers"]
-	var hint: Label = row["hint"]
-	var effects: Label = row["effects"]
 	var tricks_box: HBoxContainer = row["tricks_box"]
-	var buy: Button = row["buy"]
 	var state: String = GameState.get_rival_state(id)
 	var full: bool = state == "active"
-	for key: String in ["powers", "effects", "description", "hint"]:
-		var label: Label = row[key]
-		label.visible = full
 	bar.visible = full
+	powers.visible = full
 	tricks_box.visible = full
-	buy.visible = false
-	var short_name: String = str(info.get("name", id)).replace("Таксопарк ", "")
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if state == "owned":
 		status.text = "Компания ваша  ·  доход +%d%%" % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
 		_col(status, COLOR_INCOME)
@@ -2067,54 +2073,36 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 		status.text = "Ждёт своего острова"
 		_col(status, COLOR_MUTED)
 		return
-	var bought: int = int(roundf(GameState.get_duel_progress(id) * 100.0))
+	var progress: float = GameState.get_duel_progress(id)
 	_col(status, COLOR_TEXT)
-	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status.text = "Выкуплено %d%% из 100%%" % bought
-	bar.value = GameState.get_duel_progress(id)
-	var share: Button = row.get("share")
-	if share != null:
-		var share_caption: Label = share.get_meta("caption")
-		share_caption.text = "Купить 5%%\n%s" % GameState.format_money(GameState.get_share_price(id))
-		share.disabled = not GameState.can_buy_share(id)
-	powers.text = "Возит на %s/с · 100%% даст доход +%d%%" % [GameState.format_money(GameState.get_competitor_power(id)), int(roundf(float(info.get("income_bonus", 0)) * 100.0))]
-	hint.text = "Каждые 5%% ослабляют %s. Пакости снижают цену доли, пока действуют." % short_name
-	var notes: PackedStringArray = PackedStringArray()
-	for cut: Variant in GameState.get_competitor_cuts(id):
-		var value: float = float(cut["cut"])
-		if value >= 0.0:
-			notes.append("−%d%% от пакости ещё %s" % [int(roundf(value * 100.0)), _mmss(int(cut["left"]))])
-		else:
-			notes.append("их акция +%d%% ещё %s" % [int(roundf(-value * 100.0)), _mmss(int(cut["left"]))])
-	var lost: float = GameState.get_competitor_lost_drivers(id)
-	if lost > 0.0:
-		notes.append("переманено водителей: −%d%% навсегда" % int(roundf(lost * 100.0)))
-	var attack_left: int = GameState.get_rival_attack_left()
-	if attack_left > 0 and id == GameState.get_active_rival():
-		notes.append("их ход через %s: %s" % [_mmss(attack_left), _attack_text(GameState.get_rival_attack_kind(id))])
-	effects.text = "• " + "\n• ".join(notes) if not notes.is_empty() else ""
+	status.text = "Ваши %d%% компании" % int(roundf(progress * 100.0))
+	bar.value = progress
+	powers.text = "100%% — компания ваша и +%d%% к доходу" % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
 	var tricks: Dictionary = row["tricks"]
-	for trick_id: Variant in tricks.keys():
-		var button: Button = tricks[trick_id]
-		var tid := str(trick_id)
-		var trick_name: String = ""
-		for raw: Variant in GameState.get_tricks():
-			if str(raw.get("id", "")) == tid:
-				trick_name = str(raw.get("name", tid))
-		var trick_wait: int = GameState.get_trick_wait(id)
+	for part_id: Variant in tricks.keys():
+		var button: Button = tricks[part_id]
+		var pid := str(part_id)
+		var label_text: String = pid
+		var part_name: String = pid
+		for raw: Variant in GameState.get_buyouts():
+			if str(raw.get("id", "")) == pid:
+				label_text = str(raw.get("button", raw.get("name", pid)))
+				part_name = str(raw.get("name", pid))
 		var caption: Label = button.get_meta("caption")
-		if trick_wait > 0:
-			caption.text = "%s\nснова через %s" % [trick_name, _wait_text(trick_wait)]
+		var owned: bool = GameState.has_buyout(id, pid)
+		if owned:
+			caption.text = "%s\n✓ ваши" % part_name if part_name == "Часть машин" else "%s\n✓ ваша" % part_name
 		else:
-			caption.text = "%s\n%s · риск %d%%" % [
-				trick_name,
-				GameState.format_money(GameState.get_trick_price(tid)),
-				int(roundf(GameState.get_catch_chance(id, tid) * 100.0)),
-			]
-		button.disabled = not GameState.can_play_trick(id, tid)
-		# Подпись — отдельная метка: цвет ставим сами (на сером — тёмный, чтобы таймер читался).
-		_col(caption, _text_on(COLOR_TRICK) if not button.disabled else (COLOR_TEXT if trick_wait > 0 else COLOR_MUTED))
-		caption.get_parent().modulate = Color(1, 1, 1, 1.0 if not button.disabled or trick_wait > 0 else 0.7)
+			caption.text = "%s\n%s" % [label_text, GameState.format_money(GameState.get_buyout_price(id, pid))]
+		button.disabled = not GameState.can_buy_buyout(id, pid)
+		_col(caption, _text_on(COLOR_BUY) if not button.disabled else (COLOR_INCOME if owned else COLOR_MUTED))
+		caption.get_parent().modulate = Color(1, 1, 1, 1.0 if not button.disabled or owned else 0.75)
+	var share: Button = row["share"]
+	var share_caption: Label = share.get_meta("caption")
+	share_caption.text = "Купить 5%%\nкомпании\n%s" % GameState.format_money(GameState.get_share_price(id))
+	share.disabled = not GameState.can_buy_share(id)
+	_col(share_caption, _text_on(COLOR_MONEY) if not share.disabled else COLOR_MUTED)
+	share_caption.get_parent().modulate = Color(1, 1, 1, 1.0 if not share.disabled else 0.75)
 
 
 ## Подсказка у кампании: реклама — это больше денег на доли соперников.

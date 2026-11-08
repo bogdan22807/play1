@@ -137,6 +137,8 @@ var _market: Dictionary = {}
 var _rival_cuts: Dictionary = {}
 ## id конкурента -> постоянный множитель силы (переманенные водители).
 var _rival_perm: Dictionary = {}
+## Выкупленные части компаний: id соперника -> {id части: 1}.
+var _buyouts: Dictionary = {}
 ## id конкурента -> unix, до которого нельзя снова пакостить / предлагать выкуп.
 var _trick_ready: Dictionary = {}
 ## id конкурента -> цена выкупа: он проиграл дуэль и ждёт, когда его купят.
@@ -1923,14 +1925,9 @@ func get_competitor_power(competitor_id: String) -> float:
 	if is_competitor_owned(competitor_id):
 		return 0.0
 	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
-	var power: float = float(info.get("power", 0)) * float(_rival_perm.get(competitor_id, 1.0))
-	power *= get_rival_growth(competitor_id)
-	# Каждая выкупленная доля босса забирает у него часть машин.
+	# Конкуренты не растут: доход урезают только выкупленные части и доли.
+	var power: float = float(info.get("power", 0)) * get_buyout_factor(competitor_id)
 	power *= 1.0 - get_boss_share_fraction(competitor_id)
-	var now: int = _now()
-	for raw: Variant in _rival_cuts.get(competitor_id, []):
-		if int(raw.get("until", 0)) > now:
-			power *= 1.0 - clampf(float(raw.get("cut", 0)), -1.0, 0.95)
 	return power
 
 
@@ -2004,10 +2001,9 @@ func is_rival_surrendered(competitor_id: String) -> bool:
 
 
 ## Во сколько раз конкурент вырос за время дуэли: растёт, пока вы с ним бьётесь, но не бесконечно.
-func get_rival_growth(competitor_id: String) -> float:
-	var hours: float = float(_rival_age.get(competitor_id, 0.0)) / 3600.0
-	var cap: float = float(_duel_value("growth_cap", 1.6))
-	return minf(cap, 1.0 + hours * float(_duel_value("growth_per_hour", 0.25)))
+## Конкуренты больше не растут со временем.
+func get_rival_growth(_competitor_id: String) -> float:
+	return 1.0
 
 
 func get_rival_growth_cap() -> float:
@@ -2045,14 +2041,10 @@ func get_shares_total() -> int:
 
 
 ## Цена следующей доли: сила соперника × share_seconds, каждая следующая дороже на share_growth.
-## Уже купленные доли цену не снижают, а пакости (гвозди, слух, пирожки) — снижают, пока действуют.
+## Уже купленные доли цену не снижают, а выкупленные части (стоянка, машины, диспетчерская) — снижают.
 func get_share_price(competitor_id: String) -> float:
 	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
-	var power: float = float(info.get("power", 0)) * float(_rival_perm.get(competitor_id, 1.0))
-	var now: int = _now()
-	for raw: Variant in _rival_cuts.get(competitor_id, []):
-		if int(raw.get("until", 0)) > now:
-			power *= 1.0 - clampf(float(raw.get("cut", 0)), -1.0, 0.95)
+	var power: float = float(info.get("power", 0)) * get_buyout_factor(competitor_id)
 	var base: float = power * float(_duel_value("share_seconds", 40))
 	return ceilf(base * pow(float(_duel_value("share_growth", 1.08)), float(get_boss_shares(competitor_id))))
 
@@ -2308,11 +2300,6 @@ func get_ads() -> Array:
 	return ads if typeof(ads) == TYPE_ARRAY else []
 
 
-func get_tricks() -> Array:
-	var tricks: Variant = _market.get("tricks", [])
-	return tricks if typeof(tricks) == TYPE_ARRAY else []
-
-
 ## Цена растёт вместе с доходом: столько-то секунд вашего заработка (без рекламы), но не меньше минимума.
 func _price_by_seconds(info: Dictionary) -> float:
 	var by_income: float = _player_earning() / (1.0 + get_ad_boost()) * float(info.get("price_seconds", 60))
@@ -2391,83 +2378,53 @@ func buy_ad(ad_id: String) -> bool:
 
 # Палки в колёса
 
-func get_trick_price(trick_id: String) -> float:
-	return _price_by_seconds(_find_def(get_tricks(), trick_id))
+# Выкуп частей компании: стоянка, часть машин, диспетчерская. Каждая — один раз у каждого соперника,
+# навсегда урезает его доход, а значит, и цену следующих долей.
+
+func get_buyouts() -> Array:
+	var list: Variant = _market.get("buyouts", [])
+	return list if typeof(list) == TYPE_ARRAY else []
 
 
-func get_catch_chance(competitor_id: String, trick_id: String) -> float:
-	var chance: float = float(_find_def(get_tricks(), trick_id).get("catch", 0.2))
-	chance += float(_personality(competitor_id).get("catch_bonus", 0))
-	return clampf(chance, 0.05, 0.9)
+func has_buyout(competitor_id: String, buyout_id: String) -> bool:
+	var owned: Variant = _buyouts.get(competitor_id, {})
+	return typeof(owned) == TYPE_DICTIONARY and owned.has(buyout_id)
 
 
-func get_trick_wait(competitor_id: String) -> int:
-	return maxi(0, int(_trick_ready.get(competitor_id, 0)) - _now())
+## Цена части: столько-то «базовых» долей соперника (без учёта уже купленного).
+func get_buyout_price(competitor_id: String, buyout_id: String) -> float:
+	var info: Dictionary = _find_def(_competitor_defs, competitor_id)
+	var part: Dictionary = _find_def(get_buyouts(), buyout_id)
+	return ceilf(float(info.get("power", 0)) * float(_duel_value("share_seconds", 40)) * float(part.get("price_shares", 2)))
 
 
-func can_play_trick(competitor_id: String, trick_id: String) -> bool:
-	if competitor_id == "" or not _is_front_rival(competitor_id):
+func can_buy_buyout(competitor_id: String, buyout_id: String) -> bool:
+	if _find_def(get_buyouts(), buyout_id).is_empty() or not _is_front_rival(competitor_id):
 		return false
-	# Переманить можно не всех: самые верные водители не уходят даже за пирожки.
-	if bool(_find_def(get_tricks(), trick_id).get("permanent", false)) and get_competitor_lost_drivers(competitor_id) >= 1.0 - _market_value("permanent_floor", 0.7) - 0.001:
+	if has_buyout(competitor_id, buyout_id):
 		return false
-	if _find_def(get_tricks(), trick_id).is_empty() or get_trick_wait(competitor_id) > 0:
-		return false
-	return coins + 0.001 >= get_trick_price(trick_id)
+	return coins + 0.001 >= get_buyout_price(competitor_id, buyout_id)
 
 
-## Пакость конкуренту. Возвращает {"ok", "caught", "text", "revenge"} для окна на экране.
-func play_trick(competitor_id: String, trick_id: String) -> Dictionary:
-	if not can_play_trick(competitor_id, trick_id):
-		return {"ok": false, "caught": false, "text": "Сейчас не получится.", "revenge": ""}
-	var rival: Dictionary = _find_def(_competitor_defs, competitor_id)
-	var trick: Dictionary = _find_def(get_tricks(), trick_id)
-	var price: float = get_trick_price(trick_id)
-	coins = maxf(0.0, coins - price)
-	_trick_ready[competitor_id] = _now() + int(_market_value("trick_cooldown_seconds", 60))
-	var result: Dictionary = {"ok": true, "caught": false, "text": "", "revenge": ""}
-	if randf() < get_catch_chance(competitor_id, trick_id):
-		var fine: float = price * _market_value("caught_fine_mult", 2.0)
-		coins = maxf(0.0, coins - fine)
-		rating = clampf(rating - _market_value("caught_rating_hit", 0.3), 1.0, 5.0)
-		result["caught"] = true
-		result["text"] = "%s\nШтраф %s, рейтинг −%.1f★." % [
-			_say(str(rival.get("caught_text", "Вас поймали."))),
-			format_money(fine),
-			_market_value("caught_rating_hit", 0.3),
-		]
-	else:
-		var cut: float = float(trick.get("cut", 0.2))
-		if bool(trick.get("permanent", false)):
-			var floor_value: float = _market_value("permanent_floor", 0.7)
-			_rival_perm[competitor_id] = maxf(floor_value, float(_rival_perm.get(competitor_id, 1.0)) * (1.0 - cut))
-		else:
-			_add_effect(competitor_id, trick_id, cut, int(trick.get("duration", 300)))
-		result["text"] = "Сработало! %s\nСила конкурента −%d%%." % [str(trick.get("description", "")), int(roundf(cut * 100.0))]
-	result["revenge"] = _maybe_revenge(competitor_id)
+func buy_buyout(competitor_id: String, buyout_id: String) -> Dictionary:
+	if not can_buy_buyout(competitor_id, buyout_id):
+		return {"ok": false, "text": "Сейчас не получится."}
+	var part: Dictionary = _find_def(get_buyouts(), buyout_id)
+	coins = maxf(0.0, coins - get_buyout_price(competitor_id, buyout_id))
+	var owned: Dictionary = _buyouts.get(competitor_id, {})
+	owned[buyout_id] = 1
+	_buyouts[competitor_id] = owned
 	_after_market_change()
-	return result
+	return {"ok": true, "text": "%s\nДоход соперника −%d%%, доли дешевле." % [str(part.get("description", "")), int(roundf(float(part.get("cut", 0)) * 100.0))]}
 
 
-## Обидчивые конкуренты отвечают: агрессивный бьёт по машинам, хитрый — по отзывам.
-func _maybe_revenge(competitor_id: String) -> String:
-	var mood: Dictionary = _personality(competitor_id)
-	if randf() >= float(mood.get("revenge_chance", 0)):
-		return ""
-	var rival: Dictionary = _find_def(_competitor_defs, competitor_id)
-	match str(mood.get("revenge", "")):
-		"health":
-			var hit: float = _market_value("revenge_health_hit", 0.15)
-			_my_health = maxf(0.0, _my_health - hit)
-			for car: Variant in _garage:
-				car["health"] = maxf(0.0, float(car.get("health", 1)) - hit)
-			wear_changed.emit()
-		"rating":
-			rating = clampf(rating - _market_value("revenge_rating_hit", 0.4), 1.0, 5.0)
-		_:
-			return ""
-	_recalc_income()
-	return _say(str(rival.get("revenge_text", "")))
+## Во сколько раз выкупленные части урезали доход соперника (1 — ничего не куплено).
+func get_buyout_factor(competitor_id: String) -> float:
+	var factor: float = 1.0
+	for raw: Variant in get_buyouts():
+		if has_buyout(competitor_id, str(raw.get("id", ""))):
+			factor *= 1.0 - float(raw.get("cut", 0))
+	return factor
 
 
 func _competitor_multiplier() -> float:
@@ -2561,6 +2518,7 @@ func _reset_market() -> void:
 	_owned_competitors = {}
 	_rival_cuts.clear()
 	_rival_perm.clear()
+	_buyouts.clear()
 	_trick_ready.clear()
 	_surrendered.clear()
 	_rival_age.clear()
@@ -2883,6 +2841,7 @@ func save_game() -> void:
 		"competitors": _owned_competitors.duplicate(),
 		"rival_cuts": _rival_cuts.duplicate(true),
 		"rival_perm": _rival_perm.duplicate(),
+		"buyouts": _buyouts.duplicate(true),
 		"trick_ready": _trick_ready.duplicate(),
 		"surrendered": _surrendered.duplicate(),
 		"rival_age": _rival_age.duplicate(),
@@ -2986,6 +2945,19 @@ func _load_market(data: Dictionary) -> void:
 		for key: Variant in perm.keys():
 			_rival_perm[str(key)] = clampf(float(perm[key]), _market_value("permanent_floor", 0.7), 1.0)
 	_trick_ready = _read_unix_dict(data.get("trick_ready", {}))
+	# Пакостей больше нет: старые эффекты гвоздей, слухов и пирожков снимаем.
+	_rival_cuts.clear()
+	_rival_perm.clear()
+	_buyouts.clear()
+	var parts: Variant = data.get("buyouts", {})
+	if typeof(parts) == TYPE_DICTIONARY:
+		for key: Variant in parts.keys():
+			var owned: Variant = parts[key]
+			if typeof(owned) == TYPE_DICTIONARY:
+				var clean: Dictionary = {}
+				for part: Variant in owned.keys():
+					clean[str(part)] = 1
+				_buyouts[str(key)] = clean
 	_surrendered = _read_float_dict(data.get("surrendered", {}))
 	_rival_age = _read_float_dict(data.get("rival_age", {}))
 	_rope = _read_float_dict(data.get("rope", {}))

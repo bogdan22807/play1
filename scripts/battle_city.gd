@@ -1,8 +1,7 @@
 extends Control
 ## «Битва за город»: маленький город с тремя таксопарками конкурентов.
-## Над каждым — портрет босса; по виду понятно, что с ним:
-## ваш (жёлтый гараж и ваш флаг), дуэль (пульсирует, скрещённые ключи),
-## сдался (белый флаг), ждёт (серый, с замком).
+## Над каждым — портрет босса. Ваша доля заливает гараж жёлтым снизу вверх,
+## у ворот ваши жёлтые такси вытесняют их машины; купленные стоянка и диспетчерская видны на картинке.
 
 const Portrait := preload("res://scripts/boss_portrait.gd")
 
@@ -25,7 +24,7 @@ var _time: float = 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	custom_minimum_size = Vector2(0, 450)
+	custom_minimum_size = Vector2(0, 470)
 	resized.connect(_place)
 
 
@@ -74,63 +73,135 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	var ground_y: float = size.y * 0.66
-	# Небо, облака, земля и дорога.
+	var ground_y: float = size.y * 0.68
+	# Небо с градиентом, город на горизонте, облака, земля и дорога.
 	_round_rect(Rect2(Vector2.ZERO, size), 26.0, SKY)
-	for cloud in [Vector2(0.18, 0.5), Vector2(0.62, 0.42), Vector2(0.88, 0.55)]:
+	draw_rect(Rect2(Vector2(0, ground_y * 0.55), Vector2(size.x, ground_y * 0.45)), Color(1, 1, 1, 0.18))
+	_skyline(ground_y)
+	for cloud in [Vector2(0.18, 0.42), Vector2(0.62, 0.34), Vector2(0.88, 0.47)]:
 		var at := Vector2(cloud.x * size.x + fmod(_time * 6.0, 40.0) - 20.0, cloud.y * size.y)
-		draw_circle(at, 20, Color(1, 1, 1, 0.8))
-		draw_circle(at + Vector2(22, 4), 16, Color(1, 1, 1, 0.8))
-		draw_circle(at + Vector2(-20, 6), 14, Color(1, 1, 1, 0.8))
+		draw_circle(at, 18, Color(1, 1, 1, 0.75))
+		draw_circle(at + Vector2(20, 4), 14, Color(1, 1, 1, 0.75))
+		draw_circle(at + Vector2(-18, 6), 12, Color(1, 1, 1, 0.75))
 	draw_rect(Rect2(Vector2(0, ground_y), Vector2(size.x, size.y - ground_y)), GROUND)
-	draw_rect(Rect2(Vector2(0, ground_y + 8), Vector2(size.x, 30)), ROAD)
-	var dash: float = 0.0
+	draw_rect(Rect2(Vector2(0, ground_y + 22), Vector2(size.x, 30)), ROAD)
+	var dash: float = fmod(-_time * 30.0, 52.0)
 	while dash < size.x:
-		draw_rect(Rect2(Vector2(dash, ground_y + 21), Vector2(26, 4)), LINE)
+		draw_rect(Rect2(Vector2(dash, ground_y + 35), Vector2(26, 4)), LINE)
 		dash += 52.0
 
 	var font: Font = get_theme_default_font()
 	for index in rivals.size():
 		var info: Dictionary = rivals[index]
 		var state: String = str(info.get("state", ""))
+		var pct: float = clampf(float(info.get("pct", 0)) / 100.0, 0.0, 1.0)
+		if state == "owned":
+			pct = 1.0
+		var parts: Array = info.get("parts", [])
 		var x: float = _slot(index)
-		var width: float = minf(190.0, size.x / 3.4)
-		var height: float = 110.0
+		var width: float = minf(200.0, size.x / 3.3)
+		var height: float = 118.0
 		var base := Vector2(x - width / 2.0, ground_y - height)
 		var wall: Color = Color(str(info.get("color", "a0aec8")))
-		if state == "owned":
-			wall = TAXI
-		elif state == "waiting":
+		if state == "waiting":
 			wall = WAIT
-		# Пульсирующая подсветка у того, с кем дуэль.
-		if state == "active":
-			var glow: float = 0.5 + 0.5 * sin(_time * 4.0)
-			_round_rect(Rect2(base - Vector2(10, 10), Vector2(width + 20, height + 14)), 18.0, Color(ACTIVE, 0.25 + 0.25 * glow))
-		# Гараж: стена, крыша, ворота в шашечку.
+		# Тень и стена гаража цвета компании.
+		_round_rect(Rect2(base + Vector2(6, 8), Vector2(width, height)), 12.0, Color(0, 0, 0, 0.12))
 		_round_rect(Rect2(base, Vector2(width, height)), 12.0, wall)
+		# Ваша доля «заливает» гараж жёлтым снизу вверх.
+		if pct > 0.0:
+			var fill_h: float = height * pct
+			_round_rect(Rect2(base + Vector2(0, height - fill_h), Vector2(width, fill_h)), 12.0, TAXI)
+			var stripe_y: float = base.y + height - fill_h
+			var cell: float = 8.0
+			var cx: float = base.x + 4.0
+			var odd: bool = false
+			while cx < base.x + width - 4.0:
+				draw_rect(Rect2(Vector2(cx, stripe_y), Vector2(minf(cell, base.x + width - 4.0 - cx), 6)), INK if odd else Color.WHITE)
+				odd = not odd
+				cx += cell
+		# Крыша и вывеска «TAXI».
 		draw_colored_polygon(PackedVector2Array([
-			base + Vector2(-8, 4), base + Vector2(width / 2.0, -26), base + Vector2(width + 8, 4),
-		]), wall.darkened(0.25))
-		var gate := Rect2(base + Vector2(width * 0.2, height * 0.38), Vector2(width * 0.6, height * 0.62))
-		draw_rect(gate, wall.darkened(0.35))
+			base + Vector2(-10, 6), base + Vector2(width / 2.0, -24), base + Vector2(width + 10, 6),
+		]), wall.darkened(0.3) if pct < 1.0 else TAXI.darkened(0.2))
+		var sign_rect := Rect2(base + Vector2(width * 0.22, -12), Vector2(width * 0.56, 22))
+		_round_rect(sign_rect, 6.0, INK)
+		draw_string(font, sign_rect.position + Vector2(0, 17), "TAXI", HORIZONTAL_ALIGNMENT_CENTER, sign_rect.size.x, 17, TAXI)
+		# Окна и ворота.
+		for wx in [0.08, 0.8]:
+			_round_rect(Rect2(base + Vector2(width * wx, 24), Vector2(width * 0.12, 22)), 4.0, Color("dff3ff"))
+		var gate := Rect2(base + Vector2(width * 0.26, height * 0.36), Vector2(width * 0.48, height * 0.64))
+		_round_rect(gate, 6.0, wall.darkened(0.42) if pct < 0.6 else TAXI.darkened(0.3))
 		for row in 4:
-			draw_line(gate.position + Vector2(0, gate.size.y * (row + 1) / 5.0), gate.position + Vector2(gate.size.x, gate.size.y * (row + 1) / 5.0), wall.darkened(0.5), 2.0)
-		# Флажок/значок состояния на крыше.
+			var ly: float = gate.position.y + gate.size.y * (row + 1) / 5.0
+			draw_line(Vector2(gate.position.x + 3, ly), Vector2(gate.end.x - 3, ly), Color(0, 0, 0, 0.25), 2.0)
+		# Машины у гаража: их — цвета компании, ваши — жёлтые. Чем больше доля, тем больше жёлтых.
+		var cars: int = 3
+		var mine: int = int(roundf(pct * cars))
+		if parts.has("fleet_part") and mine < cars:
+			mine += 1
+		for car in cars:
+			var at := Vector2(base.x + width * (0.16 + car * 0.34), ground_y + 14)
+			_car(at, TAXI if car < mine else wall.lightened(0.15), car < mine)
+		# Купленные части видно прямо на картинке.
+		if parts.has("parking"):
+			_parking_sign(base + Vector2(-4, height - 54))
+		if parts.has("dispatch"):
+			_antenna(base + Vector2(width * 0.82, -6))
+		# Флажок: ваш, когда компания ваша; замок — если остров ещё не открыт.
 		match state:
 			"owned":
-				_flag(base + Vector2(width - 12, 2), TAXI.darkened(0.1), true)
-			"surrendered":
-				_flag(base + Vector2(width - 12, 2), Color.WHITE, false)
+				_flag(base + Vector2(width / 2.0, -24), TAXI.darkened(0.1), true)
 			"waiting":
-				_lock(base + Vector2(width / 2.0, height * 0.2))
-			"active":
-				_swords(base + Vector2(width / 2.0, height * 0.18))
-		# Подпись: название и состояние.
+				_lock(base + Vector2(width / 2.0, height * 0.18))
+		# Подпись: название и ваша доля.
 		var name_text: String = str(info.get("name", ""))
-		var state_text: String = {"owned": "ваш", "surrendered": "сдался", "active": "ваши %d%%" % int(info.get("pct", 0)), "waiting": "ждёт"}.get(state, "")
-		var state_color: Color = {"owned": OWNED.darkened(0.2), "surrendered": INK, "active": ACTIVE, "waiting": Color("6b7385")}.get(state, INK)
-		_text(font, Vector2(x, size.y - 50), name_text, 24, INK, Color(1, 1, 1, 0.9))
-		_text(font, Vector2(x, size.y - 16), state_text, 28, state_color, Color.WHITE)
+		var state_text: String = {"owned": "ваш ✓", "active": "ваши %d%%" % int(info.get("pct", 0)), "waiting": "ждёт"}.get(state, "")
+		var state_color: Color = {"owned": OWNED.darkened(0.2), "active": INK, "waiting": Color("6b7385")}.get(state, INK)
+		_text(font, Vector2(x, size.y - 48), name_text, 24, INK, Color(1, 1, 1, 0.9))
+		_text(font, Vector2(x, size.y - 14), state_text, 30, state_color, Color.WHITE)
+
+
+func _skyline(ground_y: float) -> void:
+	var tones := [Color("9fc9ea"), Color("8dbbe0")]
+	var x: float = 0.0
+	var index: int = 0
+	while x < size.x:
+		var w: float = 34.0 + float((index * 37) % 30)
+		var h: float = 50.0 + float((index * 53) % 70)
+		draw_rect(Rect2(Vector2(x, ground_y - h), Vector2(w, h)), tones[index % 2])
+		for wy in range(int(ground_y - h + 8), int(ground_y - 8), 14):
+			for wx in range(int(x + 6), int(x + w - 6), 10):
+				if (wx + wy + index) % 3 != 0:
+					draw_rect(Rect2(Vector2(wx, wy), Vector2(4, 6)), Color(1, 1, 1, 0.35))
+		x += w + 4.0
+		index += 1
+
+
+func _car(at: Vector2, body: Color, mine: bool) -> void:
+	_round_rect(Rect2(at + Vector2(-22, -10), Vector2(44, 16)), 6.0, body)
+	_round_rect(Rect2(at + Vector2(-12, -19), Vector2(24, 11)), 4.0, body.darkened(0.08))
+	draw_rect(Rect2(at + Vector2(-9, -17), Vector2(18, 6)), Color("bfe6ff"))
+	if mine:
+		for k in 4:
+			draw_rect(Rect2(at + Vector2(-16 + k * 8, -4), Vector2(4, 4)), INK)
+	draw_circle(at + Vector2(-12, 7), 5, INK)
+	draw_circle(at + Vector2(12, 7), 5, INK)
+
+
+func _parking_sign(at: Vector2) -> void:
+	draw_rect(Rect2(at + Vector2(10, 20), Vector2(4, 34)), Color("7a8399"))
+	_round_rect(Rect2(at, Vector2(26, 26)), 5.0, Color("2b6cb0"))
+	draw_string(get_theme_default_font(), at + Vector2(0, 21), "P", HORIZONTAL_ALIGNMENT_CENTER, 26, 22, Color.WHITE)
+
+
+func _antenna(at: Vector2) -> void:
+	draw_line(at, at + Vector2(0, -30), INK, 3.0)
+	draw_circle(at + Vector2(0, -32), 4, Color("e8434f"))
+	var pulse: float = fmod(_time, 1.2) / 1.2
+	for k in 2:
+		var r: float = 8.0 + (k + pulse) * 8.0
+		draw_arc(at + Vector2(0, -32), r, -PI * 0.8, -PI * 0.2, 8, Color(0.91, 0.26, 0.31, 1.0 - pulse * 0.6), 2.0)
 
 
 func _flag(top: Vector2, color: Color, checker: bool) -> void:
