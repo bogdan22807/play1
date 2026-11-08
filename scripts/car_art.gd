@@ -45,8 +45,9 @@ static func draw_car(canvas: CanvasItem, pos: Vector2, angle: float, model: Stri
 	canvas.draw_set_transform(pos, angle, Vector2.ONE)
 	var half := Vector2(length, width) * 0.5
 
-	# Тень и кузов.
-	_round_rect(canvas, Rect2(-half + Vector2(3, 5), Vector2(length, width)), width * 0.32, Color(0, 0, 0, 0.28))
+	# Мягкая тень в два слоя: машина «стоит» на асфальте.
+	_round_rect(canvas, Rect2(-half + Vector2(2, 6) - Vector2(2, 2), Vector2(length + 4, width + 4)), width * 0.36, Color(0, 0, 0, 0.12))
+	_round_rect(canvas, Rect2(-half + Vector2(2, 4), Vector2(length, width)), width * 0.32, Color(0, 0, 0, 0.22))
 	var kind: String = str(info.get("kind", "sedan"))
 	if kind == "rickshaw":
 		_draw_rickshaw(canvas, length, width, body, roof)
@@ -56,10 +57,14 @@ static func draw_car(canvas: CanvasItem, pos: Vector2, angle: float, model: Stri
 		for wx in [-0.3, 0.3]:
 			for side in [-1.0, 1.0]:
 				_round_rect(canvas, Rect2(Vector2(wx * length - length * 0.08, side * width * 0.46 - width * 0.07), Vector2(length * 0.16, width * 0.14)), width * 0.05, tire)
-		_round_rect(canvas, Rect2(-half, Vector2(length, width)), width * 0.32, body)
-		# Объём: нижний борт темнее, верхний светлее, бамперы и линия капота.
-		_round_rect(canvas, Rect2(Vector2(-half.x, width * 0.22), Vector2(length, width * 0.28)), width * 0.3, body.darkened(0.16))
-		_round_rect(canvas, Rect2(Vector2(-half.x + length * 0.06, -half.y + width * 0.05), Vector2(length * 0.88, width * 0.1)), width * 0.05, Color(1, 1, 1, 0.28))
+		# Кузов «выпуклый»: тёмный обвод, сам цвет, тень снизу, свет сверху и полоса глянца.
+		var inset: float = width * 0.05
+		_round_rect(canvas, Rect2(-half, Vector2(length, width)), width * 0.32, body.darkened(0.38))
+		_round_rect(canvas, Rect2(-half + Vector2(inset, inset), Vector2(length - inset * 2.0, width - inset * 2.0)), width * 0.28, body)
+		_round_rect(canvas, Rect2(Vector2(-half.x + inset, width * 0.08), Vector2(length - inset * 2.0, width * 0.42 - inset)), width * 0.26, body.darkened(0.14))
+		_round_rect(canvas, Rect2(Vector2(-half.x + inset, width * 0.2), Vector2(length - inset * 2.0, width * 0.3 - inset)), width * 0.24, body.darkened(0.24))
+		_round_rect(canvas, Rect2(Vector2(-half.x + inset * 1.5, -half.y + inset), Vector2(length - inset * 3.0, width * 0.2)), width * 0.18, body.lightened(0.22))
+		_round_rect(canvas, Rect2(Vector2(-half.x + length * 0.08, -half.y + inset * 1.6), Vector2(length * 0.84, width * 0.06)), width * 0.03, Color(1, 1, 1, 0.45))
 		canvas.draw_rect(Rect2(Vector2(half.x - length * 0.035, -width * 0.36), Vector2(length * 0.035, width * 0.72)), body.darkened(0.3))
 		canvas.draw_rect(Rect2(Vector2(-half.x, -width * 0.36), Vector2(length * 0.03, width * 0.72)), body.darkened(0.3))
 		if kind != "limo":
@@ -115,9 +120,15 @@ static func _draw_cabin(canvas: CanvasItem, kind: String, length: float, width: 
 		canvas.draw_rect(Rect2(Vector2(roof_rect.position.x, side * width * 0.42 - width * 0.03), Vector2(roof_rect.size.x, width * 0.06)), GLASS.lightened(0.15))
 		# Стойка между дверями.
 		canvas.draw_rect(Rect2(Vector2(roof_rect.get_center().x - length * 0.012, side * width * 0.42 - width * 0.04), Vector2(length * 0.024, width * 0.08)), roof.darkened(0.2))
-	_round_rect(canvas, roof_rect, width * 0.12, roof)
-	# Блик на крыше.
-	_round_rect(canvas, Rect2(roof_rect.position + Vector2(roof_rect.size.x * 0.1, roof_rect.size.y * 0.1), Vector2(roof_rect.size.x * 0.6, roof_rect.size.y * 0.16)), width * 0.04, Color(1, 1, 1, 0.3))
+	# Стёкла чуть светлее сверху — отражают небо.
+	canvas.draw_rect(Rect2(Vector2(rear_x, -glass_w / 2.0 + width * 0.05), Vector2(length * 0.08, glass_w * 0.3)), Color(1, 1, 1, 0.12))
+	# Крыша приподнята: тень от неё назад-вниз, тёмный обвод, светлый верх, блик.
+	_round_rect(canvas, Rect2(roof_rect.position + Vector2(-width * 0.05, width * 0.05), roof_rect.size), width * 0.12, Color(0, 0, 0, 0.25))
+	_round_rect(canvas, roof_rect, width * 0.12, roof.darkened(0.3))
+	var roof_in := roof_rect.grow(-width * 0.035)
+	_round_rect(canvas, roof_in, width * 0.1, roof)
+	_round_rect(canvas, Rect2(Vector2(roof_in.position.x, roof_in.get_center().y), Vector2(roof_in.size.x, roof_in.size.y / 2.0)), width * 0.1, roof.darkened(0.1))
+	_round_rect(canvas, Rect2(roof_in.position + Vector2(roof_in.size.x * 0.08, roof_in.size.y * 0.08), Vector2(roof_in.size.x * 0.7, roof_in.size.y * 0.18)), width * 0.05, Color(1, 1, 1, 0.4))
 	var center: Vector2 = roof_rect.get_center()
 	match kind:
 		"taxi":
@@ -129,7 +140,10 @@ static func _draw_cabin(canvas: CanvasItem, kind: String, length: float, width: 
 						canvas.draw_rect(Rect2(center + Vector2((column - 2.5) * cell, (row - 1) * cell), Vector2(cell, cell)), Color.BLACK)
 			canvas.draw_rect(Rect2(center + Vector2(-cell * 0.6, -cell * 2.2), Vector2(cell * 1.2, cell * 0.8)), Color("fff8e1"))
 		"business":
-			canvas.draw_line(Vector2(-length * 0.45, 0), Vector2(length * 0.45, 0), Color("b0bec5"), 2.0)
+			# Хромированные молдинги по бортам и значок на капоте.
+			for side in [-1.0, 1.0]:
+				canvas.draw_line(Vector2(-length * 0.42, side * width * 0.455), Vector2(length * 0.42, side * width * 0.455), Color("cfd8dc"), maxf(1.0, width * 0.025))
+			canvas.draw_circle(Vector2(length * 0.38, 0), width * 0.05, Color("cfd8dc"))
 		"electric":
 			var s: float = width * 0.3
 			canvas.draw_colored_polygon(PackedVector2Array([
