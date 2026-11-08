@@ -43,16 +43,13 @@ func _init() -> void:
 	var cheap_step: float = float(gs._find_district("station")["income_pct"])
 	var top_step: float = float(gs._find_district("business")["income_pct"])
 	check(top_step > cheap_step and top_step * 5.0 <= 0.7 + 0.0001, "самый прибыльный район после 5 уровня не больше +70%%")
-	# Районы островов: закрыты, пока остров не куплен; платный — только покупкой.
-	check(not gs.can_open_district("montmartre"), "районы Парижа ждут Европу")
-	gs._opened_regions["europe"] = 1
-	check(gs.can_open_district("montmartre"), "Европа открыла районы Парижа")
-	check(not gs.can_open_district("champs") and gs.is_district_premium("champs"), "платный район за ролик не открыть")
+	# Районы — только Бангкок: 5 за ролики и VIP за $2.99 (+400%% навсегда).
+	check(gs._city_defs.size() == 1 and gs._city_defs[0]["districts"].size() == 6, "только Бангкок, 6 районов")
+	check(not gs.can_open_district("vip") and gs.is_district_premium("vip"), "VIP за ролик не открыть")
 	var before_premium: float = gs._district_multiplier()
-	gs.grant_premium_district("champs")
-	check(is_equal_approx(gs._district_multiplier() - before_premium, 4.0), "платный район: +400%% навсегда")
+	gs.grant_premium_district("vip")
+	check(is_equal_approx(gs._district_multiplier() - before_premium, 4.0), "VIP-район: +400%% навсегда")
 	gs._premium_owned.clear()
-	gs._opened_regions.erase("europe")
 	for i in 10:
 		gs.open_district("center")
 	check(gs.is_district_maxed("center") and not gs.can_open_district("center"), "у района потолок 5")

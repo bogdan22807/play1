@@ -24,7 +24,7 @@ const COLOR_BUY_PRESSED := Color("2aab55")
 const COLOR_DISABLED := Color("e6e2da")
 const COLOR_INCOME := Color("1b8f43")
 const COLOR_DANGER := Color("e8434f")
-const COLOR_TRICK := Color("2f4a7a")
+const COLOR_TRICK := Color("2fbf5f")  # раньше тёмно-синий; теперь все кнопки зелёные
 const COLOR_SKY := Color("3fb2ff")
 const COLOR_SHIFT := Color("8c9eff")
 const COLOR_TITLE := Color("ffffff")
@@ -1004,15 +1004,17 @@ func _next_goal() -> Array:
 		var region_id: String = str(raw.get("id", ""))
 		if GameState.can_open_region(region_id):
 			return ["Можно открыть новый остров: %s" % str(raw.get("name", "")), PAGE_CITY]
-	var rival: String = GameState.get_active_rival()
-	if rival != "":
-		var boss: String = str(GameState.get_boss(rival).get("name", _rival_name(rival)))
-		var ratio: float = GameState.get_duel_ratio()
-		if GameState.is_boss(rival):
-			return ["Выкупайте компанию %s: %d%% из 100%%" % [boss, int(GameState.get_duel_progress() * 100.0)], PAGE_MARKET]
-		if ratio < 1.0:
-			return ["%s сильнее в %s — станьте сильнее, чтобы тянуть канат" % [boss, _ratio_text(1.0 / maxf(ratio, 0.0001))], PAGE_MARKET]
-		return ["Тяните канат с %s: %d%%" % [boss, int(GameState.get_duel_progress() * 100.0)], PAGE_MARKET]
+	# Соперники: самая дешёвая доля на острове — по ней и подсказка.
+	var cheapest: String = ""
+	for raw: Variant in GameState.get_competitors():
+		var rival_id: String = str(raw.get("id", ""))
+		if GameState.get_rival_state(rival_id) == "active" and (cheapest == "" or GameState.get_share_price(rival_id) < GameState.get_share_price(cheapest)):
+			cheapest = rival_id
+	if cheapest != "":
+		var boss: String = str(GameState.get_boss(cheapest).get("name", _rival_name(cheapest)))
+		if GameState.can_buy_share(cheapest):
+			return ["Купите 5%% компании %s на «Рынке»" % boss, PAGE_MARKET]
+		return ["Копите на 5%% компании %s: %s" % [boss, GameState.format_money(GameState.get_share_price(cheapest))], PAGE_MARKET]
 	if GameState.get_front_island() == "":
 		return ["Все острова ваши — откройте новый на «Карте»", PAGE_CITY]
 	return ["Тапайте по городу и копите на машины получше", -1]
@@ -1516,7 +1518,7 @@ func _build_market_rows() -> void:
 	ladder_box.add_child(_battle_city)
 	_market_status = _add_label(ladder_box, "", 30, COLOR_TEXT)
 	_market_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_add_label(ladder_box, "Сначала два помощника — перетяните у каждого канат. Потом главный босс — выкупите его компанию по 5%.", 24, COLOR_MUTED)
+	_add_label(ladder_box, "Выкупайте доли соперников по 5% — у кого угодно и в каком угодно порядке. Каждая доля ослабляет соперника, следующая дороже. 100% у всех троих — город ваш.", 24, COLOR_MUTED)
 
 	for raw: Variant in GameState.get_competitors():
 		if typeof(raw) == TYPE_DICTIONARY and str(raw.get("id", "")) != "":
@@ -1616,9 +1618,9 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	var mood := _add_label(names, "%s · %s · %s" % [role, str(boss.get("name", "")), str(info.get("personality_name", "")).to_lower()], 28, COLOR_GOLD)
 	var status := _add_label(column, "", 32, COLOR_TEXT)
 
-	# Канат: вы слева, босс справа, узел ползёт к финишному флажку.
-	var bar: Control = DuelRope.new()
-	bar.set_rival(boss.get("look", {}), _market_color(competitor_id))
+	# Полоса выкупа: сколько процентов компании уже ваши.
+	var bar: ProgressBar = _make_bar(COLOR_BUY)
+	bar.custom_minimum_size = Vector2(0, 30)
 	column.add_child(bar)
 	var powers := _add_label(column, "", 28, COLOR_TEXT)
 	powers.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1630,10 +1632,9 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 	tricks.add_theme_constant_override("separation", 8)
 	column.add_child(tricks)
 	var trick_buttons: Dictionary = {}
-	# У главного босса кнопок четыре — картинки и подписи чуть меньше, чтобы текст влез.
-	var four: bool = GameState.is_boss(competitor_id)
-	var picture_height: float = 60.0 if four else 82.0
-	var caption_size: int = 18 if four else 21
+	# Кнопок четыре (три пакости и «Купить 5%») — картинки и подписи поменьше, чтобы текст влез.
+	var picture_height: float = 60.0
+	var caption_size: int = 18
 	for raw: Variant in GameState.get_tricks():
 		var trick_id: String = str(raw.get("id", ""))
 		var button := Button.new()
@@ -1668,34 +1669,32 @@ func _make_competitor_row(competitor_id: String, info: Dictionary) -> PanelConta
 		button.set_meta("caption", caption)
 		tricks.add_child(button)
 		trick_buttons[trick_id] = button
-	# Четвёртая кнопка — только у главного босса: выкуп компании частями по 5%.
-	var share_button: Button = null
-	if GameState.is_boss(competitor_id):
-		share_button = Button.new()
-		share_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		share_button.custom_minimum_size = Vector2(0, 200)
-		share_button.focus_mode = Control.FOCUS_NONE
-		_style_plain_button(share_button, COLOR_MONEY)
-		share_button.pressed.connect(_on_buy_share.bind(competitor_id))
-		var share_face := VBoxContainer.new()
-		share_face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		share_face.offset_top = 10
-		share_face.offset_bottom = -14
-		share_face.alignment = BoxContainer.ALIGNMENT_CENTER
-		share_face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		share_button.add_child(share_face)
-		var share_picture: Control = ItemIcon.new()
-		share_picture.kind = "handshake"
-		share_picture.custom_minimum_size = Vector2(0, picture_height)
-		share_face.add_child(share_picture)
-		var share_caption := Label.new()
-		share_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		share_caption.add_theme_font_size_override("font_size", 24)
-		share_caption.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
-		share_caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		share_face.add_child(share_caption)
-		share_button.set_meta("caption", share_caption)
-		tricks.add_child(share_button)
+	# Четвёртая кнопка — выкуп компании частями по 5%.
+	var share_button := Button.new()
+	share_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	share_button.custom_minimum_size = Vector2(0, 200)
+	share_button.focus_mode = Control.FOCUS_NONE
+	_style_plain_button(share_button, COLOR_MONEY)
+	share_button.pressed.connect(_on_buy_share.bind(competitor_id))
+	var share_face := VBoxContainer.new()
+	share_face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	share_face.offset_top = 10
+	share_face.offset_bottom = -14
+	share_face.alignment = BoxContainer.ALIGNMENT_CENTER
+	share_face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	share_button.add_child(share_face)
+	var share_picture: Control = ItemIcon.new()
+	share_picture.kind = "handshake"
+	share_picture.custom_minimum_size = Vector2(0, picture_height)
+	share_face.add_child(share_picture)
+	var share_caption := Label.new()
+	share_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	share_caption.add_theme_font_size_override("font_size", 24)
+	share_caption.add_theme_font_override("font", load("res://assets/fonts/Inter-Bold.otf"))
+	share_caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	share_face.add_child(share_caption)
+	share_button.set_meta("caption", share_caption)
+	tricks.add_child(share_button)
 
 	var buy_button := Button.new()
 	buy_button.custom_minimum_size = Vector2(0, 110)
@@ -2030,6 +2029,7 @@ func _refresh_competitors() -> void:
 			"color": _market_color(id).to_html(false),
 			"name": str(raw.get("name", id)).replace("Таксопарк ", "").replace("«", "").replace("»", ""),
 			"state": GameState.get_rival_state(id),
+			"pct": int(roundf(GameState.get_duel_progress(id) * 100.0)),
 		})
 	if _battle_city != null:
 		_battle_city.set_rivals(scene, GameState.get_front_city())
@@ -2052,67 +2052,34 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	var buy: Button = row["buy"]
 	var state: String = GameState.get_rival_state(id)
 	var full: bool = state == "active"
-	# Подробности — только у текущего соперника, остальные карточки короткие.
 	for key: String in ["powers", "effects", "description", "hint"]:
 		var label: Label = row[key]
 		label.visible = full
 	bar.visible = full
 	tricks_box.visible = full
-	buy.visible = state == "surrendered"
+	buy.visible = false
 	var short_name: String = str(info.get("name", id)).replace("Таксопарк ", "")
-	match state:
-		"owned":
-			status.text = "Компания ваша  ·  доход +%d%%" % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
-			_col(status, COLOR_INCOME)
-			return
-		"surrendered":
-			status.text = "Сдался и ждёт выкупа. Купите — и доход +%d%%." % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
-			_col(status, COLOR_GOLD)
-			buy.text = "Выкупить за %s" % GameState.format_money(GameState.get_competitor_cost(id))
-			buy.disabled = not GameState.can_buy_rival(id)
-			return
-		"waiting":
-			status.text = "Ждёт своей очереди · возит на %s/с" % GameState.format_money(GameState.get_competitor_power(id))
-			_col(status, COLOR_MUTED)
-			status.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			return
-	var mine: float = GameState.get_player_power()
-	var theirs: float = GameState.get_competitor_power(id)
-	var ratio: float = mine / maxf(theirs, 0.001)
-	var rope: int = int(GameState.get_duel_progress() * 100.0)
+	if state == "owned":
+		status.text = "Компания ваша  ·  доход +%d%%" % int(roundf(float(info.get("income_bonus", 0)) * 100.0))
+		_col(status, COLOR_INCOME)
+		return
+	if state != "active":
+		status.text = "Ждёт своего острова"
+		_col(status, COLOR_MUTED)
+		return
+	var bought: int = int(roundf(GameState.get_duel_progress(id) * 100.0))
 	_col(status, COLOR_TEXT)
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var boss_mode: bool = GameState.is_boss(id)
+	status.text = "Выкуплено %d%% из 100%%" % bought
+	bar.value = GameState.get_duel_progress(id)
 	var share: Button = row.get("share")
-	if boss_mode:
-		status.text = "Выкуплено %d%% из 100%%" % rope
-		if share != null:
-			var share_caption: Label = share.get_meta("caption")
-			share_caption.text = "Купить 5%%\n%s" % GameState.format_money(GameState.get_share_price(id))
-			share.disabled = not GameState.can_buy_share(id)
-	elif ratio < 1.0:
-		status.text = "Канат %d%% · они сильнее в %s, канат ползёт к ним" % [rope, _ratio_text(1.0 / maxf(ratio, 0.0001))]
-		_col(status, COLOR_DANGER)
-	else:
-		var eta: int = GameState.get_rope_eta()
-		status.text = "Канат %d%% · победа через %s игры" % [rope, _wait_text(eta)] if eta >= 0 else "Канат %d%%" % rope
-		if ratio < 2.0:
-			status.text += "\nСтаньте сильнее вдвое — потянете в полную силу"
-	bar.set("ratio", ratio)
-	bar.set("progress", GameState.get_duel_progress())
-	bar.set("player_model", GameState.get_car_id())
-	powers.text = "Вы %s/с  —  %s %s/с" % [GameState.format_money(mine), short_name, GameState.format_money(theirs)]
-	var tips: PackedStringArray = PackedStringArray()
-	if boss_mode:
-		tips.append("Главный босс не сдаётся. Выкупайте его компанию по 5% — на 100% она ваша и остров захвачен.")
-	else:
-		tips.append("Вы сильнее — канат ползёт к вам, слабее — назад. Тянется, только пока вы в игре. Перетянули — помощник сдаётся.")
-	hint.text = " ".join(tips)
+	if share != null:
+		var share_caption: Label = share.get_meta("caption")
+		share_caption.text = "Купить 5%%\n%s" % GameState.format_money(GameState.get_share_price(id))
+		share.disabled = not GameState.can_buy_share(id)
+	powers.text = "Возит на %s/с · 100%% даст доход +%d%%" % [GameState.format_money(GameState.get_competitor_power(id)), int(roundf(float(info.get("income_bonus", 0)) * 100.0))]
+	hint.text = "Каждые 5%% ослабляют %s. Пакости снижают цену доли, пока действуют." % short_name
 	var notes: PackedStringArray = PackedStringArray()
-	var growth: float = GameState.get_rival_growth(id)
-	if growth > 1.001:
-		notes.append("вырос за дуэль на +%d%% (максимум +%d%%)" % [
-			int(roundf((growth - 1.0) * 100.0)), int(roundf((GameState.get_rival_growth_cap() - 1.0) * 100.0))])
 	for cut: Variant in GameState.get_competitor_cuts(id):
 		var value: float = float(cut["cut"])
 		if value >= 0.0:
@@ -2123,7 +2090,7 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 	if lost > 0.0:
 		notes.append("переманено водителей: −%d%% навсегда" % int(roundf(lost * 100.0)))
 	var attack_left: int = GameState.get_rival_attack_left()
-	if attack_left > 0:
+	if attack_left > 0 and id == GameState.get_active_rival():
 		notes.append("их ход через %s: %s" % [_mmss(attack_left), _attack_text(GameState.get_rival_attack_kind(id))])
 	effects.text = "• " + "\n• ".join(notes) if not notes.is_empty() else ""
 	var tricks: Dictionary = row["tricks"]
@@ -2150,22 +2117,11 @@ func _refresh_rival_row(id: String, info: Dictionary) -> void:
 		caption.get_parent().modulate = Color(1, 1, 1, 1.0 if not button.disabled or trick_wait > 0 else 0.7)
 
 
-## Подсказка у кампании: хватит ли её, чтобы обогнать текущего соперника.
-func _ad_duel_hint(ad_id: String) -> String:
-	var rival_id: String = GameState.get_active_rival()
-	if rival_id == "":
+## Подсказка у кампании: реклама — это больше денег на доли соперников.
+func _ad_duel_hint(_ad_id: String) -> String:
+	if GameState.get_active_rival() == "":
 		return ""
-	var boost: float = 0.0
-	for raw: Variant in GameState.get_ads():
-		if str(raw.get("id", "")) == ad_id:
-			boost = float(raw.get("boost", 0))
-	var short_name: String = _rival_name(rival_id).replace("Таксопарк ", "")
-	var with_ad: float = GameState.get_player_power() * (1.0 + boost) / maxf(0.001, GameState.get_competitor_power(rival_id))
-	if GameState.get_duel_ratio() < 1.0 and with_ad >= 1.0:
-		return "С ней вы сильнее %s — канат пойдёт к вам!" % short_name
-	if with_ad >= 1.0:
-		return "С ней канат с %s пойдёт быстрее." % short_name
-	return "Перетянуть %s пока не хватит, но доход вырастет." % short_name
+	return "Больше дохода — быстрее выкупите доли соперников."
 
 
 func _rival_name(competitor_id: String) -> String:
@@ -2728,7 +2684,7 @@ func _build_city_rows() -> void:
 			_multiplier_label.add_theme_font_size_override("font_size", 32)
 			_col(_multiplier_label, COLOR_INCOME)
 			_district_list.add_child(_multiplier_label)
-			var how := _make_center_label("Районы прокачиваются за просмотр рекламы. С каждым новым островом — три новых района.", 26, COLOR_MUTED)
+			var how := _make_center_label("Районы прокачиваются за просмотр рекламы. VIP-район — навсегда +400% к доходу.", 26, COLOR_MUTED)
 			how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			_district_list.add_child(how)
 		var island: String = str(city.get("island", ""))
@@ -2952,14 +2908,11 @@ func _refresh_regions() -> void:
 			_island_status.text = "Ваш остров ★ Все конкуренты позади."
 			_island_button.visible = false
 		"front":
-			var rival_id: String = GameState.get_active_rival()
-			var duel_text: String = "Все сдались — осталось выкупить."
-			if rival_id != "":
-				var progress: int = int(floorf(GameState.get_duel_progress() * 100.0))
-				if GameState.is_boss(rival_id):
-					duel_text = "Главный босс %s: выкуплено %d%% компании." % [_rival_name(rival_id), progress]
-				else:
-					duel_text = "Канат с %s: перетянуто %d%%." % [_rival_name(rival_id), progress]
+			var parts: PackedStringArray = PackedStringArray()
+			for raw: Variant in GameState.get_competitors():
+				var rival_id: String = str(raw.get("id", ""))
+				parts.append("%s %d%%" % [str(raw.get("name", rival_id)).replace("Таксопарк ", ""), int(roundf(GameState.get_duel_progress(rival_id) * 100.0))])
+			var duel_text: String = "Выкуплено: " + ", ".join(parts) + "."
 			_island_status.text = "Идёт борьба за %s. Выкуплено %d из %d. %s" % [
 				str(info.get("city", "")), GameState.get_city_owned_count(), GameState.get_competitors().size(), duel_text]
 			_island_button.text = "К рынку"
