@@ -48,18 +48,28 @@ func _draw() -> void:
 
 	# Значок-подложка.
 	draw_circle(c, 50 * u, Color.WHITE)
-	draw_circle(c, 46 * u, BADGE)
-	# Рубашка с воротником.
+	draw_circle(c, 46 * u, BADGE.darkened(0.1))
+	draw_colored_polygon(_ellipse(c + Vector2(0, -6) * u, 42 * u, 38 * u), BADGE)
+	draw_colored_polygon(_ellipse(c + Vector2(-8, -22) * u, 24 * u, 14 * u), BADGE.lightened(0.18))
+	var face := c + Vector2(0, 4 * u + breath)
+	# Шея.
+	draw_rect(Rect2(face + Vector2(-9, 14) * u, Vector2(18, 14) * u), SKIN_DARK)
+	# Рубашка с воротником, тенью и складками.
 	draw_colored_polygon(PackedVector2Array([
 		c + Vector2(-34, 46) * u, c + Vector2(-26, 26) * u + Vector2(0, breath),
 		c + Vector2(26, 26) * u + Vector2(0, breath), c + Vector2(34, 46) * u,
 	]), SHIRT)
+	draw_colored_polygon(PackedVector2Array([c + Vector2(10, 26) * u + Vector2(0, breath), c + Vector2(26, 26) * u + Vector2(0, breath), c + Vector2(34, 46) * u, c + Vector2(15, 46) * u]), SHIRT.darkened(0.15))
+	draw_line(c + Vector2(-24, 28) * u, c + Vector2(-15, 27) * u, SHIRT.lightened(0.3), 2 * u)
 	draw_colored_polygon(PackedVector2Array([c + Vector2(-12, 26) * u, c + Vector2(0, 38) * u, c + Vector2(12, 26) * u]), Color.WHITE)
-	# Уши и лицо.
-	var face := c + Vector2(0, 4 * u + breath)
+	draw_circle(c + Vector2(0, 41) * u, 1.6 * u, Color("cfd8dc"))
+	# Уши и лицо с объёмом: тень снизу-справа, свет на лбу и щеке.
 	draw_circle(face + Vector2(-25, 2) * u, 6 * u, SKIN_DARK)
 	draw_circle(face + Vector2(25, 2) * u, 6 * u, SKIN_DARK)
-	draw_circle(face, 25 * u, SKIN)
+	draw_circle(face, 25 * u, SKIN_DARK)
+	draw_circle(face + Vector2(-1, -1.5) * u, 23.6 * u, SKIN)
+	draw_colored_polygon(_ellipse(face + Vector2(-12, 6) * u, 4.5 * u, 3 * u), Color(1, 0.55, 0.5, 0.35))
+	draw_colored_polygon(_ellipse(face + Vector2(12, 6) * u, 4.5 * u, 3 * u), Color(1, 0.55, 0.5, 0.3))
 	# Морщинки на лбу.
 	draw_arc(face + Vector2(0, -2) * u, 12 * u, PI * 1.25, PI * 1.75, 10, SKIN_DARK, 1.5 * u)
 	# Кепка таксиста: купол, околыш в шашечку, козырёк.
@@ -73,6 +83,9 @@ func _draw() -> void:
 		cap_top + Vector2(-20, 7) * u, cap_top + Vector2(20, 7) * u,
 		cap_top + Vector2(14, 11) * u, cap_top + Vector2(-14, 11) * u,
 	]), CAP.darkened(0.3))
+	# Блик на кепке и значок такси.
+	draw_arc(cap_top + Vector2(-4, -2) * u, 18 * u, PI * 1.15, PI * 1.5, 10, Color(1, 1, 1, 0.3), 2.5 * u)
+	_round_rect(Rect2(cap_top + Vector2(-5, -11) * u, Vector2(10, 6) * u), 1.5 * u, BADGE)
 	# Брови — кустистые, седые.
 	draw_line(face + Vector2(-17, -9) * u, face + Vector2(-5, -11) * u, HAIR, 4 * u)
 	draw_line(face + Vector2(5, -11) * u, face + Vector2(17, -9) * u, HAIR, 4 * u)

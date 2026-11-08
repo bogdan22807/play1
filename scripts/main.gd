@@ -4427,6 +4427,8 @@ func _show_page(page: int) -> void:
 		var label: Label = parts[1]
 		var tint: Color = _text_on(COLOR_ACCENT) if active else COLOR_MUTED
 		icon.color = tint
+		# Цветные иконки: выбранная — яркая, остальные чуть приглушены.
+		icon.modulate = Color.WHITE if active else Color(1, 1, 1, 0.72)
 		_col(label, tint)
 
 
